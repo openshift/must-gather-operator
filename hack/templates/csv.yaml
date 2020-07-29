@@ -64,7 +64,6 @@ spec:
   description: |-
     The must gather operator helps collecting must gather information on a cluster and uploading it to a case.
     To use the operator a cluster administrator can create the following must gather CR:
-
     ```yaml
     apiVersion: redhatcop.redhat.io/v1alpha1
     kind: MustGather
@@ -75,11 +74,8 @@ spec:
       caseManagementAccountSecretRef:
         name: case-management-creds
     ```
-
     this request will collect the standard must gather info and upload it to case `#02527285` using the credentials found in the `caseManagementCreds` secret.
-
     A more complex example:
-
     ```yaml
     apiVersion: redhatcop.redhat.io/v1alpha1
     kind: MustGather
@@ -95,7 +91,6 @@ spec:
       - quay.io/kubevirt/must-gather:latest
       - quay.io/ocs-dev/ocs-must-gather
     ```
-
     in this example we are using a specific service account (which must have cluster admin permissions as per must-gather requirements) and we are specifying a couple of additional must gather images to be run for the `kubevirt` and `ocs` subsystem. If not specified serviceAccountRef.Name will default to `default`. Also the standard must gather image: `quay.io/openshift/origin-must-gather:latest` is always added by default.
   displayName: Must Gather Operator
   icon:
@@ -127,115 +122,4 @@ spec:
                       - name: POD_NAME
                         valueFrom:
                           fieldRef:
-                            fieldPath: metadata.name
-                      - name: OPERATOR_NAME
-                        value: must-gather-operator
-                    image: quay.io/redhat-cop/must-gather-operator:v0.1.1
-                    imagePullPolicy: Always
-                    name: must-gather-operator
-                    resources: {}
-                serviceAccountName: must-gather-operator
-      permissions:
-        - rules:
-            - apiGroups:
-                - ""
-              resources:
-                - configmaps
-                - pods
-              verbs:
-                - "*"
-            - apiGroups:
-                - ""
-              resources:
-                - services
-                - services/finalizers
-              verbs:
-                - "*"
-            - apiGroups:
-                - apps
-              resources:
-                - replicasets
-                - deployments
-              verbs:
-                - get
-                - list
-            - apiGroups:
-                - monitoring.coreos.com
-              resources:
-                - servicemonitors
-              verbs:
-                - get
-                - create
-            - apiGroups:
-                - apps
-              resourceNames:
-                - must-gather-operator
-              resources:
-                - deployments/finalizers
-              verbs:
-                - update
-            - apiGroups:
-                - redhatcop.redhat.io
-              resources:
-                - mustgathers
-                - mustgathers/finalizers
-                - mustgathers/status
-              verbs:
-                - "*"
-            - apiGroups:
-                - batch
-              resources:
-                - jobs
-              verbs:
-                - "*"
-            - apiGroups:
-                - ""
-              resources:
-                - events
-              verbs:
-                - "*"
-            - apiGroups:
-                - ""
-              resources:
-                - secrets
-              verbs:
-                - get
-                - list
-                - watch
-            - apiGroups:
-                - config.openshift.io
-              resourceNames:
-                - cluster
-              resources:
-                - proxies
-              verbs:
-                - get
-                - list
-          serviceAccountName: must-gather-operator
-    strategy: deployment
-  installModes:
-    - supported: true
-      type: OwnNamespace
-    - supported: true
-      type: SingleNamespace
-    - supported: false
-      type: MultiNamespace
-    - supported: false
-      type: AllNamespaces
-  keywords:
-    - case_management
-    - support
-    - must_gather
-  links:
-    - name: repository
-      url: https://github.com/redhat-cop/must-gather-operator
-    - name: conatinerImage
-      url: https://quay.io/redhat-cop/must-gather-operator:latest
-  maintainers:
-    - email: rspazzol@redhat.com
-      name: Raffaele Spazzoli
-  maturity: alpha
-  provider:
-    name: Containers & PaaS CoP
-  #replaces: must-gather-operator.v0.1.0
-  version: 0.1.1
+                            fieldPath: metada
