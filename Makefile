@@ -54,6 +54,14 @@ fmt:
 vet:
 	go vet ./pkg/... ./cmd/...
 
+.PHONY: test
+test:
+	go test ./pkg/... ./cmd/...
+
+.PHONY: lint
+lint:
+	golangci-lint run
+
 # Generate code
 generate:
 	go generate ./pkg/... ./cmd/...
