@@ -11,10 +11,10 @@ import (
 
 func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenAPIDefinition {
 	return map[string]common.OpenAPIDefinition{
-		"github.com/redhat-cop/must-gather-operator/pkg/apis/redhatcop/v1alpha1.MustGather":       schema_pkg_apis_redhatcop_v1alpha1_MustGather(ref),
-		"github.com/redhat-cop/must-gather-operator/pkg/apis/redhatcop/v1alpha1.MustGatherSpec":   schema_pkg_apis_redhatcop_v1alpha1_MustGatherSpec(ref),
-		"github.com/redhat-cop/must-gather-operator/pkg/apis/redhatcop/v1alpha1.MustGatherStatus": schema_pkg_apis_redhatcop_v1alpha1_MustGatherStatus(ref),
-		"github.com/redhat-cop/must-gather-operator/pkg/apis/redhatcop/v1alpha1.ProxySpec":        schema_pkg_apis_redhatcop_v1alpha1_ProxySpec(ref),
+		"github.com/openshift/must-gather-operator/pkg/apis/redhatcop/v1alpha1.MustGather":       schema_pkg_apis_redhatcop_v1alpha1_MustGather(ref),
+		"github.com/openshift/must-gather-operator/pkg/apis/redhatcop/v1alpha1.MustGatherSpec":   schema_pkg_apis_redhatcop_v1alpha1_MustGatherSpec(ref),
+		"github.com/openshift/must-gather-operator/pkg/apis/redhatcop/v1alpha1.MustGatherStatus": schema_pkg_apis_redhatcop_v1alpha1_MustGatherStatus(ref),
+		"github.com/openshift/must-gather-operator/pkg/apis/redhatcop/v1alpha1.ProxySpec":        schema_pkg_apis_redhatcop_v1alpha1_ProxySpec(ref),
 	}
 }
 
@@ -46,19 +46,19 @@ func schema_pkg_apis_redhatcop_v1alpha1_MustGather(ref common.ReferenceCallback)
 					},
 					"spec": {
 						SchemaProps: spec.SchemaProps{
-							Ref: ref("github.com/redhat-cop/must-gather-operator/pkg/apis/redhatcop/v1alpha1.MustGatherSpec"),
+							Ref: ref("github.com/openshift/must-gather-operator/pkg/apis/redhatcop/v1alpha1.MustGatherSpec"),
 						},
 					},
 					"status": {
 						SchemaProps: spec.SchemaProps{
-							Ref: ref("github.com/redhat-cop/must-gather-operator/pkg/apis/redhatcop/v1alpha1.MustGatherStatus"),
+							Ref: ref("github.com/openshift/must-gather-operator/pkg/apis/redhatcop/v1alpha1.MustGatherStatus"),
 						},
 					},
 				},
 			},
 		},
 		Dependencies: []string{
-			"github.com/redhat-cop/must-gather-operator/pkg/apis/redhatcop/v1alpha1.MustGatherSpec", "github.com/redhat-cop/must-gather-operator/pkg/apis/redhatcop/v1alpha1.MustGatherStatus", "k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"},
+			"github.com/openshift/must-gather-operator/pkg/apis/redhatcop/v1alpha1.MustGatherSpec", "github.com/openshift/must-gather-operator/pkg/apis/redhatcop/v1alpha1.MustGatherStatus", "k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"},
 	}
 }
 
@@ -110,7 +110,7 @@ func schema_pkg_apis_redhatcop_v1alpha1_MustGatherSpec(ref common.ReferenceCallb
 					"proxyConfig": {
 						SchemaProps: spec.SchemaProps{
 							Description: "This represents the proxy configuration to be used. If left empty it will default to the cluster-level proxy configuration.",
-							Ref:         ref("github.com/redhat-cop/must-gather-operator/pkg/apis/redhatcop/v1alpha1.ProxySpec"),
+							Ref:         ref("github.com/openshift/must-gather-operator/pkg/apis/redhatcop/v1alpha1.ProxySpec"),
 						},
 					},
 				},
@@ -118,7 +118,7 @@ func schema_pkg_apis_redhatcop_v1alpha1_MustGatherSpec(ref common.ReferenceCallb
 			},
 		},
 		Dependencies: []string{
-			"github.com/redhat-cop/must-gather-operator/pkg/apis/redhatcop/v1alpha1.ProxySpec", "k8s.io/api/core/v1.LocalObjectReference"},
+			"github.com/openshift/must-gather-operator/pkg/apis/redhatcop/v1alpha1.ProxySpec", "k8s.io/api/core/v1.LocalObjectReference"},
 	}
 }
 

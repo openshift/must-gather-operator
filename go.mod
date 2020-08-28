@@ -1,4 +1,4 @@
-module github.com/redhat-cop/must-gather-operator
+module github.com/openshift/must-gather-operator
 
 go 1.13
 

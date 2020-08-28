@@ -1,7 +1,7 @@
 package controller
 
 import (
-	"github.com/redhat-cop/must-gather-operator/pkg/controller/mustgather"
+	"github.com/openshift/must-gather-operator/pkg/controller/mustgather"
 )
 
 func init() {

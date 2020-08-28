@@ -1,7 +1,7 @@
 
 # Image URL to use all building/pushing image targets
 REGISTRY ?= quay.io
-REPOSITORY ?= $(REGISTRY)/redhat-cop/must-gather-operator
+REPOSITORY ?= $(REGISTRY)/openshift/must-gather-operator
 
 IMG := $(REPOSITORY):latest
 
@@ -15,14 +15,14 @@ BUILD_HOSTNAME := $(shell ./scripts/build/get-build-hostname.sh)
 
 export GITHUB_PAGES_DIR ?= /tmp/helm/publish
 export GITHUB_PAGES_BRANCH ?= gh-pages
-export GITHUB_PAGES_REPO ?= redhat-cop/must-gather-operator
+export GITHUB_PAGES_REPO ?= openshift/must-gather-operator
 export HELM_CHARTS_SOURCE ?= charts
 export HELM_CHART_DEST ?= $(GITHUB_PAGES_DIR)
 
-LDFLAGS := "-X github.com/redhat-cop/must-gather-operator/version.Version=$(VERSION) \
-	-X github.com/redhat-cop/must-gather-operator/version.Vcs=$(BUILD_COMMIT) \
-	-X github.com/redhat-cop/must-gather-operator/version.Timestamp=$(BUILD_TIMESTAMP) \
-	-X github.com/redhat-cop/must-gather-operator/version.Hostname=$(BUILD_HOSTNAME)"
+LDFLAGS := "-X github.com/openshift/must-gather-operator/version.Version=$(VERSION) \
+	-X github.com/openshift/must-gather-operator/version.Vcs=$(BUILD_COMMIT) \
+	-X github.com/openshift/must-gather-operator/version.Timestamp=$(BUILD_TIMESTAMP) \
+	-X github.com/openshift/must-gather-operator/version.Hostname=$(BUILD_HOSTNAME)"
 
 all: manager
 
@@ -32,11 +32,11 @@ native-test: generate fmt vet
 
 # Build manager binary
 manager: generate fmt vet
-	go build -o build/_output/bin/must-gather-operator  -ldflags $(LDFLAGS) github.com/redhat-cop/must-gather-operator/cmd/manager
+	go build -o build/_output/bin/must-gather-operator  -ldflags $(LDFLAGS) github.com/openshift/must-gather-operator/cmd/manager
 
 # Build manager binary
 manager-osx: generate fmt vet
-	GOOS=darwin go build -o build/_output/bin/must-gather-operator -ldflags $(LDFLAGS) github.com/redhat-cop/must-gather-operator/cmd/manager
+	GOOS=darwin go build -o build/_output/bin/must-gather-operator -ldflags $(LDFLAGS) github.com/openshift/must-gather-operator/cmd/manager
 
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet
@@ -67,19 +67,19 @@ docker-tag-dev:
 	@docker tag $(IMG) $(REPOSITORY):dev
 
 docker-tag-latest:
-	@docker tag $(IMG) $(REPOSITORY):latest	
+	@docker tag $(IMG) $(REPOSITORY):latest
 
 # Tag for Dev
 docker-tag-release:
 	@docker tag $(IMG) $(REPOSITORY):$(VERSION)
-#	@docker tag $(IMG) $(REPOSITORY):latest	
+#	@docker tag $(IMG) $(REPOSITORY):latest
 
 # Push for Dev
 docker-push-dev:  docker-tag-dev
 	@docker push $(REPOSITORY):dev
 
 docker-push-latest:  docker-tag-latest
-	@docker push $(REPOSITORY):latest	
+	@docker push $(REPOSITORY):latest
 
 # Push for Release
 docker-push-release:  docker-tag-release
@@ -95,9 +95,9 @@ docker-push:
 	docker push ${IMG}
 
 publish-chart-repo:
-	./scripts/build/checkout-rebase-pages.sh 
-	./scripts/build/build-chart-repo.sh 
-	./scripts/build/push-to-pages.sh 
+	./scripts/build/checkout-rebase-pages.sh
+	./scripts/build/build-chart-repo.sh
+	./scripts/build/push-to-pages.sh
 
 # Travis Latest Tag Deployment
 travis-latest-deploy: docker-login docker-build docker-push-latest

@@ -11,9 +11,9 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 
-	"github.com/redhat-cop/must-gather-operator/pkg/apis"
-	"github.com/redhat-cop/must-gather-operator/pkg/controller"
-	"github.com/redhat-cop/must-gather-operator/version"
+	"github.com/openshift/must-gather-operator/pkg/apis"
+	"github.com/openshift/must-gather-operator/pkg/controller"
+	"github.com/openshift/must-gather-operator/version"
 
 	"github.com/operator-framework/operator-sdk/pkg/k8sutil"
 	kubemetrics "github.com/operator-framework/operator-sdk/pkg/kube-metrics"

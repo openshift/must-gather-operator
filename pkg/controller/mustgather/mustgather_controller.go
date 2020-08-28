@@ -10,7 +10,7 @@ import (
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
-	redhatcopv1alpha1 "github.com/redhat-cop/must-gather-operator/pkg/apis/redhatcop/v1alpha1"
+	redhatcopv1alpha1 "github.com/openshift/must-gather-operator/pkg/apis/redhatcop/v1alpha1"
 	"github.com/redhat-cop/operator-utils/pkg/util"
 	"github.com/scylladb/go-set/strset"
 	batchv1 "k8s.io/api/batch/v1"
