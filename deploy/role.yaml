@@ -47,7 +47,7 @@ rules:
       - "update"
   # operator busienss logic
   - apiGroups:
-      - redhatcop.redhat.io
+      - managed.openshift.io
     resources:
       - "mustgathers"
       - mustgathers/finalizers
