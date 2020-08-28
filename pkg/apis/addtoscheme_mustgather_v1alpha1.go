@@ -1,7 +1,7 @@
 package apis
 
 import (
-	"github.com/redhat-cop/must-gather-operator/pkg/apis/redhatcop/v1alpha1"
+	"github.com/openshift/must-gather-operator/pkg/apis/mustgather/v1alpha1"
 )
 
 func init() {

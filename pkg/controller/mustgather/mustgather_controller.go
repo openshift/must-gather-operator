@@ -10,7 +10,7 @@ import (
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
-	redhatcopv1alpha1 "github.com/redhat-cop/must-gather-operator/pkg/apis/redhatcop/v1alpha1"
+	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/pkg/apis/mustgather/v1alpha1"
 	"github.com/redhat-cop/operator-utils/pkg/util"
 	"github.com/scylladb/go-set/strset"
 	batchv1 "k8s.io/api/batch/v1"
@@ -89,7 +89,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	}
 
 	// Watch for changes to primary resource MustGather
-	err = c.Watch(&source.Kind{Type: &redhatcopv1alpha1.MustGather{}}, &handler.EnqueueRequestForObject{}, util.ResourceGenerationOrFinalizerChangedPredicate{})
+	err = c.Watch(&source.Kind{Type: &mustgatherv1alpha1.MustGather{}}, &handler.EnqueueRequestForObject{}, util.ResourceGenerationOrFinalizerChangedPredicate{})
 	if err != nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	// Watch for changes to secondary resource Pods and requeue the owner MustGather
 	err = c.Watch(&source.Kind{Type: &batchv1.Job{}}, &handler.EnqueueRequestForOwner{
 		IsController: true,
-		OwnerType:    &redhatcopv1alpha1.MustGather{},
+		OwnerType:    &mustgatherv1alpha1.MustGather{},
 	}, isStateUpdated)
 	if err != nil {
 		return err
@@ -170,7 +170,7 @@ func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Re
 	reqLogger.Info("Reconciling MustGather")
 
 	// Fetch the MustGather instance
-	instance := &redhatcopv1alpha1.MustGather{}
+	instance := &mustgatherv1alpha1.MustGather{}
 	err := r.GetClient().Get(context.TODO(), request.NamespacedName, instance)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -240,12 +240,12 @@ func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Re
 	return r.updateStatus(instance, job1)
 }
 
-func (r *ReconcileMustGather) updateStatus(instance *redhatcopv1alpha1.MustGather, job *batchv1.Job) (reconcile.Result, error) {
+func (r *ReconcileMustGather) updateStatus(instance *mustgatherv1alpha1.MustGather, job *batchv1.Job) (reconcile.Result, error) {
 	instance.Status.Completed = !job.Status.CompletionTime.IsZero()
 	return r.ManageSuccess(instance)
 }
 
-func (r *ReconcileMustGather) IsInitialized(instance *redhatcopv1alpha1.MustGather) bool {
+func (r *ReconcileMustGather) IsInitialized(instance *mustgatherv1alpha1.MustGather) bool {
 	initialized := true
 	imageSet := strset.New(instance.Spec.MustGatherImages...)
 	if !imageSet.Has(defaultMustGatherImage) {
@@ -263,7 +263,7 @@ func (r *ReconcileMustGather) IsInitialized(instance *redhatcopv1alpha1.MustGath
 		if err != nil {
 			log.Error(err, "unable to find cluster proxy configuration")
 		} else {
-			instance.Spec.ProxyConfig = redhatcopv1alpha1.ProxySpec{
+			instance.Spec.ProxyConfig = mustgatherv1alpha1.ProxySpec{
 				HTTPProxy:  platformProxy.Spec.HTTPProxy,
 				HTTPSProxy: platformProxy.Spec.HTTPSProxy,
 				NoProxy:    platformProxy.Spec.NoProxy,
@@ -274,7 +274,7 @@ func (r *ReconcileMustGather) IsInitialized(instance *redhatcopv1alpha1.MustGath
 	return initialized
 }
 
-func (r *ReconcileMustGather) getJobFromInstance(instance *redhatcopv1alpha1.MustGather) (*unstructured.Unstructured, error) {
+func (r *ReconcileMustGather) getJobFromInstance(instance *mustgatherv1alpha1.MustGather) (*unstructured.Unstructured, error) {
 	unstructuredJob, err := util.ProcessTemplate(instance, jobTemplate)
 	if err != nil {
 		log.Error(err, "unable to process", "template", jobTemplate, "with parameter", instance)
