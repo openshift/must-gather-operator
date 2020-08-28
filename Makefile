@@ -54,13 +54,17 @@ fmt:
 vet:
 	go vet ./pkg/... ./cmd/...
 
-.PHONY: test
-test:
-	go test ./pkg/... ./cmd/...
-
 .PHONY: lint
 lint:
 	golangci-lint run
+
+.PHONY: build
+build:
+	go build -o build/_output/bin/must-gather-operator  -ldflags $(LDFLAGS) github.com/openshift/must-gather-operator/cmd/manager
+
+.PHONY: test
+test:
+	go test ./pkg/... ./cmd/...
 
 # Generate code
 generate:
