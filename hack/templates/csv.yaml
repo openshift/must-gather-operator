@@ -1,0 +1,46 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  name: must-gather-operator-0.0.1
+  namespace: must-gather-operator
+  annotations:
+    categories: A list of comma separated categories that your operator falls under.
+    certified: "false"
+    description: Operator to enable CEE to collect must-gathers from OSDv4 clusters. 
+    containerImage: quay.io/app-sre/must-gather-operator:latest
+    createdAt: "2020-02-05T16:12:36Z"
+    support: Red Hat
+spec:
+  displayName: must-gather-operator
+  description: Operator to enable CEE to collect must-gathers from OSDv4 clusters.
+  keywords:
+  - kubernetes
+  - openshift
+  - multi-cluster
+  - cluster
+  - must-gather
+  version: 0.0.1
+  provider:
+    name: Red Hat, Inc
+  maturity: alpha
+  installModes:
+  - type: OwnNamespace
+    supported: true
+  - type: SingleNamespace
+    supported: true
+  - type: MultiNamespace
+    supported: false
+  - type: AllNamespaces
+    supported: false
+  install:
+    strategy: deployment
+    spec:
+      clusterPermissions:
+      - serviceAccountName: must-gather-operator
+        # Rules will be added here by the generate-operator-bundle.py script.
+      deployments:
+      - name: must-gather-operator
+        # Deployment spec will be added here by the generate-operator-bundle.py script.
+  customresourcedefinitions:
+    owned:
+    # CRD's will be added here by the generate-operator-bundle.py
