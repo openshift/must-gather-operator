@@ -14,7 +14,6 @@ spec:
         - -c
         - /usr/local/bin/upload
         image: quay.io/app-sre/must-gather-operator:latest
-        #image: quay.io/cshereme/must-gather-operator:latest
         name: upload
         volumeMounts:
         - mountPath: /must-gather
