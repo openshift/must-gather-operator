@@ -16,7 +16,7 @@ CONTAINER_ENGINE?=docker
 
 .PHONY: lint
 lint:
-	golangci-lint run
+	golangci-lint run --disable-all -E errcheck
 
 # Build the docker image
 .PHONY: container-build
