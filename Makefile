@@ -4,19 +4,19 @@ SHELL := /usr/bin/env bash
 REGISTRY ?= quay.io
 REPOSITORY ?= $(REGISTRY)/openshift/must-gather-operator
 
-# Include shared Makefiles
-include project.mk
-include standard.mk
-include functions.mk
+# Boilerplate Makefile includes
+include boilerplate/generated-includes.mk
 
-default: generate-syncset gobuild
+# Include shared Makefiles
+# TODO: Remove once boilerplate supports generating OLM bundles
+include functions.mk
 
 # Extend Makefile after here
 CONTAINER_ENGINE?=docker
 
 .PHONY: lint
 lint:
-	golangci-lint run
+	golangci-lint run --disable-all -E errcheck
 
 # Build the docker image
 .PHONY: container-build
@@ -27,11 +27,6 @@ container-build:
 container-push:
 	$(MAKE) push
 
-.PHONY: operator-sdk-generate
-operator-sdk-generate:
-	operator-sdk generate crds
-	operator-sdk generate k8s
-
 .PHONY: generate-syncset
 generate-syncset:
 	if [ "${IN_CONTAINER}" == "true" ]; then \
@@ -39,3 +34,7 @@ generate-syncset:
 	else \
 		${GEN_SYNCSET}; \
 	fi
+
+.PHONY: update-boilerplate
+update-boilerplate:
+	@boilerplate/update
