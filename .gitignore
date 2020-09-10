@@ -73,7 +73,9 @@ Session.vim
 tags
 ### VisualStudioCode ###
 .vscode/*
+*.code-workspace
 .history
 # End of https://www.gitignore.io/api/go,vim,emacs,visualstudiocode
 mustgather-example.yaml
+.venv/*
 vendor/
