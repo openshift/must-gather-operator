@@ -39,24 +39,11 @@ ALLOW_DIRTY_CHECKOUT?=false
 
 default: gobuild
 
+# TODO: Remove clean target once boilerplate supports cleaning bundles
 .PHONY: clean
 clean:
 	rm -rf ./build/_output
 	rm -rf bundles-staging/ bundles-production/ saas-*-bundle/
-
-.PHONY: isclean
-isclean:
-	@(test "$(ALLOW_DIRTY_CHECKOUT)" != "false" || test 0 -eq $$(git status --porcelain | wc -l)) || (echo "Local git checkout is not clean, commit changes and try again." >&2 && exit 1)
-
-.PHONY: build
-build: isclean envtest
-	$(CONTAINER_ENGINE) build . -f $(OPERATOR_DOCKERFILE) -t $(OPERATOR_IMAGE_URI)
-	$(CONTAINER_ENGINE) tag $(OPERATOR_IMAGE_URI) $(OPERATOR_IMAGE_URI_LATEST)
-
-.PHONY: push
-push:
-	$(CONTAINER_ENGINE) push $(OPERATOR_IMAGE_URI)
-	$(CONTAINER_ENGINE) push $(OPERATOR_IMAGE_URI_LATEST)
 
 .PHONY: skopeo-push
 skopeo-push: container-build
@@ -74,22 +61,10 @@ build-catalog-image:
 	$(call create_push_catalog_image,staging,service/saas-$(OPERATOR_NAME)-bundle,$$APP_SRE_BOT_PUSH_TOKEN,false,service/saas-osd-operators,$(OPERATOR_NAME)-services/$(OPERATOR_NAME).yaml,hack/generate-operator-bundle.py,$(CATALOG_REGISTRY_ORGANIZATION))
 	$(call create_push_catalog_image,production,service/saas-$(OPERATOR_NAME)-bundle,$$APP_SRE_BOT_PUSH_TOKEN,true,service/saas-osd-operators,$(OPERATOR_NAME)-services/$(OPERATOR_NAME).yaml,hack/generate-operator-bundle.py,$(CATALOG_REGISTRY_ORGANIZATION))
 
-.PHONY: gocheck
-gocheck: ## Lint code
+.PHONY: gocheck-old
+gocheck-old: ## Lint code
 	gofmt -s -l . | grep ".*\.go"; if [ "$$?" = "0" ]; then gofmt -s -d .; exit 1; fi
 	go vet ./cmd/... ./pkg/...
-
-.PHONY: gobuild
-gobuild: gocheck gotest ## Build binary
-	$(GOENV) go build $(GOBUILDFLAGS) -o $(BINFILE) $(MAINPACKAGE)
-
-.PHONY: gotest
-gotest:
-	go test $(TESTOPTS) ./...
-
-.PHONY: coverage
-coverage:
-	hack/codecov.sh
 
 .PHONY: envtest
 envtest: isclean
