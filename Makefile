@@ -4,7 +4,12 @@ SHELL := /usr/bin/env bash
 REGISTRY ?= quay.io
 REPOSITORY ?= $(REGISTRY)/openshift/must-gather-operator
 
+# Include boilerplate Makefiles (https://github.com/openshift/boilerplate)
+include boilerplate/generated-includes.mk
+
 # Include shared Makefiles
+# TODO: Remove redundant Makefiles once boilerplate supports thier functions
+# Note: Order matters here, to override targets from boilerplate until supported.
 include project.mk
 include standard.mk
 include functions.mk
@@ -23,14 +28,13 @@ lint:
 container-build:
 	$(MAKE) build
 
+# Push the docker image
 .PHONY: container-push
 container-push:
 	$(MAKE) push
 
 .PHONY: operator-sdk-generate
-operator-sdk-generate:
-	operator-sdk generate crds
-	operator-sdk generate k8s
+operator-sdk-generate: opgenerate
 
 .PHONY: generate-syncset
 generate-syncset:
@@ -39,3 +43,8 @@ generate-syncset:
 	else \
 		${GEN_SYNCSET}; \
 	fi
+
+# boilerplate updater
+.PHONY: update-boilerplate
+update-boilerplate:
+	@boilerplate/update
