@@ -1,9 +1,3 @@
-SHELL := /usr/bin/env bash
-
-# Image URL to use all building/pushing image targets
-REGISTRY ?= quay.io
-REPOSITORY ?= $(REGISTRY)/openshift/must-gather-operator
-
 # Include boilerplate Makefiles (https://github.com/openshift/boilerplate)
 include boilerplate/generated-includes.mk
 
@@ -14,27 +8,9 @@ include project.mk
 include standard.mk
 include functions.mk
 
-default: generate-syncset gobuild
-
 # Extend Makefile after here
-CONTAINER_ENGINE?=docker
 
-.PHONY: lint
-lint:
-	golangci-lint run --disable-all -E errcheck
-
-# Build the docker image
-.PHONY: container-build
-container-build:
-	$(MAKE) build
-
-# Push the docker image
-.PHONY: container-push
-container-push:
-	$(MAKE) push
-
-.PHONY: operator-sdk-generate
-operator-sdk-generate: opgenerate
+default: generate-syncset gobuild
 
 .PHONY: generate-syncset
 generate-syncset:
