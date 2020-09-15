@@ -1,10 +1,9 @@
-approvers:
-- c-e-brumm
-- jharrington22
-- rogbas
-- jewzaam
-- mwoodson
-- lisa
-- cblecker
-- csheremeta
+reviewers:
+- 2uasimojo
 - dustman9000
+- csheremeta
+approvers:
+- dustman9000
+- csheremeta
+maintainer:
+- csheremeta
