@@ -77,11 +77,9 @@ oc -n must-gather-operator apply -f deploy
 
 ### Meeting the operator requirements
 
-In order to run, the operator needs a secret and a service account to be created by the admin as follows (this assumes the operator is running in the `must-gather-operator` namespace).
+In order to run, the operator needs a secret to be created by the admin as follows (this assumes the operator is running in the `must-gather-operator` namespace).
 
 ```shell
-oc create sa must-gather-admin -n must-gather-operator
-oc adm policy add-cluster-role-to-user cluster-admin -z must-gather-admin -n must-gather-operator
 oc create secret generic case-management-creds --from-literal=username=<username> --from-literal=password=<password>
 ```
 

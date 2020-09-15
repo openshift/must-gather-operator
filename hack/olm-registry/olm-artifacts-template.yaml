@@ -47,6 +47,18 @@ objects:
         name: must-gather-operator
         namespace: openshift-must-gather-operator
         apiGroup: rbac.authorization.k8s.io
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: must-gather-admin
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: cluster-admin
+      subjects:
+      - kind: ServiceAccount
+        name: must-gather-admin
+        namespace: openshift-must-gather-operator
 - apiVersion: hive.openshift.io/v1
   kind: SelectorSyncSet
   metadata:
@@ -82,13 +94,13 @@ objects:
               apiVersion:
                 description: 'APIVersion defines the versioned schema of this representation
                   of an object. Servers should convert recognized schemas to the latest
-                  internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#resources'
+                  internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
                 type: string
               kind:
                 description: 'Kind is a string value representing the REST resource
                   this object represents. Servers may infer this from the endpoint
                   the client submits requests to. Cannot be updated. In CamelCase.
-                  More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#types-kinds'
+                  More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
                 type: string
               metadata:
                 type: object
@@ -170,9 +182,3 @@ objects:
         - name: v1alpha1
           served: true
           storage: true
-    - apiVersion: managed.openshift.io/v1alpha1
-      kind: MustGather
-      metadata:
-        name: example-mustgather
-      spec:
-        size: 3

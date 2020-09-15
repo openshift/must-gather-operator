@@ -2,7 +2,7 @@ apiVersion: operators.coreos.com/v1alpha1
 kind: ClusterServiceVersion
 metadata:
   name: must-gather-operator-0.0.1
-  namespace: must-gather-operator
+  namespace: openshift-must-gather-operator
   annotations:
     categories: A list of comma separated categories that your operator falls under.
     certified: "false"
