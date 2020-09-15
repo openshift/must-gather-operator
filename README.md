@@ -1,15 +1,13 @@
 # Must Gather Operator
 
-[![Build Status](https://travis-ci.org/redhat-cop/must-gather-operator.svg?branch=master)](https://travis-ci.org/redhat-cop/must-gather-operator) [![Docker Repository on Quay](https://quay.io/repository/redhat-cop/must-gather-operator/status "Docker Repository on Quay")](https://quay.io/repository/redhat-cop/must-gather-operator)
-
 The Must Gather operator helps collecting must-gather information on a cluster and uploading it to a case.
 To use the operator, a cluster administrator can create the following MustGather CR:
 
 ```yaml
-apiVersion: redhatcop.redhat.io/v1alpha1
+apiVersion: managed.openshift.io/v1alpha1
 kind: MustGather
 metadata:
-  name: example-mustgather
+  name: example-mustgather-basic
 spec:
   caseID: '02527285'
   caseManagementAccountSecretRef:
@@ -21,10 +19,10 @@ This request will collect the standard must-gather info and upload it to case `#
 A more complex example:
 
 ```yaml
-apiVersion: redhatcop.redhat.io/v1alpha1
+apiVersion: managed.openshift.io/v1alpha1
 kind: MustGather
 metadata:
-  name: full-mustgather
+  name: example-mustgather-full
 spec:
   caseID: '02527285'
   caseManagementAccountSecretRef:
@@ -43,10 +41,10 @@ In this example we are using a specific service account (which must have cluster
 The Must Gather operator supports using a proxy. The proxy setting can be specified in the MustGather object. If not specified, the cluster default proxy setting will be used. Here is an example:
 
 ```yaml
-apiVersion: redhatcop.redhat.io/v1alpha1
+apiVersion: managed.openshift.io/v1alpha1
 kind: MustGather
 metadata:
-  name: example-mustgather
+  name: example-mustgather-proxy
 spec:
   caseID: '02527285'
   caseManagementAccountSecretRef:
@@ -54,7 +52,7 @@ spec:
   proxyConfig:
     http_proxy: http://myproxy
     https_proxy: https://my_http_proxy
-    no_proxy: master-api  
+    no_proxy: master-api
 ```
 
 ## Garbage collection
@@ -66,32 +64,13 @@ This is a way to prevent the accumulation of unwanted MustGather resources and t
 
 This is a cluster-level operator that you can deploy in any namespace; `must-gather-operator` is recommended.
 
-You can either deploy it using [`Helm`](https://helm.sh/) or creating the manifests directly.
-
-### Deploying with Helm
-
-Here are the instructions to install the latest release with Helm.
-
-```shell
-oc new-project must-gather-operator
-
-helm repo add must-gather-operator https://redhat-cop.github.io/must-gather-operator
-helm repo update
-export must_gather_operator_chart_version=$(helm search must-gather-operator/must-gather-operator | grep must-gather-operator/must-gather-operator | awk '{print $2}')
-
-helm fetch must-gather-operator/must-gather-operator --version ${must_gather_operator_chart_version}
-helm template must-gather-operator-${must_gather_operator_chart_version}.tgz --namespace must-gather-operator | oc apply -f - -n must-gather-operator
-
-rm must-gather-operator-${must_gather_operator_chart_version}.tgz
-```
-
 ### Deploying directly with manifests
 
 Here are the instructions to install the latest release creating the manifest directly in OCP.
 
 ```shell
-git clone git@github.com:redhat-cop/must-gather-operator.git; cd must-gather-operator
-oc apply -f deploy/crds/redhatcop.redhat.io_mustgathers_crd.yaml
+git clone git@github.com:openshift/must-gather-operator.git; cd must-gather-operator
+oc apply -f deploy/crds/managed.openshift.io_mustgathers_crd.yaml
 oc new-project must-gather-operator
 oc -n must-gather-operator apply -f deploy
 ```
@@ -114,29 +93,12 @@ Execute the following steps to develop the functionality locally. It is recommen
 go mod download
 ```
 
-optionally:
-
-```shell
-go mod vendor
-```
-
 Using the [operator-sdk](https://github.com/operator-framework/operator-sdk), run the operator locally:
 
 ```shell
-oc apply -f deploy/crds/redhatcop.redhat.io_mustgathers_crd.yaml
+oc apply -f deploy/crds/managed.openshift.io_mustgathers_crd.yaml
 oc new-project must-gather-operator
 export DEFAULT_MUST_GATHER_IMAGE='quay.io/openshift/origin-must-gather:4.2'
 export JOB_TEMPLATE_FILE_NAME=./build/templates/job.template.yaml
-OPERATOR_NAME='must-gather-operator' operator-sdk --verbose up local --namespace "must-gather-operator"
+OPERATOR_NAME=must-gather-operator operator-sdk run --verbose --local --namespace "must-gather-operator"
 ```
-
-## Release Process
-
-To release execute the following:
-
-```shell
-git tag -a "<version>" -m "release <version>"
-git push upstream <version>
-```
-
-Use this version format: vM.m.z

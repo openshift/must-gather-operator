@@ -3,5 +3,6 @@ kind: MustGather
 metadata:
   name: example-mustgather
 spec:
-  # Add fields here
-  size: 3
+  caseID: '02527285'
+  caseManagementAccountSecretRef:
+    name: case-management-creds
