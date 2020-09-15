@@ -1,0 +1,12 @@
+apiVersion: managed.openshift.io/v1alpha1
+kind: MustGather
+metadata:
+  name: example-mustgather-proxy
+spec:
+  caseID: '02527285'
+  caseManagementAccountSecretRef:
+    name: case-management-creds
+  proxyConfig:
+    http_proxy: http://myproxy
+    https_proxy: https://my_http_proxy
+    no_proxy: master-api

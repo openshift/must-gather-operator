@@ -1,0 +1,13 @@
+apiVersion: managed.openshift.io/v1alpha1
+kind: MustGather
+metadata:
+  name: full-mustgather
+spec:
+  caseID: '02527285'
+  caseManagementAccountSecretRef:
+    name: case-management-creds
+  serviceAccountRef:
+    name: must-gather-admin
+  mustGatherImages:
+  - quay.io/kubevirt/must-gather:latest
+  - quay.io/ocs-dev/ocs-must-gather
