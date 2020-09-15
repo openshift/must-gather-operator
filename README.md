@@ -69,7 +69,7 @@ This is a cluster-level operator that you can deploy in any namespace; `must-gat
 Here are the instructions to install the latest release creating the manifest directly in OCP.
 
 ```shell
-git clone git@github.com:redhat-cop/must-gather-operator.git; cd must-gather-operator
+git clone git@github.com:openshift/must-gather-operator.git; cd must-gather-operator
 oc apply -f deploy/crds/managed.openshift.io_mustgathers_crd.yaml
 oc new-project must-gather-operator
 oc -n must-gather-operator apply -f deploy
