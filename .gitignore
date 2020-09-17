@@ -71,6 +71,8 @@ Session.vim
 .netrwhist
 # auto-generated tag files
 tags
+# previous version saves
+*.orig
 ### VisualStudioCode ###
 .vscode/*
 .history
@@ -79,3 +81,5 @@ mustgather-example.yaml
 vendor/
 .venv/*
 *.code-workspace
+# (Link to) operator-sdk binary from `make op-generate`
+.operator-sdk/*

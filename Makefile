@@ -14,13 +14,21 @@ update-boilerplate:
 
 TESTOPTS := -timeout 1m
 
-default: generate-syncset gobuild
+default: generate-syncset go-build
 
 # TODO: Remove clean target once boilerplate supports cleaning bundles
 .PHONY: clean
 clean:
 	rm -rf ./build/_output
 	rm -rf bundles-staging/ bundles-production/ saas-*-bundle/
+
+# TODO: Temporary until prow config is fixed
+.PHONY: gobuild
+gobuild: go-build
+
+# TODO: Temporary until prow config is fixed
+.PHONY: gocheck
+gobuild: go-check
 
 IN_CONTAINER?=false
 SELECTOR_SYNC_SET_TEMPLATE_DIR?=hack/templates/
