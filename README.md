@@ -98,5 +98,5 @@ oc apply -f deploy/crds/managed.openshift.io_mustgathers_crd.yaml
 oc new-project must-gather-operator
 export DEFAULT_MUST_GATHER_IMAGE='quay.io/openshift/origin-must-gather:4.2'
 export JOB_TEMPLATE_FILE_NAME=./build/templates/job.template.yaml
-OPERATOR_NAME=must-gather-operator operator-sdk run --verbose --local --namespace "must-gather-operator"
+OPERATOR_NAME=must-gather-operator operator-sdk run --verbose --local --namespace ''
 ```

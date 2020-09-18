@@ -27,38 +27,103 @@ objects:
         api.openshift.com/managed: 'true'
     resourceApplyMode: Sync
     resources:
-    - kind: Namespace
-      apiVersion: v1
+    - apiVersion: v1
+      kind: Namespace
       metadata:
         name: openshift-must-gather-operator
         labels:
           openshift.io/cluster-monitoring: 'true'
-    - kind: RoleBinding
+    - kind: ClusterRole
       apiVersion: rbac.authorization.k8s.io/v1
       metadata:
         name: must-gather-operator
-        namespace: openshift-must-gather-operator
-      subjects:
-      - kind: ServiceAccount
-        name: must-gather-operator
-        namespace: openshift-must-gather-operator
-      roleRef:
-        kind: Role
-        name: must-gather-operator
-        namespace: openshift-must-gather-operator
-        apiGroup: rbac.authorization.k8s.io
+      rules:
+      - apiGroups:
+        - ''
+        resources:
+        - configmaps
+        - pods
+        verbs:
+        - '*'
+      - apiGroups:
+        - ''
+        resources:
+        - services
+        - services/finalizers
+        verbs:
+        - '*'
+      - apiGroups:
+        - apps
+        resources:
+        - replicasets
+        - deployments
+        verbs:
+        - get
+        - list
+      - apiGroups:
+        - monitoring.coreos.com
+        resources:
+        - servicemonitors
+        verbs:
+        - get
+        - create
+      - apiGroups:
+        - apps
+        resources:
+        - deployments/finalizers
+        resourceNames:
+        - must-gather-operator
+        verbs:
+        - update
+      - apiGroups:
+        - managed.openshift.io
+        resources:
+        - mustgathers
+        - mustgathers/finalizers
+        - mustgathers/status
+        verbs:
+        - '*'
+      - apiGroups:
+        - batch
+        resources:
+        - jobs
+        verbs:
+        - '*'
+      - apiGroups:
+        - ''
+        resources:
+        - events
+        verbs:
+        - '*'
+      - apiGroups:
+        - ''
+        resources:
+        - secrets
+        verbs:
+        - get
+        - list
+        - watch
+      - apiGroups:
+        - config.openshift.io
+        resources:
+        - proxies
+        verbs:
+        - get
+        - list
+        resourceNames:
+        - cluster
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: ClusterRoleBinding
       metadata:
-        name: must-gather-admin
-      roleRef:
-        apiGroup: rbac.authorization.k8s.io
-        kind: ClusterRole
-        name: cluster-admin
+        name: must-gather-operator
       subjects:
       - kind: ServiceAccount
-        name: must-gather-admin
+        name: must-gather-operator
         namespace: openshift-must-gather-operator
+      roleRef:
+        kind: ClusterRole
+        name: must-gather-operator
+        apiGroup: rbac.authorization.k8s.io
 - apiVersion: hive.openshift.io/v1
   kind: SelectorSyncSet
   metadata:
