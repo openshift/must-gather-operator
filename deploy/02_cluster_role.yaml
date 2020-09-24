@@ -11,7 +11,7 @@ rules:
       - pods
     verbs:
       - "*"
-  #Metrics
+  # services/finalizers
   - apiGroups:
       - ""
     resources:
@@ -19,7 +19,7 @@ rules:
       - services/finalizers
     verbs:
       - "*"
-  #Metrics
+  # replicasets/deployments
   - apiGroups:
       - "apps"
     resources:
@@ -28,15 +28,14 @@ rules:
     verbs:
       - "get"
       - "list"
-  # Metrics
+  # metrics
   - apiGroups:
       - monitoring.coreos.com
     resources:
       - servicemonitors
     verbs:
-      - "get"
-      - "create"
-  # Metrics
+      - "*"
+  # finalizer
   - apiGroups:
       - apps
     resources:
@@ -45,7 +44,7 @@ rules:
       - must-gather-operator
     verbs:
       - "update"
-  # operator busienss logic
+  # operator business logic
   - apiGroups:
       - managed.openshift.io
     resources:
@@ -83,3 +82,13 @@ rules:
       - list
     resourceNames:
       - cluster
+  - apiGroups:
+      - ""
+    resources:
+      - services
+      - endpoints
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
