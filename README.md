@@ -12,6 +12,8 @@ spec:
   caseID: '02527285'
   caseManagementAccountSecretRef:
     name: case-management-creds
+  serviceAccountRef:
+    name: must-gather-admin
 ```
 
 This request will collect the standard must-gather info and upload it to case `#02527285` using the credentials found in the `caseManagementCreds` secret.
@@ -49,6 +51,8 @@ spec:
   caseID: '02527285'
   caseManagementAccountSecretRef:
     name: case-management-creds
+  serviceAccountRef:
+    name: must-gather-admin
   proxyConfig:
     http_proxy: http://myproxy
     https_proxy: https://my_http_proxy
@@ -96,7 +100,7 @@ Using the [operator-sdk](https://github.com/operator-framework/operator-sdk), ru
 ```shell
 oc apply -f deploy/crds/managed.openshift.io_mustgathers_crd.yaml
 oc new-project must-gather-operator
-export DEFAULT_MUST_GATHER_IMAGE='quay.io/openshift/origin-must-gather:4.2'
+export DEFAULT_MUST_GATHER_IMAGE='quay.io/openshift/origin-must-gather:latest'
 export JOB_TEMPLATE_FILE_NAME=./build/templates/job.template.yaml
 OPERATOR_NAME=must-gather-operator operator-sdk run --verbose --local --namespace ''
 ```
