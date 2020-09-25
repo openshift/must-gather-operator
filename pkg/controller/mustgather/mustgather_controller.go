@@ -11,6 +11,7 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/pkg/apis/mustgather/v1alpha1"
+	"github.com/openshift/must-gather-operator/pkg/localmetrics"
 	"github.com/redhat-cop/operator-utils/pkg/util"
 	"github.com/scylladb/go-set/strset"
 	batchv1 "k8s.io/api/batch/v1"
@@ -196,7 +197,7 @@ func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Re
 		return reconcile.Result{}, nil
 	}
 
-	//if job is complete and onject has been created more than 6 hrs ago delete instance
+	//if job is complete and object has been created more than 6 hrs ago delete instance
 	if instance.Status.Completed && time.Since(instance.CreationTimestamp.Time).Milliseconds() > garbageCollectionDuration.Milliseconds() {
 		err := r.DeleteResource(instance)
 		return reconcile.Result{}, err
@@ -218,11 +219,12 @@ func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Re
 		if errors.IsNotFound(err) {
 			// job is not there, create it.
 			err = r.CreateResourceIfNotExists(instance, instance.GetNamespace(), job)
-			//err = r.GetClient().Create(context.TODO(), job, &client.CreateOptions{})
 			if err != nil {
 				log.Error(err, "unable to create", "job", job)
 				return r.ManageError(instance, err)
 			}
+			// Increment prometheus metrics for must gather total
+			localmetrics.MetricMustGatherTotal.Inc()
 			return r.ManageSuccess(instance)
 		}
 		// Error reading the object - requeue the request.
@@ -231,6 +233,20 @@ func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Re
 			Namespace: job.GetNamespace(),
 		})
 		return r.ManageError(instance, err)
+	}
+
+	// Check status of job and update any metric counts
+	if job1.Status.Active > 0 {
+		reqLogger.Info("MustGather Job pods are still running")
+	} else {
+		if job1.Status.Succeeded > 0 {
+			reqLogger.Info("MustGather Job pods succeeded")
+		}
+		if job1.Status.Failed > 0 {
+			reqLogger.Info("MustGather Job pods failed")
+			// Increment prometheus metrics for must gather errors
+			localmetrics.MetricMustGatherErrors.Inc()
+		}
 	}
 
 	// if we get here it means that either
@@ -242,6 +258,7 @@ func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Re
 
 func (r *ReconcileMustGather) updateStatus(instance *mustgatherv1alpha1.MustGather, job *batchv1.Job) (reconcile.Result, error) {
 	instance.Status.Completed = !job.Status.CompletionTime.IsZero()
+
 	return r.ManageSuccess(instance)
 }
 
