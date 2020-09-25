@@ -6,3 +6,5 @@ spec:
   caseID: '02527285'
   caseManagementAccountSecretRef:
     name: case-management-creds
+  serviceAccountRef:
+    name: must-gather-admin

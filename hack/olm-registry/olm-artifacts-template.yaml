@@ -65,8 +65,7 @@ objects:
         resources:
         - servicemonitors
         verbs:
-        - get
-        - create
+        - '*'
       - apiGroups:
         - apps
         resources:
@@ -112,6 +111,16 @@ objects:
         - list
         resourceNames:
         - cluster
+      - apiGroups:
+        - ''
+        resources:
+        - services
+        - endpoints
+        - pods
+        verbs:
+        - get
+        - list
+        - watch
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: ClusterRoleBinding
       metadata:
@@ -124,6 +133,46 @@ objects:
         kind: ClusterRole
         name: must-gather-operator
         apiGroup: rbac.authorization.k8s.io
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: must-gather-admin
+      roleRef:
+        kind: ClusterRole
+        name: cluster-admin
+        apiGroup: rbac.authorization.k8s.io
+      subjects:
+      - kind: ServiceAccount
+        name: must-gather-admin
+        namespace: openshift-must-gather-operator
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: prometheus-k8s
+        namespace: openshift-must-gather-operator
+      rules:
+      - apiGroups:
+        - ''
+        resources:
+        - services
+        - endpoints
+        - pods
+        verbs:
+        - get
+        - list
+        - watch
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: prometheus-k8s
+        namespace: openshift-must-gather-operator
+      roleRef:
+        kind: Role
+        name: prometheus-k8s
+      subjects:
+      - kind: ServiceAccount
+        name: prometheus-k8s
+        namespace: openshift-monitoring
 - apiVersion: hive.openshift.io/v1
   kind: SelectorSyncSet
   metadata:

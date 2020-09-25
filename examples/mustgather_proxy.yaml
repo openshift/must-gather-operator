@@ -6,6 +6,8 @@ spec:
   caseID: '02527285'
   caseManagementAccountSecretRef:
     name: case-management-creds
+  serviceAccountRef:
+    name: must-gather-admin
   proxyConfig:
     http_proxy: http://myproxy
     https_proxy: https://my_http_proxy
