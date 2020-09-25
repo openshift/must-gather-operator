@@ -217,15 +217,14 @@ func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Re
 
 	if err != nil {
 		if errors.IsNotFound(err) {
-			// Increment prometheus metrics for must gather total
-			localmetrics.MetricMustGatherTotal.Inc()
-
 			// job is not there, create it.
 			err = r.CreateResourceIfNotExists(instance, instance.GetNamespace(), job)
 			if err != nil {
 				log.Error(err, "unable to create", "job", job)
 				return r.ManageError(instance, err)
 			}
+			// Increment prometheus metrics for must gather total
+			localmetrics.MetricMustGatherTotal.Inc()
 			return r.ManageSuccess(instance)
 		}
 		// Error reading the object - requeue the request.
