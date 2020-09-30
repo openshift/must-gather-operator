@@ -6,8 +6,8 @@ include boilerplate/generated-includes.mk
 include functions.mk
 
 # boilerplate updater
-.PHONY: update-boilerplate
-update-boilerplate:
+.PHONY: boilerplate-update
+boilerplate-update:
 	@boilerplate/update
 
 # Extend Makefile after here
