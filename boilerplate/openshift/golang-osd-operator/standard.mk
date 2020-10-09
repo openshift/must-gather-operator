@@ -20,7 +20,7 @@ CONTAINER_ENGINE=$(shell command -v podman 2>/dev/null || command -v docker 2>/d
 
 # Generate version and tag information from inputs
 COMMIT_NUMBER=$(shell git rev-list `git rev-list --parents HEAD | egrep "^[a-f0-9]{40}$$"`..HEAD --count)
-CURRENT_COMMIT=$(shell git rev-parse --short=8 HEAD)
+CURRENT_COMMIT=$(shell git rev-parse --short=7 HEAD)
 OPERATOR_VERSION=$(VERSION_MAJOR).$(VERSION_MINOR).$(COMMIT_NUMBER)-$(CURRENT_COMMIT)
 
 IMG?=$(IMAGE_REGISTRY)/$(IMAGE_REPOSITORY)/$(IMAGE_NAME):v$(OPERATOR_VERSION)
@@ -53,6 +53,12 @@ ALLOW_DIRTY_CHECKOUT?=false
 # TODO: Figure out how to discover this dynamically
 CONVENTION_DIR := boilerplate/openshift/golang-osd-operator
 
+# Set the default goal in a way that works for older & newer versions of `make`:
+# Older versions (<=3.8.0) will pay attention to the `default` target.
+# Newer versions pay attention to .DEFAULT_GOAL, where uunsetting it makes the next defined target the default:
+# https://www.gnu.org/software/make/manual/make.html#index-_002eDEFAULT_005fGOAL-_0028define-default-goal_0029
+.DEFAULT_GOAL :=
+.PHONY: default
 default: go-build
 
 .PHONY: clean
@@ -128,15 +134,12 @@ olm-deploy-yaml-validate: python-venv
 
 # validate: Ensure code generation has not been forgotten; and ensure
 # generated and boilerplate code has not been modified.
-# TODO:
-# - isclean; generate; isclean
-# - boilerplate/_lib/freeze-check
 .PHONY: validate
-validate: ;
+validate: boilerplate-freeze-check generate-check
 
 # lint: Perform static analysis.
 .PHONY: lint
-lint: olm-deploy-yaml-validate go-check generate-check
+lint: olm-deploy-yaml-validate go-check
 
 # test: "Local" unit and functional testing.
 .PHONY: test
