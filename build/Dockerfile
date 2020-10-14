@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi8/ubi-minimal:latest
+FROM quay.io/app-sre/boilerplate:image-v0.1.1 AS builder
 
 ENV OPERATOR=/usr/local/bin/must-gather-operator \
     USER_UID=1001 \
