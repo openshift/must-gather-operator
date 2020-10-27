@@ -16,6 +16,10 @@ osdk_version() {
     $osdk version | sed 's/operator-sdk version: "*\([^,"]*\)"*,.*/\1/'
 }
 
+repo_name() {
+    (git -C $1 config --get remote.upstream.url || git -C $1 config --get remote.origin.url) | sed 's,.*:,,; s/\.git$//'
+}
+
 if [ "$BOILERPLATE_SET_X" ]; then
   set -x
 fi
@@ -47,7 +51,7 @@ if [[ "$HERE" == "$CONVENTION_ROOT/"* ]]; then
 fi
 
 if [ -z "$BOILERPLATE_GIT_REPO" ]; then
-  export BOILERPLATE_GIT_REPO=git@github.com:openshift/boilerplate.git
+  export BOILERPLATE_GIT_REPO=https://github.com/openshift/boilerplate.git
 fi
 if [ -z "$BOILERPLATE_GIT_CLONE" ]; then
   export BOILERPLATE_GIT_CLONE="git clone $BOILERPLATE_GIT_REPO"
