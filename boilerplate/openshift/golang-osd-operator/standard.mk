@@ -137,6 +137,10 @@ olm-deploy-yaml-validate: python-venv
 prow-config:
 	${CONVENTION_DIR}/prow-config ${RELEASE_CLONE}
 
+.PHONY: codecov-secret-mapping
+codecov-secret-mapping:
+	${CONVENTION_DIR}/codecov-secret-mapping ${RELEASE_CLONE}
+
 ######################
 # Targets used by prow
 ######################
@@ -158,13 +162,6 @@ test: go-test
 .PHONY: coverage
 coverage:
 	${CONVENTION_DIR}/codecov.sh
-
-# build: Code compilation and bundle generation. This should do as much
-# of what app-sre does as possible, so that there are no surprises after
-# a PR is merged.
-# TODO: Include generating (but not pushing) the bundle
-.PHONY: build
-build: docker-build
 
 #########################
 # Targets used by app-sre
