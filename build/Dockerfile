@@ -25,10 +25,9 @@ ENV OPERATOR=/usr/local/bin/must-gather-operator \
     JOB_TEMPLATE_FILE_NAME=/etc/templates/job.template.yaml
 
 RUN microdnf install tar gzip openssh-clients wget shadow-utils && \
-    wget https://downloads.redhat.com/redhat/rhel/rhel-8-beta/baseos/x86_64/Packages/tcl-8.6.8-2.el8.x86_64.rpm && \
-    rpm -U tcl-8.6.8-2.el8.x86_64.rpm && \
-    wget https://downloads.redhat.com/redhat/rhel/rhel-8-beta/baseos/x86_64/Packages/expect-5.45.4-3.el8.x86_64.rpm && \
-    rpm -U expect-5.45.4-3.el8.x86_64.rpm && \
+    wget https://download-ib01.fedoraproject.org/pub/epel/8/Everything/x86_64/Packages/s/sshpass-1.06-9.el8.x86_64.rpm && \
+    rpm -U sshpass-1.06-9.el8.x86_64.rpm && \
+    rm -f sshpass-1.06-9.el8.x86_64.rpm && \
     microdnf clean all
 
 COPY --from=builder /src/build/_output/bin/${OPERATOR_BIN} /usr/local/bin/${OPERATOR_BIN}

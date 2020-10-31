@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: {{ .ObjectMeta.Name }}
-  namespace: openshift-must-gather-operator
+  namespace: {{ .ObjectMeta.Namespace }}
 spec:
   template:
     spec:

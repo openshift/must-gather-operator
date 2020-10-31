@@ -17,6 +17,7 @@ CURRENT_TIMESTAMP=$(date --utc +%Y%m%d_%H%M%SZ)
 CSP_FILENAME=${FILENAME_PREFIX}-${CURRENT_TIMESTAMP}.tar.gz
 CSP_FILE="${must_gather_upload}/${CSP_FILENAME}"
 FTP_HOST=sftp.access.redhat.com
+SFTP_OPTIONS="-o BatchMode=no -o StrictHostKeyChecking=no -b"
 
 if [ -z "${caseid}" ] || [ -z "${username}" ] || [ -z "${password}" ];
 then
@@ -24,29 +25,48 @@ then
   exit 1
 fi
 
-tar cvaf "$must_gather_upload/${CSP_FILENAME}" $must_gather_output/
+echo "Archiving files from $must_gather_output to $must_gather_upload/${CSP_FILENAME}"
+tar caf "$must_gather_upload/${CSP_FILENAME}" $must_gather_output/
 
-echo "Uploading '${CSP_FILENAME}' to Red Hat Customer FTP Server case ${caseid}"
+echo "Uploading '${CSP_FILENAME}' to Red Hat Customer SFTP Server for case ${caseid}"
 
 REMOTE_DIR=/users/${username}
 REMOTE_FILENAME=${caseid}_${CSP_FILENAME}
 
-expect -c "
-spawn sftp -o StrictHostKeyChecking=no ${username}@${FTP_HOST}
-expect \"password: \"
-send \"${password}\r\"
-expect \"sftp>\"
-send \"mkdir ${REMOTE_DIR}\r\"
-expect \"sftp>\"
-send \"put ${CSP_FILE} ${REMOTE_DIR}/${REMOTE_FILENAME}\r\"
-expect \"sftp>\"
-send \"bye\r\"
-expect \"#\"
-"
+# check login
+echo "Checking login credentials..."
+export SSHPASS=${password}
+sshpass -e sftp ${SFTP_OPTIONS} - ${username}@${FTP_HOST} << EOF
+    bye
+EOF
 
 if [ $? -eq 0 ];
 then
-  echo "Successfully added '${CSP_FILENAME}' to Red Hat Customer Portal case ${caseid}"
+  echo "Successfully logged into Red Hat SFTP server!"
+else
+  echo "Error: Login failed to Red Hat Customer SFTP Server."
+  exit 1
+fi
+
+# ensure remote directory exists and ignore errors since ftp doesn't support 'mkdir -p'
+echo "Ensuring remote directory exists..."
+set +e
+sshpass -e sftp ${SFTP_OPTIONS} - ${username}@${FTP_HOST} << EOF
+    mkdir ${REMOTE_DIR}
+    bye
+EOF
+set -e
+
+# upload file and detect any erros
+echo "Uploading ${CSP_FILE}..."
+sshpass -e sftp ${SFTP_OPTIONS} - ${username}@${FTP_HOST} << EOF
+    put ${CSP_FILE} ${REMOTE_DIR}/${REMOTE_FILENAME}
+    bye
+EOF
+
+if [ $? -eq 0 ];
+then
+  echo "Successfully uploaded '${CSP_FILENAME}' to Red Hat SFTP Server for case ${caseid}!"
 else
   echo "Error: Upload to Red Hat Customer SFTP Server failed."
   exit 1

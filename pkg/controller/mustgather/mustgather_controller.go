@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -244,10 +245,28 @@ func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Re
 			if err != nil {
 				reqLogger.Error(err, fmt.Sprintf("Failed to get %s job", instance.Name))
 			} else {
-				err = r.GetClient().Delete(context.TODO(), tmpJob)
-				if err != nil {
-					reqLogger.Error(err, fmt.Sprintf("Failed to delete %s job", instance.Name))
-					return reconcile.Result{}, err
+				// delete pods owned by job
+				podList := &corev1.PodList{}
+				listOpts := []client.ListOption{
+					client.InNamespace(operatorNs),
+					client.MatchingLabels{"controller-uid": string(tmpJob.UID)},
+				}
+				if err = r.GetClient().List(context.TODO(), podList, listOpts...); err != nil {
+					log.Error(err, "Failed to list pods", "Namespace", operatorNs, "UID", tmpJob.UID)
+				} else {
+					for _, tmpPod := range podList.Items {
+						err = r.GetClient().Delete(context.TODO(), &tmpPod)
+						if err != nil {
+							reqLogger.Error(err, fmt.Sprintf("Failed to delete %s pod", tmpPod.Name))
+							return reconcile.Result{}, err
+						}
+					}
+					// finally delete job
+					err = r.GetClient().Delete(context.TODO(), tmpJob)
+					if err != nil {
+						reqLogger.Error(err, fmt.Sprintf("Failed to delete %s job", tmpJob.Name))
+						return reconcile.Result{}, err
+					}
 				}
 			}
 
