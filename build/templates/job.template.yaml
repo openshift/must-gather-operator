@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: {{ .ObjectMeta.Name }}
-  namespace: {{ .ObjectMeta.Namespace }}
+  namespace: openshift-must-gather-operator
 spec:
   template:
     spec:
@@ -25,14 +25,14 @@ spec:
         - name: http_proxy
           value: {{ .Spec.ProxyConfig.HTTPProxy }}
         {{ end -}}
-        {{ if .Spec.ProxyConfig.HTTPSProxy -}}  
+        {{ if .Spec.ProxyConfig.HTTPSProxy -}}
         - name: https_proxy
           value: {{ .Spec.ProxyConfig.HTTPSProxy }}
         {{ end -}}
-        {{ if .Spec.ProxyConfig.NoProxy -}} 
+        {{ if .Spec.ProxyConfig.NoProxy -}}
         - name: no_proxy
-          value: {{ .Spec.ProxyConfig.NoProxy }}  
-        {{ end -}}                  
+          value: {{ .Spec.ProxyConfig.NoProxy }}
+        {{ end -}}
         - name: username
           valueFrom:
             secretKeyRef:
@@ -48,9 +48,9 @@ spec:
         - name: must_gather_output
           value: /must-gather
         - name: must_gather_upload
-          value: /must-gather-upload                    
-      initContainers:      
-{{- range $index, $element := .Spec.MustGatherImages }}      
+          value: /must-gather-upload
+      initContainers:
+{{- range $index, $element := .Spec.MustGatherImages }}
       - command:
         - /usr/bin/gather
         image: {{ $element }}
@@ -64,5 +64,5 @@ spec:
       - emptyDir: {}
         name: must-gather-output
       - emptyDir: {}
-        name: must-gather-upload                
+        name: must-gather-upload
 

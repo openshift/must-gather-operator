@@ -13,11 +13,10 @@ set -o errexit
 must_gather_output=${must_gather_output:="/must-gather-output"}
 must_gather_upload=${must_gather_upload:="/must-gather-upload"}
 FILENAME_PREFIX=${FILENAME_PREFIX:="must-gather"}
-CASE_COMMENT=${CASE_COMMENT:="File upload from must-gather tool"}
 CURRENT_TIMESTAMP=$(date --utc +%Y%m%d_%H%M%SZ)
-PRIVATE_ATTACHMENT_FLAG=""
 CSP_FILENAME=${FILENAME_PREFIX}-${CURRENT_TIMESTAMP}.tar.gz
 CSP_FILE="${must_gather_upload}/${CSP_FILENAME}"
+FTP_HOST=sftp.access.redhat.com
 
 if [ -z "${caseid}" ] || [ -z "${username}" ] || [ -z "${password}" ];
 then
@@ -25,21 +24,30 @@ then
   exit 1
 fi
 
-if [ -z "${attachment_private}" ] && [  "${attachment_private}" == "true" ];
-then
-  PRIVATE_ATTACHMENT_FLAG="?private=true"
-fi
-
 tar cvaf "$must_gather_upload/${CSP_FILENAME}" $must_gather_output/
 
-echo "Uploading '${CSP_FILENAME}' to Red Hat Customer Portal case ${caseid}"
+echo "Uploading '${CSP_FILENAME}' to Red Hat Customer FTP Server case ${caseid}"
 
-status_code=$(curl --write-out %{http_code} -o $must_gather_upload/curl.log -u ${username}:${password} -X POST -F "file=@${CSP_FILE}" "https://api.access.redhat.com/rs/cases/${caseid}/attachments${PRIVATE_ATTACHMENT_FLAG}" -H 'Accept: text/plain' --form-string "description=${CASE_COMMENT}")
-cat $must_gather_upload/curl.log
-if [[ "$status_code" -ne 201 ]];
+REMOTE_DIR=/users/${username}
+REMOTE_FILENAME=${caseid}_${CSP_FILENAME}
+
+expect -c "
+spawn sftp -o StrictHostKeyChecking=no ${username}@${FTP_HOST}
+expect \"password: \"
+send \"${password}\r\"
+expect \"sftp>\"
+send \"mkdir ${REMOTE_DIR}\r\"
+expect \"sftp>\"
+send \"put ${CSP_FILE} ${REMOTE_DIR}/${REMOTE_FILENAME}\r\"
+expect \"sftp>\"
+send \"bye\r\"
+expect \"#\"
+"
+
+if [ $? -eq 0 ];
 then
-  echo "Error: Upload to Red Hat Customer Portal did not return expected status code. Expected: 201. Actual: $status_code"
+  echo "Successfully added '${CSP_FILENAME}' to Red Hat Customer Portal case ${caseid}"
+else
+  echo "Error: Upload to Red Hat Customer SFTP Server failed."
   exit 1
 fi
-
-echo "Successfully added '${CSP_FILENAME}' to Red Hat Customer Portal case ${caseid}"
