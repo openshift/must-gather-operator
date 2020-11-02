@@ -71,6 +71,8 @@ rules:
       - secrets
     verbs:
       - get
+      - delete
+      - create
       - list
       - watch
   - apiGroups:

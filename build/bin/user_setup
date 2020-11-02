@@ -1,6 +1,9 @@
 #!/bin/sh
 set -x
 
+# add the user the proper way
+adduser mustgather -u ${USER_UID} -g 0
+
 # ensure $HOME exists and is accessible by group 0 (we don't know what the runtime UID will be)
 mkdir -p ${HOME}
 chown ${USER_UID}:0 ${HOME}

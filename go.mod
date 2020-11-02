@@ -4,6 +4,7 @@ go 1.13
 
 require (
 	github.com/coreos/prometheus-operator v0.35.1
+	github.com/go-logr/logr v0.1.0
 	github.com/go-openapi/spec v0.19.4
 	github.com/openshift/api v3.9.1-0.20190924102528-32369d4db2ad+incompatible
 	github.com/openshift/operator-custom-metrics v0.3.1-0.20200901174648-463079905232

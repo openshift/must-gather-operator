@@ -13,11 +13,11 @@ set -o errexit
 must_gather_output=${must_gather_output:="/must-gather-output"}
 must_gather_upload=${must_gather_upload:="/must-gather-upload"}
 FILENAME_PREFIX=${FILENAME_PREFIX:="must-gather"}
-CASE_COMMENT=${CASE_COMMENT:="File upload from must-gather tool"}
 CURRENT_TIMESTAMP=$(date --utc +%Y%m%d_%H%M%SZ)
-PRIVATE_ATTACHMENT_FLAG=""
 CSP_FILENAME=${FILENAME_PREFIX}-${CURRENT_TIMESTAMP}.tar.gz
 CSP_FILE="${must_gather_upload}/${CSP_FILENAME}"
+FTP_HOST=sftp.access.redhat.com
+SFTP_OPTIONS="-o BatchMode=no -o StrictHostKeyChecking=no -b"
 
 if [ -z "${caseid}" ] || [ -z "${username}" ] || [ -z "${password}" ];
 then
@@ -25,21 +25,49 @@ then
   exit 1
 fi
 
-if [ -z "${attachment_private}" ] && [  "${attachment_private}" == "true" ];
+echo "Archiving files from $must_gather_output to $must_gather_upload/${CSP_FILENAME}"
+tar caf "$must_gather_upload/${CSP_FILENAME}" $must_gather_output/
+
+echo "Uploading '${CSP_FILENAME}' to Red Hat Customer SFTP Server for case ${caseid}"
+
+REMOTE_DIR=/users/${username}
+REMOTE_FILENAME=${caseid}_${CSP_FILENAME}
+
+# check login
+echo "Checking login credentials..."
+export SSHPASS=${password}
+sshpass -e sftp ${SFTP_OPTIONS} - ${username}@${FTP_HOST} << EOF
+    bye
+EOF
+
+if [ $? -eq 0 ];
 then
-  PRIVATE_ATTACHMENT_FLAG="?private=true"
-fi
-
-tar cvaf "$must_gather_upload/${CSP_FILENAME}" $must_gather_output/
-
-echo "Uploading '${CSP_FILENAME}' to Red Hat Customer Portal case ${caseid}"
-
-status_code=$(curl --write-out %{http_code} -o $must_gather_upload/curl.log -u ${username}:${password} -X POST -F "file=@${CSP_FILE}" "https://api.access.redhat.com/rs/cases/${caseid}/attachments${PRIVATE_ATTACHMENT_FLAG}" -H 'Accept: text/plain' --form-string "description=${CASE_COMMENT}")
-cat $must_gather_upload/curl.log
-if [[ "$status_code" -ne 201 ]];
-then
-  echo "Error: Upload to Red Hat Customer Portal did not return expected status code. Expected: 201. Actual: $status_code"
+  echo "Successfully logged into Red Hat SFTP server!"
+else
+  echo "Error: Login failed to Red Hat Customer SFTP Server."
   exit 1
 fi
 
-echo "Successfully added '${CSP_FILENAME}' to Red Hat Customer Portal case ${caseid}"
+# ensure remote directory exists and ignore errors since ftp doesn't support 'mkdir -p'
+echo "Ensuring remote directory exists..."
+set +e
+sshpass -e sftp ${SFTP_OPTIONS} - ${username}@${FTP_HOST} << EOF
+    mkdir ${REMOTE_DIR}
+    bye
+EOF
+set -e
+
+# upload file and detect any erros
+echo "Uploading ${CSP_FILE}..."
+sshpass -e sftp ${SFTP_OPTIONS} - ${username}@${FTP_HOST} << EOF
+    put ${CSP_FILE} ${REMOTE_DIR}/${REMOTE_FILENAME}
+    bye
+EOF
+
+if [ $? -eq 0 ];
+then
+  echo "Successfully uploaded '${CSP_FILENAME}' to Red Hat SFTP Server for case ${caseid}!"
+else
+  echo "Error: Upload to Red Hat Customer SFTP Server failed."
+  exit 1
+fi
