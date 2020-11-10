@@ -30,11 +30,6 @@ gobuild: go-build
 .PHONY: gocheck
 gobuild: go-check
 
-# TODO: Temporary until removed from app-interface
-.PHONY: pr-check
-pr-check:
-	@echo success!
-
 IN_CONTAINER?=false
 SELECTOR_SYNC_SET_TEMPLATE_DIR?=hack/templates/
 YAML_DIRECTORY?=deploy
