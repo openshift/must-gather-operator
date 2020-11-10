@@ -1,12 +1,31 @@
 #!/bin/bash
 
-set -e
+# AppSRE team CD
 
-cd $(dirname $0)/..
+set -exv
 
-if [[ -z $IMAGE_REPOSITORY ]]; then
-  IMAGE_REPOSITORY=app-sre
-fi
+CURRENT_DIR=$(dirname "$0")
 
-# Build & push operator image and catalogsource image
-make IMAGE_REPOSITORY=$IMAGE_REPOSITORY docker-build push build-catalog-image
+BASE_IMG="must-gather-operator"
+QUAY_IMAGE="quay.io/app-sre/${BASE_IMG}"
+IMG="${BASE_IMG}:latest"
+
+GIT_HASH=$(git rev-parse --short=7 HEAD)
+
+# build the image
+BUILD_CMD="docker build" IMG="$IMG" make docker-build
+
+# push the image
+skopeo copy --dest-creds "${QUAY_USER}:${QUAY_TOKEN}" \
+    "docker-daemon:${IMG}" \
+    "docker://${QUAY_IMAGE}:latest"
+
+skopeo copy --dest-creds "${QUAY_USER}:${QUAY_TOKEN}" \
+    "docker-daemon:${IMG}" \
+    "docker://${QUAY_IMAGE}:${GIT_HASH}"
+
+# create and push staging image catalog
+"$CURRENT_DIR"/app_sre_create_image_catalog.sh staging "$QUAY_IMAGE"
+
+# create and push production image catalog
+REMOVE_UNDEPLOYED=true "$CURRENT_DIR"/app_sre_create_image_catalog.sh production "$QUAY_IMAGE"
