@@ -39,8 +39,8 @@ objects:
         labels:
           opsrc-datastore: "true"
           opsrc-provider: redhat
-        name: must-gather-operator-registry
-        namespace: openshift-must-gather-operator
+        name: ${REPO_NAME}-registry
+        namespace: openshift-${REPO_NAME}
       spec:
         image: ${REGISTRY_IMG}:${CHANNEL}-${IMAGE_TAG}
         affinity:
@@ -55,7 +55,7 @@ objects:
           - effect: NoSchedule
             key: node-role.kubernetes.io/infra
             operator: Exists
-        displayName: Custom Domains Operator
+        displayName: ${REPO_NAME}
         icon:
           base64data: ''
           mediatype: ''
@@ -64,18 +64,18 @@ objects:
     - apiVersion: operators.coreos.com/v1alpha1
       kind: Subscription
       metadata:
-        name: must-gather-operator
-        namespace: openshift-must-gather-operator
+        name: ${REPO_NAME}
+        namespace: openshift-${REPO_NAME}
       spec:
         channel: ${CHANNEL}
-        name: must-gather-operator
-        source: must-gather-operator-registry
-        sourceNamespace: openshift-must-gather-operator
+        name: ${REPO_NAME}
+        source: ${REPO_NAME}-registry
+        sourceNamespace: openshift-${REPO_NAME}
     - apiVersion: operators.coreos.com/v1alpha2
       kind: OperatorGroup
       metadata:
-        name: must-gather-operator
-        namespace: openshift-must-gather-operator
+        name: ${REPO_NAME}
+        namespace: openshift-${REPO_NAME}
       spec:
         targetNamespaces:
-        - openshift-must-gather-operator
+        - openshift-${REPO_NAME}
