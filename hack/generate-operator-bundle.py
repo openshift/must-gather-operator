@@ -79,6 +79,15 @@ with open('deploy/02_must-gather-operator.ClusterRole.yaml', 'r') as stream:
             'serviceAccountName': OPERATOR_NAME,
         })
 
+# Add admin role to the CSV:
+with open('deploy/05_must-gather-admin.ClusterRole.yaml', 'r') as stream:
+    admin_role = yaml.load(stream)
+    csv['spec']['install']['spec']['clusterPermissions'].append(
+        {
+            'rules': admin_role['rules'],
+            'serviceAccountName': 'must-gather-admin',
+        })
+
 # Add our deployment spec for the hive operator:
 with open('deploy/99_must-gather-operator.Deployment.yaml', 'r') as stream:
     operator_components = []
