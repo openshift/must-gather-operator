@@ -17,14 +17,10 @@ spec:
       description: MustGather is the Schema for the mustgathers API
       properties:
         apiVersion:
-          description: 'APIVersion defines the versioned schema of this representation
-            of an object. Servers should convert recognized schemas to the latest
-            internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
           type: string
         kind:
-          description: 'Kind is a string value representing the REST resource this
-            object represents. Servers may infer this from the endpoint the client
-            submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
           type: string
         metadata:
           type: object
@@ -35,50 +31,40 @@ spec:
               description: The is of the case this must gather will be uploaded to
               type: string
             caseManagementAccountSecretRef:
-              description: the secret container a username and password field to be
-                used to authenticate with red hat case management systems
+              description: the secret container a username and password field to be used to authenticate with red hat case management systems
               properties:
                 name:
-                  description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                    TODO: Add other useful fields. apiVersion, kind, uid?'
+                  description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names TODO: Add other useful fields. apiVersion, kind, uid?'
                   type: string
               type: object
             mustGatherImages:
-              description: 'The list of must gather images to run, optional, it will
-                default to: $DEFAULT_MUST_GATHER_IMAGE'
+              description: 'The list of must gather images to run, optional, it will default to: $DEFAULT_MUST_GATHER_IMAGE'
               items:
                 type: string
               type: array
             proxyConfig:
-              description: This represents the proxy configuration to be used. If
-                left empty it will default to the cluster-level proxy configuration.
+              description: This represents the proxy configuration to be used. If left empty it will default to the cluster-level proxy configuration.
               properties:
                 httpProxy:
-                  description: httpProxy is the URL of the proxy for HTTP requests.  Empty
-                    means unset and will not result in an env var.
+                  description: httpProxy is the URL of the proxy for HTTP requests.  Empty means unset and will not result in an env var.
                   type: string
                 httpsProxy:
-                  description: httpsProxy is the URL of the proxy for HTTPS requests.  Empty
-                    means unset and will not result in an env var.
+                  description: httpsProxy is the URL of the proxy for HTTPS requests.  Empty means unset and will not result in an env var.
                   type: string
                 noProxy:
-                  description: noProxy is the list of domains for which the proxy
-                    should not be used.  Empty means unset and will not result in
-                    an env var.
+                  description: noProxy is the list of domains for which the proxy should not be used.  Empty means unset and will not result in an env var.
                   type: string
               type: object
             serviceAccountRef:
-              description: the service account to use to run the must gather job pod,
-                defaults to default  +kubebuilder:default:="{Name:default}"
+              description: the service account to use to run the must gather job pod, defaults to default  +kubebuilder:default:="{Name:default}"
               properties:
                 name:
-                  description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                    TODO: Add other useful fields. apiVersion, kind, uid?'
+                  description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names TODO: Add other useful fields. apiVersion, kind, uid?'
                   type: string
               type: object
           required:
-          - caseID
-          - caseManagementAccountSecretRef
+            - caseID
+            - caseManagementAccountSecretRef
           type: object
         status:
           description: MustGatherStatus defines the observed state of MustGather
@@ -92,15 +78,14 @@ spec:
               type: string
             status:
               enum:
-              - Success
-              - Failure
+                - Success
+                - Failure
               type: string
           required:
-          - completed
+            - completed
           type: object
-      type: object
   version: v1alpha1
   versions:
-  - name: v1alpha1
-    served: true
-    storage: true
+    - name: v1alpha1
+      served: true
+      storage: true
