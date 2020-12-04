@@ -36,7 +36,6 @@ const controllerName = "mustgather-controller"
 
 const templateFileNameEnv = "JOB_TEMPLATE_FILE_NAME"
 const defaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"
-const garbageCollectionElapsedEnv = "GARBAGE_COLLECTION_DELAY"
 
 var log = logf.Log.WithName(controllerName)
 var garbageCollectionDuration time.Duration
@@ -48,14 +47,11 @@ func init() {
 		defaultMustGatherImage = "quay.io/openshift/origin-must-gather:latest"
 	}
 	fmt.Println("using default must gather image: " + defaultMustGatherImage)
-	garbageCollectionInterval, ok := os.LookupEnv(garbageCollectionElapsedEnv)
-	if !ok {
-		garbageCollectionInterval = "6h"
-	}
+	garbageCollectionInterval := "2m"
 	var err error
 	garbageCollectionDuration, err = time.ParseDuration(garbageCollectionInterval)
 	if err != nil {
-		fmt.Println("unable to partse time: " + garbageCollectionInterval)
+		fmt.Println("unable to parse time: " + garbageCollectionInterval)
 	}
 }
 
