@@ -25,6 +25,7 @@ objects:
     clusterDeploymentSelector:
       matchLabels:
         api.openshift.com/managed: 'true'
+        managed.openshift.io/disabled-operator: ${REPO_NAME}
     resourceApplyMode: Sync
     resources:
     - apiVersion: v1
