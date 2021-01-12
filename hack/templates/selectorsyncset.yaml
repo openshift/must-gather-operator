@@ -10,5 +10,4 @@ spec:
   clusterDeploymentSelector:
     matchLabels:
       api.openshift.com/managed: "true"
-      managed.openshift.io/disabled-operator: ${REPO_NAME}
   resourceApplyMode: Sync
