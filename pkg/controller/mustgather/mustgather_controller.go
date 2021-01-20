@@ -7,7 +7,6 @@ import (
 	"os"
 	"reflect"
 	"text/template"
-	"time"
 
 	"github.com/go-logr/logr"
 	configv1 "github.com/openshift/api/config/v1"
@@ -38,7 +37,6 @@ const templateFileNameEnv = "JOB_TEMPLATE_FILE_NAME"
 const defaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"
 
 var log = logf.Log.WithName(controllerName)
-var garbageCollectionDuration time.Duration
 
 func init() {
 	var ok bool
@@ -47,12 +45,6 @@ func init() {
 		defaultMustGatherImage = "quay.io/openshift/origin-must-gather:latest"
 	}
 	fmt.Println("using default must gather image: " + defaultMustGatherImage)
-	garbageCollectionInterval := "2m"
-	var err error
-	garbageCollectionDuration, err = time.ParseDuration(garbageCollectionInterval)
-	if err != nil {
-		fmt.Println("unable to parse time: " + garbageCollectionInterval)
-	}
 }
 
 var defaultMustGatherImage string
@@ -284,12 +276,6 @@ func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Re
 		}
 	}
 
-	//if job is complete and object has been created more than 6 hrs ago delete instance
-	if instance.Status.Completed && time.Since(instance.CreationTimestamp.Time).Milliseconds() > garbageCollectionDuration.Milliseconds() {
-		err := r.DeleteResource(instance)
-		return reconcile.Result{}, err
-	}
-
 	job, err := r.getJobFromInstance(instance)
 	if err != nil {
 		log.Error(err, "unable to get job from", "instance", instance)
@@ -362,13 +348,19 @@ func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Re
 	if job1.Status.Active > 0 {
 		reqLogger.Info("MustGather Job pods are still running")
 	} else {
-		if job1.Status.Succeeded > 0 {
+		// if the job has been marked as Succeeded or Failed but instance has no DeletionTimestamp,
+		// requeue instance to handle resource clean-up (delete secret, job, and MustGather)
+		if job1.Status.Succeeded > 0 && instance.GetDeletionTimestamp() == nil {
 			reqLogger.Info("MustGather Job pods succeeded")
+			err := r.DeleteResource(instance)
+			return reconcile.Result{}, err
 		}
-		if job1.Status.Failed > 0 {
+		if job1.Status.Failed > 0 && instance.GetDeletionTimestamp() == nil {
 			reqLogger.Info("MustGather Job pods failed")
 			// Increment prometheus metrics for must gather errors
 			localmetrics.MetricMustGatherErrors.Inc()
+			err := r.DeleteResource(instance)
+			return reconcile.Result{}, err
 		}
 	}
 
