@@ -35,6 +35,7 @@ const controllerName = "mustgather-controller"
 
 const templateFileNameEnv = "JOB_TEMPLATE_FILE_NAME"
 const defaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"
+const defaultMustGatherNamespace = "openshift-must-gather-operator"
 
 var log = logf.Log.WithName(controllerName)
 
@@ -59,12 +60,6 @@ var jobTemplate *template.Template
 // Add creates a new MustGather Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager) error {
-	var err error
-	jobTemplate, err = initializeTemplate()
-	if err != nil {
-		log.Error(err, "unable to initialize job template")
-		return err
-	}
 	return add(mgr, newReconciler(mgr))
 }
 
@@ -194,8 +189,8 @@ func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Re
 	// get operator namespace to manage resources in
 	operatorNs, err := k8sutil.GetOperatorNamespace()
 	if err != nil {
-		log.Error(err, "unable to get operator namespace")
-		return r.ManageError(instance, err)
+		operatorNs = defaultMustGatherNamespace
+		log.Info(fmt.Sprintf("using default operator namespace: %s", defaultMustGatherNamespace))
 	}
 
 	// Check if the MustGather instance is marked to be deleted, which is
@@ -407,6 +402,12 @@ func (r *ReconcileMustGather) IsInitialized(instance *mustgatherv1alpha1.MustGat
 }
 
 func (r *ReconcileMustGather) getJobFromInstance(instance *mustgatherv1alpha1.MustGather) (*unstructured.Unstructured, error) {
+	var err error
+	jobTemplate, err = initializeTemplate()
+	if err != nil {
+		log.Error(err, "unable to initialize job template")
+		return &unstructured.Unstructured{}, err
+	}
 	unstructuredJob, err := util.ProcessTemplate(instance, jobTemplate)
 	if err != nil {
 		log.Error(err, "unable to process", "template", jobTemplate, "with parameter", instance)
