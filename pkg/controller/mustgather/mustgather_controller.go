@@ -36,6 +36,7 @@ const controllerName = "mustgather-controller"
 const templateFileNameEnv = "JOB_TEMPLATE_FILE_NAME"
 const defaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"
 const defaultMustGatherNamespace = "openshift-must-gather-operator"
+const defaultMustGatherTimeoutENV = "DEFAULT_MUST_GATHER_TIMEOUT"
 
 var log = logf.Log.WithName(controllerName)
 
@@ -46,9 +47,16 @@ func init() {
 		defaultMustGatherImage = "quay.io/openshift/origin-must-gather:latest"
 	}
 	fmt.Println("using default must gather image: " + defaultMustGatherImage)
+
+	defaultMustGatherTimeout, ok = os.LookupEnv(defaultMustGatherTimeoutENV)
+	if !ok {
+		defaultMustGatherTimeout = "0"
+	}
+	fmt.Println("using default gather timeout: " + defaultMustGatherTimeout)
 }
 
 var defaultMustGatherImage string
+var defaultMustGatherTimeout string
 
 var jobTemplate *template.Template
 
@@ -380,6 +388,11 @@ func (r *ReconcileMustGather) IsInitialized(instance *mustgatherv1alpha1.MustGat
 		instance.Spec.MustGatherImages = imageSet.List()
 		initialized = false
 	}
+	if instance.Spec.MustGatherTimeout == "" {
+		instance.Spec.MustGatherTimeout = defaultMustGatherTimeout
+		initialized = false
+	}
+
 	if instance.Spec.ServiceAccountRef.Name == "" {
 		instance.Spec.ServiceAccountRef.Name = "default"
 		initialized = false

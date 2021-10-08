@@ -115,6 +115,20 @@ func schema_pkg_apis_mustgather_v1alpha1_MustGatherSpec(ref common.ReferenceCall
 							Ref:         ref("github.com/openshift/must-gather-operator/pkg/apis/mustgather/v1alpha1.ProxySpec"),
 						},
 					},
+					"mustGatherTimeout": {
+						SchemaProps: spec.SchemaProps{
+							Description: "A time limit for gather command to complete a floating point number with an optional suffix: \"s\" for seconds (the default), \"m\" for minutes, \"h\" for hours or \"d\" for days will default to: $DEFAULT_MUST_GATHER_TIMEOUT'",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"internalUser": {
+						SchemaProps: spec.SchemaProps{
+							Description: "A flag to specify if the upload user provided in the  caseManagementAccountSecret is a RH internal user. See documentation for further information.",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
 				},
 				Required: []string{"caseID", "caseManagementAccountSecretRef"},
 			},
