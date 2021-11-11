@@ -26,11 +26,16 @@ then
 fi
 
 echo "Archiving files from $must_gather_output to $must_gather_upload/${CSP_FILENAME}"
-tar caf "$must_gather_upload/${CSP_FILENAME}" $must_gather_output/
+tar --ignore-failed-read -caf "$must_gather_upload/${CSP_FILENAME}" $must_gather_output/
 
 echo "Uploading '${CSP_FILENAME}' to Red Hat Customer SFTP Server for case ${caseid}"
 
 REMOTE_FILENAME=${caseid}_${CSP_FILENAME}
+
+if [[ "${internal_user}" == true ]]; then
+  # internal users must upload to a different path on the sftp
+  REMOTE_FILENAME="${username}/${REMOTE_FILENAME}"
+fi
 
 # upload file and detect any erros
 echo "Uploading ${CSP_FILE}..."

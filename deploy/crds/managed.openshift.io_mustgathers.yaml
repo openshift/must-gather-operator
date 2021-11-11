@@ -49,6 +49,11 @@ spec:
                       TODO: Add other useful fields. apiVersion, kind, uid?'
                     type: string
                 type: object
+              internalUser:
+                default: true
+                description: A flag to specify if the upload user provided in the  caseManagementAccountSecret
+                  is a RH internal user. See documentation for further information.
+                type: boolean
               mustGatherImages:
                 description: 'The list of must gather images to run, optional, it
                   will default to: $DEFAULT_MUST_GATHER_IMAGE'
@@ -56,6 +61,12 @@ spec:
                   type: string
                 type: array
                 x-kubernetes-list-type: set
+              mustGatherTimeout:
+                description: 'A time limit for gather command to complete a floating
+                  point number with an optional suffix: "s" for seconds (the default),
+                  "m" for minutes, "h" for hours or "d" for days will default to:
+                  $DEFAULT_MUST_GATHER_TIMEOUT'''
+                type: string
               proxyConfig:
                 description: This represents the proxy configuration to be used. If
                   left empty it will default to the cluster-level proxy configuration.
