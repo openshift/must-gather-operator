@@ -91,6 +91,13 @@ oc create secret generic case-management-creds --from-literal=username=<username
 
 Execute the following steps to develop the functionality locally. It is recommended that development be done using a cluster with `cluster-admin` permissions.
 
+In the operator's `Deployment.yaml` [file](deploy/99_must-gather-operator.Deployment.yaml), add a variable to the deployment's `spec.template.spec.containers.env` list called `OPERATOR_IMAGE` and set the value to your local copy of the image:
+```shell
+          env:
+            - name: OPERATOR_IMAGE
+              value: "registry.example/repo/image:latest"
+```
+Then run:
 ```shell
 go mod download
 ```

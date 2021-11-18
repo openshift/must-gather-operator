@@ -2,10 +2,12 @@ package mustgather
 
 import (
 	"context"
+	goerror "errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"reflect"
+	"strings"
 	"text/template"
 
 	"github.com/go-logr/logr"
@@ -136,9 +138,18 @@ func initializeTemplate() (*template.Template, error) {
 		log.Error(err, "Error reading job template file", "filename", templateFileName)
 		return &template.Template{}, err
 	}
-	jobTemplate, err := template.New("MustGatherJob").Parse(string(text))
+	// Inject the operator image URI from the pod's env variables
+	operator_image, varPresent := os.LookupEnv("OPERATOR_IMAGE")
+	if !varPresent {
+		err := goerror.New("Operator image environment variable not found")
+		log.Error(err, "Error: no operator image found for job template")
+		return &template.Template{}, err
+	}
+	// TODO: make this a normal template parameter instead. This is ugly but works
+	str := strings.Replace(string(text), "THIS_STRING_WILL_BE_REPLACED_BUT_DONT_CHANGE_IT", operator_image, 1)
+	jobTemplate, err := template.New("MustGatherJob").Parse(str)
 	if err != nil {
-		log.Error(err, "Error parsing template", "template", text)
+		log.Error(err, "Error parsing template", "template", str)
 		return &template.Template{}, err
 	}
 	return jobTemplate, err

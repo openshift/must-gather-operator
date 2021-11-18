@@ -58,7 +58,7 @@ spec:
             sleep 30
           done
           /usr/local/bin/upload
-        image: quay.io/app-sre/must-gather-operator:latest
+        image: THIS_STRING_WILL_BE_REPLACED_BUT_DONT_CHANGE_IT
         name: upload
         volumeMounts:
         - mountPath: /must-gather
