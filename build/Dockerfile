@@ -25,7 +25,7 @@ ENV OPERATOR=/usr/local/bin/must-gather-operator \
     JOB_TEMPLATE_FILE_NAME=/etc/templates/job.template.yaml
 
 RUN microdnf install tar gzip openssh-clients wget shadow-utils procps && \
-    wget https://download-ib01.fedoraproject.org/pub/epel/8/Everything/x86_64/Packages/s/sshpass-1.06-9.el8.x86_64.rpm && \
+    wget https://kojipkgs.fedoraproject.org/packages/sshpass/1.06/9.el8/x86_64/sshpass-1.06-9.el8.x86_64.rpm && \
     rpm -U sshpass-1.06-9.el8.x86_64.rpm && \
     rm -f sshpass-1.06-9.el8.x86_64.rpm && \
     microdnf clean all
