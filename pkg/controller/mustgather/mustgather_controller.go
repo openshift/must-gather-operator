@@ -257,6 +257,7 @@ func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Re
 					log.Error(err, "Failed to list pods", "Namespace", operatorNs, "UID", tmpJob.UID)
 				} else {
 					for _, tmpPod := range podList.Items {
+						tmpPod := tmpPod
 						err = r.GetClient().Delete(context.TODO(), &tmpPod)
 						if err != nil {
 							reqLogger.Error(err, fmt.Sprintf("Failed to delete %s pod", tmpPod.Name))
