@@ -78,6 +78,8 @@ objects:
       metadata:
         name: ${REPO_NAME}
         namespace: openshift-${REPO_NAME}
+        annotations:
+          olm.operatorframework.io/exclude-global-namespace-resolution: 'true'
       spec:
         targetNamespaces:
         - openshift-${REPO_NAME}
