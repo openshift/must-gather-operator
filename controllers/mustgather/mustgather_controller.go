@@ -31,23 +31,18 @@ import (
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 	"github.com/openshift/must-gather-operator/pkg/k8sutil"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
-	"github.com/redhat-cop/operator-utils/pkg/util"
 	"github.com/redhat-cop/operator-utils/pkg/util/templates"
 	"github.com/scylladb/go-set/strset"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 const ControllerName = "mustgather-controller"
@@ -113,7 +108,10 @@ var _ reconcile.Reconciler = &MustGatherReconciler{}
 type MustGatherReconciler struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
-	util.ReconcilerBase
+	//util.ReconcilerBase
+
+	Client client.Client
+	Scheme *runtime.Scheme
 }
 
 const mustGatherFinalizer = "finalizer.mustgathers.managed.openshift.io"
@@ -137,7 +135,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	// Fetch the MustGather instance
 	instance := &mustgatherv1alpha1.MustGather{}
-	err := r.GetClient().Get(context.TODO(), request.NamespacedName, instance)
+	err := r.Client.Get(context.TODO(), request.NamespacedName, instance)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// Request object not found, could have been deleted after reconcile request.
@@ -149,15 +147,12 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		return reconcile.Result{}, err
 	}
 
-	if ok, err := r.IsValid(instance); !ok { //IsValid has not been overridden
-		return r.ManageError(context.TODO(), instance, err)
-	}
-
 	if !r.IsInitialized(instance) {
-		err := r.GetClient().Update(context.TODO(), instance)
+		err := r.Client.Update(context.TODO(), instance)
 		if err != nil {
 			log.Error(err, "unable to update instance", "instance", instance)
-			return r.ManageError(context.TODO(), instance, err)
+			//return r.ManageError(context.TODO(), instance, err)
+			return reconcile.Result{}, err
 		}
 		return reconcile.Result{}, nil
 	}
@@ -181,14 +176,14 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			// delete secret in the operator namespace
 			tmpSecretName := instance.Spec.CaseManagementAccountSecretRef.Name
 			tmpSecret := &corev1.Secret{}
-			err = r.GetClient().Get(context.TODO(), types.NamespacedName{
+			err = r.Client.Get(context.TODO(), types.NamespacedName{
 				Namespace: operatorNs,
 				Name:      tmpSecretName,
 			}, tmpSecret)
 			if err != nil {
 				reqLogger.Error(err, fmt.Sprintf("Failed to get %s secret", tmpSecretName))
 			} else {
-				err = r.GetClient().Delete(context.TODO(), tmpSecret)
+				err = r.Client.Delete(context.TODO(), tmpSecret)
 				if err != nil {
 					reqLogger.Error(err, fmt.Sprintf("Failed to delete %s secret", tmpSecretName))
 					return reconcile.Result{}, err
@@ -197,7 +192,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 			// delete job from operator namespace
 			tmpJob := &batchv1.Job{}
-			err = r.GetClient().Get(context.TODO(), types.NamespacedName{
+			err = r.Client.Get(context.TODO(), types.NamespacedName{
 				Namespace: operatorNs,
 				Name:      instance.Name,
 			}, tmpJob)
@@ -210,19 +205,19 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 					client.InNamespace(operatorNs),
 					client.MatchingLabels{"controller-uid": string(tmpJob.UID)},
 				}
-				if err = r.GetClient().List(context.TODO(), podList, listOpts...); err != nil {
+				if err = r.Client.List(context.TODO(), podList, listOpts...); err != nil {
 					log.Error(err, "Failed to list pods", "Namespace", operatorNs, "UID", tmpJob.UID)
 				} else {
 					for _, tmpPod := range podList.Items {
 						tmpPod := tmpPod
-						err = r.GetClient().Delete(context.TODO(), &tmpPod)
+						err = r.Client.Delete(context.TODO(), &tmpPod)
 						if err != nil {
 							reqLogger.Error(err, fmt.Sprintf("Failed to delete %s pod", tmpPod.Name))
 							return reconcile.Result{}, err
 						}
 					}
 					// finally delete job
-					err = r.GetClient().Delete(context.TODO(), tmpJob)
+					err = r.Client.Delete(context.TODO(), tmpJob)
 					if err != nil {
 						reqLogger.Error(err, fmt.Sprintf("Failed to delete %s job", tmpJob.Name))
 						return reconcile.Result{}, err
@@ -233,9 +228,10 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			// Remove mustGatherFinalizer. Once all finalizers have been
 			// removed, the object will be deleted.
 			instance.SetFinalizers(remove(instance.GetFinalizers(), mustGatherFinalizer))
-			err := r.GetClient().Update(context.TODO(), instance)
+			err := r.Client.Update(context.TODO(), instance)
 			if err != nil {
-				return r.ManageError(context.TODO(), instance, err)
+				//return r.ManageError(context.TODO(), instance, err)
+				return reconcile.Result{}, err
 			}
 		}
 		return reconcile.Result{}, nil
@@ -251,11 +247,12 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	job, err := r.getJobFromInstance(instance)
 	if err != nil {
 		log.Error(err, "unable to get job from", "instance", instance)
-		return r.ManageError(context.TODO(), instance, err)
+		//return r.ManageError(context.TODO(), instance, err)
+		return reconcile.Result{}, err
 	}
 
 	job1 := &batchv1.Job{}
-	err = r.GetClient().Get(context.TODO(), types.NamespacedName{
+	err = r.Client.Get(context.TODO(), types.NamespacedName{
 		Name:      job.GetName(),
 		Namespace: job.GetNamespace(),
 	}, job1)
@@ -265,7 +262,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			// look up user secret and copy it to operator namespace
 			secretName := instance.Spec.CaseManagementAccountSecretRef.Name
 			userSecret := &corev1.Secret{}
-			err = r.GetClient().Get(context.TODO(), types.NamespacedName{
+			err = r.Client.Get(context.TODO(), types.NamespacedName{
 				Namespace: instance.Namespace,
 				Name:      secretName,
 			}, userSecret)
@@ -276,7 +273,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 			// create secret in the operator namespace
 			newSecret := &corev1.Secret{}
-			err = r.GetClient().Get(context.TODO(), types.NamespacedName{
+			err = r.Client.Get(context.TODO(), types.NamespacedName{
 				Namespace: operatorNs,
 				Name:      secretName,
 			}, newSecret)
@@ -286,7 +283,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 					newSecret.Namespace = operatorNs
 					newSecret.Data = userSecret.Data
 					newSecret.Type = userSecret.Type
-					err = r.GetClient().Create(context.TODO(), newSecret)
+					err = r.Client.Create(context.TODO(), newSecret)
 					if err != nil {
 						log.Error(err, fmt.Sprintf("Error creating new secret %s", secretName))
 						return reconcile.Result{}, err
@@ -352,53 +349,11 @@ func (r *MustGatherReconciler) updateStatus(instance *mustgatherv1alpha1.MustGat
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *MustGatherReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// Create a new controller
-	c, err := controller.New(ControllerName, mgr, controller.Options{Reconciler: r})
-	if err != nil {
-		return err
-	}
-
-	// Watch for changes to primary resource MustGather
-	err = c.Watch(&source.Kind{Type: &mustgatherv1alpha1.MustGather{}}, &handler.EnqueueRequestForObject{}, util.ResourceGenerationOrFinalizerChangedPredicate{})
-	if err != nil {
-		return err
-	}
-
-	isStateUpdated := predicate.Funcs{
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldJob, ok := e.ObjectOld.(*batchv1.Job)
-			if !ok {
-				return false
-			}
-			newJob, ok := e.ObjectNew.(*batchv1.Job)
-			if !ok {
-				return false
-			}
-			return !reflect.DeepEqual(oldJob.Status, newJob.Status)
-		},
-		CreateFunc: func(e event.CreateEvent) bool {
-			return false
-		},
-		DeleteFunc: func(e event.DeleteEvent) bool {
-			return false
-		},
-		GenericFunc: func(e event.GenericEvent) bool {
-			return false
-		},
-	}
-
-	// TODO(user): Modify this to be the types you create that are owned by the primary resource
-	// Watch for changes to secondary resource Pods and requeue the owner MustGather
-	err = c.Watch(&source.Kind{Type: &batchv1.Job{}}, &handler.EnqueueRequestForOwner{
-		IsController: true,
-		OwnerType:    &mustgatherv1alpha1.MustGather{},
-	}, isStateUpdated)
-	if err != nil {
-		return err
-	}
-
 	return ctrl.NewControllerManagedBy(mgr).
+		Owns(&batchv1.Job{}).
+		WithEventFilter(isStateUpdated()).
 		For(&mustgatherv1alpha1.MustGather{}).
+		WithEventFilter(resourceGenerationOrFinalizerChangedPredicate()).
 		Complete(r)
 }
 
@@ -421,7 +376,7 @@ func (r *MustGatherReconciler) IsInitialized(instance *mustgatherv1alpha1.MustGa
 	}
 	if reflect.DeepEqual(instance.Spec.ProxyConfig, configv1.ProxySpec{}) {
 		platformProxy := &configv1.Proxy{}
-		err := r.GetClient().Get(context.TODO(), types.NamespacedName{Name: "cluster"}, platformProxy)
+		err := r.Client.Get(context.TODO(), types.NamespacedName{Name: "cluster"}, platformProxy)
 		if err != nil {
 			log.Error(err, "unable to find cluster proxy configuration")
 		} else {
@@ -442,7 +397,7 @@ func (r *MustGatherReconciler) addFinalizer(reqLogger logr.Logger, m *mustgather
 	m.SetFinalizers(append(m.GetFinalizers(), mustGatherFinalizer))
 
 	// Update CR
-	err := r.GetClient().Update(context.TODO(), m)
+	err := r.Client.Update(context.TODO(), m)
 	if err != nil {
 		reqLogger.Error(err, "Failed to update MustGather with finalizer")
 		return err

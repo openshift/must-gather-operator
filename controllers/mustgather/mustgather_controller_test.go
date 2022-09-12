@@ -6,14 +6,11 @@ import (
 	"testing"
 
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
-	"github.com/redhat-cop/operator-utils/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/record"
 
 	//nolint:staticcheck -- code is tied to a specific controller-runtime version. See OSD-11458
 
@@ -23,8 +20,6 @@ import (
 
 func TestMustGatherController(t *testing.T) {
 	os.Setenv("JOB_TEMPLATE_FILE_NAME", "../../../build/templates/job.template.yaml")
-
-	var cfg *rest.Config
 
 	mgObj := createMustGatherObject()
 	secObj := createMustGatherSecretObject()
@@ -39,12 +34,9 @@ func TestMustGatherController(t *testing.T) {
 
 	cl := fake.NewFakeClientWithScheme(s, objs...)
 
-	eventRec := &record.FakeRecorder{}
-
-	recBase := util.NewReconcilerBase(cl, s, cfg, eventRec)
-
 	r := MustGatherReconciler{
-		ReconcilerBase: recBase,
+		Scheme: s,
+		Client: cl,
 	}
 
 	req := reconcile.Request{
