@@ -32,7 +32,7 @@ func TestMustGatherController(t *testing.T) {
 	s := scheme.Scheme
 	s.AddKnownTypes(mustgatherv1alpha1.GroupVersion, mgObj)
 
-	cl := fake.NewFakeClientWithScheme(s, objs...)
+	cl := fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(objs...).Build()
 
 	r := MustGatherReconciler{
 		Scheme: s,
