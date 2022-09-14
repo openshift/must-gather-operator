@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -44,6 +45,13 @@ import (
 	"github.com/openshift/must-gather-operator/controllers/mustgather"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
 	//+kubebuilder:scaffold:imports
+)
+
+const (
+	// Environment variable to determine operator run mode
+	ForceRunModeEnv = "OSDK_FORCE_RUN_MODE"
+	// Flags that the operator is running locally
+	LocalRunMode = "local"
 )
 
 var (
@@ -107,10 +115,17 @@ func main() {
 
 	ctx := context.TODO()
 	// Become the leader before proceeding
-	err = leader.Become(ctx, "must-gather-operator-lock")
-	if err != nil {
-		log.Error(err, "")
-		os.Exit(1)
+
+	// Become the leader before proceeding
+	// This doesn't work locally, so only perform it when running on-cluster
+	if strings.ToLower(os.Getenv(ForceRunModeEnv)) != LocalRunMode {
+		err = leader.Become(ctx, "must-gather-operator-lock")
+		if err != nil {
+			log.Error(err, "")
+			os.Exit(1)
+		}
+	} else {
+		setupLog.Info("bypassing leader election due to local execution")
 	}
 
 	if err = (&mustgather.MustGatherReconciler{
