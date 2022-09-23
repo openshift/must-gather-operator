@@ -17,7 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"github.com/openshift/must-gather-operator/pkg/reconcileStatus"
+	//"github.com/openshift/must-gather-operator/pkg/reconcileStatus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -77,24 +77,11 @@ type ProxySpec struct {
 
 // MustGatherStatus defines the observed state of MustGather
 type MustGatherStatus struct {
-	Status     string      `json:"status,omitempty"`
-	LastUpdate metav1.Time `json:"lastUpdate,omitempty"`
-	Reason     string      `json:"reason,omitempty"`
-	Completed  bool        `json:"completed"`
-}
-
-func (m *MustGather) GetReconcileStatus() reconcileStatus.ReconcileStatus {
-	return reconcileStatus.ReconcileStatus{
-		Status:     m.Status.Status,
-		LastUpdate: m.Status.LastUpdate,
-		Reason:     m.Status.Reason,
-	}
-}
-
-func (m *MustGather) SetReconcileStatus(reconcileStatus reconcileStatus.ReconcileStatus) {
-	m.Status.Status = reconcileStatus.Status
-	m.Status.LastUpdate = reconcileStatus.LastUpdate
-	m.Status.Reason = reconcileStatus.Reason
+	Status     string             `json:"status,omitempty"`
+	LastUpdate metav1.Time        `json:"lastUpdate,omitempty"`
+	Reason     string             `json:"reason,omitempty"`
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+	Completed  bool               `json:"completed"`
 }
 
 //+kubebuilder:object:root=true

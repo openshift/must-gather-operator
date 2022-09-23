@@ -47,14 +47,5 @@ func resourceGenerationOrFinalizerChangedPredicate() predicate.Predicate {
 			}
 			return true
 		},
-		CreateFunc: func(e event.CreateEvent) bool {
-			return false
-		},
-		DeleteFunc: func(e event.DeleteEvent) bool {
-			return false
-		},
-		GenericFunc: func(e event.GenericEvent) bool {
-			return false
-		},
 	}
 }

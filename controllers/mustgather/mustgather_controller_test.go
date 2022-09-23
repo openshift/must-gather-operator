@@ -6,11 +6,14 @@ import (
 	"testing"
 
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
+	"github.com/redhat-cop/operator-utils/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
 
 	//nolint:staticcheck -- code is tied to a specific controller-runtime version. See OSD-11458
 
@@ -29,14 +32,17 @@ func TestMustGatherController(t *testing.T) {
 		secObj,
 	}
 
+	var cfg *rest.Config
+
 	s := scheme.Scheme
 	s.AddKnownTypes(mustgatherv1alpha1.GroupVersion, mgObj)
 
 	cl := fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(objs...).Build()
 
+	eventRec := &record.FakeRecorder{}
+
 	r := MustGatherReconciler{
-		Scheme: s,
-		Client: cl,
+		ReconcilerBase: util.NewReconcilerBase(cl, s, cfg, eventRec, nil),
 	}
 
 	req := reconcile.Request{
