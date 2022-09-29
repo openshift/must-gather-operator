@@ -84,6 +84,14 @@ type MustGatherStatus struct {
 	Completed  bool               `json:"completed"`
 }
 
+func (m *MustGather) GetConditions() []metav1.Condition {
+	return m.Status.Conditions
+}
+
+func (m *MustGather) SetConditions(conditions []metav1.Condition) {
+	m.Status.Conditions = conditions
+}
+
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
