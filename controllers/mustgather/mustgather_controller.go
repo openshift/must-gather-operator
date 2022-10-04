@@ -149,8 +149,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		err := r.GetClient().Update(context.TODO(), instance)
 		if err != nil {
 			log.Error(err, "unable to update instance", "instance", instance)
-			//return r.ManageError(context.TODO(), instance, err)
-			return reconcile.Result{}, err
+			return r.ManageError(context.TODO(), instance, err)
 		}
 		return reconcile.Result{}, nil
 	}
@@ -228,8 +227,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			instance.SetFinalizers(remove(instance.GetFinalizers(), mustGatherFinalizer))
 			err := r.GetClient().Update(context.TODO(), instance)
 			if err != nil {
-				//return r.ManageError(context.TODO(), instance, err)
-				return reconcile.Result{}, err
+				return r.ManageError(context.TODO(), instance, err)
 			}
 		}
 		return reconcile.Result{}, nil
@@ -245,8 +243,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	job, err := r.getJobFromInstance(instance)
 	if err != nil {
 		log.Error(err, "unable to get job from", "instance", instance)
-		//return r.ManageError(context.TODO(), instance, err)
-		return reconcile.Result{}, err
+		return r.ManageError(context.TODO(), instance, err)
 	}
 
 	job1 := &batchv1.Job{}
