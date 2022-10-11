@@ -1,7 +1,22 @@
+/*
+Copyright 2022.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package v1alpha1
 
 import (
-	"github.com/redhat-cop/operator-utils/pkg/util/apis"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -10,7 +25,6 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // MustGatherSpec defines the desired state of MustGather
-// +k8s:openapi-gen=true
 type MustGatherSpec struct {
 	// The is of the case this must gather will be uploaded to
 	// +kubebuilder:validation:Required
@@ -61,35 +75,26 @@ type ProxySpec struct {
 }
 
 // MustGatherStatus defines the observed state of MustGather
-// +k8s:openapi-gen=true
 type MustGatherStatus struct {
-	// +kubebuilder:validation:Enum="Success";"Failure"
-	Status     string      `json:"status,omitempty"`
-	LastUpdate metav1.Time `json:"lastUpdate,omitempty"`
-	Reason     string      `json:"reason,omitempty"`
-	Completed  bool        `json:"completed"`
+	Status     string             `json:"status,omitempty"`
+	LastUpdate metav1.Time        `json:"lastUpdate,omitempty"`
+	Reason     string             `json:"reason,omitempty"`
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+	Completed  bool               `json:"completed"`
 }
 
-func (m *MustGather) GetReconcileStatus() apis.ReconcileStatus {
-	return apis.ReconcileStatus{
-		Status:     m.Status.Status,
-		LastUpdate: m.Status.LastUpdate,
-		Reason:     m.Status.Reason,
-	}
+func (m *MustGather) GetConditions() []metav1.Condition {
+	return m.Status.Conditions
 }
 
-func (m *MustGather) SetReconcileStatus(reconcileStatus apis.ReconcileStatus) {
-	m.Status.Status = reconcileStatus.Status
-	m.Status.LastUpdate = reconcileStatus.LastUpdate
-	m.Status.Reason = reconcileStatus.Reason
+func (m *MustGather) SetConditions(conditions []metav1.Condition) {
+	m.Status.Conditions = conditions
 }
 
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+//+kubebuilder:object:root=true
+//+kubebuilder:subresource:status
 
 // MustGather is the Schema for the mustgathers API
-// +k8s:openapi-gen=true
-// +kubebuilder:subresource:status
-// +kubebuilder:resource:path=mustgathers,scope=Namespaced
 type MustGather struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -98,7 +103,7 @@ type MustGather struct {
 	Status MustGatherStatus `json:"status,omitempty"`
 }
 
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+//+kubebuilder:object:root=true
 
 // MustGatherList contains a list of MustGather
 type MustGatherList struct {

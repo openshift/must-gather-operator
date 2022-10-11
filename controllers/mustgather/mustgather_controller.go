@@ -1,3 +1,19 @@
+/*
+Copyright 2022.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package mustgather
 
 import (
@@ -12,35 +28,37 @@ import (
 
 	"github.com/go-logr/logr"
 	configv1 "github.com/openshift/api/config/v1"
-	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/pkg/apis/mustgather/v1alpha1"
+	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
+	"github.com/openshift/must-gather-operator/pkg/k8sutil"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
-	"github.com/operator-framework/operator-sdk/pkg/k8sutil"
 	"github.com/redhat-cop/operator-utils/pkg/util"
+	"github.com/redhat-cop/operator-utils/pkg/util/templates"
 	"github.com/scylladb/go-set/strset"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
-const controllerName = "mustgather-controller"
+const ControllerName = "mustgather-controller"
 
 const templateFileNameEnv = "JOB_TEMPLATE_FILE_NAME"
 const defaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"
 const defaultMustGatherNamespace = "openshift-must-gather-operator"
 const defaultMustGatherTimeoutENV = "DEFAULT_MUST_GATHER_TIMEOUT"
 
-var log = logf.Log.WithName(controllerName)
+var log = logf.Log.WithName(ControllerName)
+
+var defaultMustGatherImage string
+var defaultMustGatherTimeout string
+
+var jobTemplate *template.Template
 
 func init() {
 	var ok bool
@@ -55,77 +73,6 @@ func init() {
 		defaultMustGatherTimeout = "0"
 	}
 	fmt.Println("using default gather timeout: " + defaultMustGatherTimeout)
-}
-
-var defaultMustGatherImage string
-var defaultMustGatherTimeout string
-
-var jobTemplate *template.Template
-
-/**
-* USER ACTION REQUIRED: This is a scaffold file intended for the user to modify with their own Controller
-* business logic.  Delete these comments after modifying this file.*
- */
-
-// Add creates a new MustGather Controller and adds it to the Manager. The Manager will set fields on the Controller
-// and Start it when the Manager is Started.
-func Add(mgr manager.Manager) error {
-	return add(mgr, newReconciler(mgr))
-}
-
-// newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager) reconcile.Reconciler {
-	return &ReconcileMustGather{ReconcilerBase: util.NewReconcilerBase(mgr.GetClient(), mgr.GetScheme(), mgr.GetConfig(), mgr.GetEventRecorderFor(controllerName))}
-}
-
-// add adds a new Controller to mgr with r as the reconcile.Reconciler
-func add(mgr manager.Manager, r reconcile.Reconciler) error {
-	// Create a new controller
-	c, err := controller.New(controllerName, mgr, controller.Options{Reconciler: r})
-	if err != nil {
-		return err
-	}
-
-	// Watch for changes to primary resource MustGather
-	err = c.Watch(&source.Kind{Type: &mustgatherv1alpha1.MustGather{}}, &handler.EnqueueRequestForObject{}, util.ResourceGenerationOrFinalizerChangedPredicate{})
-	if err != nil {
-		return err
-	}
-
-	isStateUpdated := predicate.Funcs{
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldJob, ok := e.ObjectOld.(*batchv1.Job)
-			if !ok {
-				return false
-			}
-			newJob, ok := e.ObjectNew.(*batchv1.Job)
-			if !ok {
-				return false
-			}
-			return !reflect.DeepEqual(oldJob.Status, newJob.Status)
-		},
-		CreateFunc: func(e event.CreateEvent) bool {
-			return false
-		},
-		DeleteFunc: func(e event.DeleteEvent) bool {
-			return false
-		},
-		GenericFunc: func(e event.GenericEvent) bool {
-			return false
-		},
-	}
-
-	// TODO(user): Modify this to be the types you create that are owned by the primary resource
-	// Watch for changes to secondary resource Pods and requeue the owner MustGather
-	err = c.Watch(&source.Kind{Type: &batchv1.Job{}}, &handler.EnqueueRequestForOwner{
-		IsController: true,
-		OwnerType:    &mustgatherv1alpha1.MustGather{},
-	}, isStateUpdated)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func initializeTemplate() (*template.Template, error) {
@@ -155,11 +102,11 @@ func initializeTemplate() (*template.Template, error) {
 	return jobTemplate, err
 }
 
-// blank assignment to verify that ReconcileMustGather implements reconcile.Reconciler
-var _ reconcile.Reconciler = &ReconcileMustGather{}
+// blank assignment to verify that MustGatherReconciler implements reconcile.Reconciler
+var _ reconcile.Reconciler = &MustGatherReconciler{}
 
-// ReconcileMustGather reconciles a MustGather object
-type ReconcileMustGather struct {
+// MustGatherReconciler reconciles a MustGather object
+type MustGatherReconciler struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
 	util.ReconcilerBase
@@ -167,14 +114,20 @@ type ReconcileMustGather struct {
 
 const mustGatherFinalizer = "finalizer.mustgathers.managed.openshift.io"
 
-// Reconcile reads that state of the cluster for a MustGather object and makes changes based on the state read
-// and what is in the MustGather.Spec
-// TODO(user): Modify this Reconcile function to implement your Controller logic.  This example creates
-// a Pod as an example
-// Note:
-// The Controller will requeue the Request to be processed again if the returned error is non-nil or
-// Result.Requeue is true, otherwise upon completion it will remove the work from the queue.
-func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Result, error) {
+//+kubebuilder:rbac:groups=managed.openshift.io,resources=mustgathers,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=managed.openshift.io,resources=mustgathers/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=managed.openshift.io,resources=mustgathers/finalizers,verbs=update
+
+// Reconcile is part of the main kubernetes reconciliation loop which aims to
+// move the current state of the cluster closer to the desired state.
+// TODO(user): Modify the Reconcile function to compare the state specified by
+// the MustGather object against the actual cluster state, and then
+// perform operations to make the cluster state reflect the state specified by
+// the user.
+//
+// For more details, check Reconcile and its Result here:
+// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.2/pkg/reconcile
+func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
 	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
 	reqLogger.Info("Reconciling MustGather")
 
@@ -192,15 +145,11 @@ func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Re
 		return reconcile.Result{}, err
 	}
 
-	if ok, err := r.IsValid(instance); !ok {
-		return r.ManageError(instance, err)
-	}
-
 	if !r.IsInitialized(instance) {
 		err := r.GetClient().Update(context.TODO(), instance)
 		if err != nil {
 			log.Error(err, "unable to update instance", "instance", instance)
-			return r.ManageError(instance, err)
+			return r.ManageError(context.TODO(), instance, err)
 		}
 		return reconcile.Result{}, nil
 	}
@@ -278,7 +227,7 @@ func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Re
 			instance.SetFinalizers(remove(instance.GetFinalizers(), mustGatherFinalizer))
 			err := r.GetClient().Update(context.TODO(), instance)
 			if err != nil {
-				return r.ManageError(instance, err)
+				return r.ManageError(context.TODO(), instance, err)
 			}
 		}
 		return reconcile.Result{}, nil
@@ -294,7 +243,7 @@ func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Re
 	job, err := r.getJobFromInstance(instance)
 	if err != nil {
 		log.Error(err, "unable to get job from", "instance", instance)
-		return r.ManageError(instance, err)
+		return r.ManageError(context.TODO(), instance, err)
 	}
 
 	job1 := &batchv1.Job{}
@@ -342,21 +291,21 @@ func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Re
 			log.Info(fmt.Sprintf("Secret %s already exists in the %s namespace", secretName, operatorNs))
 
 			// job is not there, create it.
-			err = r.CreateResourceIfNotExists(instance, operatorNs, job)
+			err = r.CreateResourceIfNotExists(context.TODO(), instance, operatorNs, job)
 			if err != nil {
 				log.Error(err, "unable to create", "job", job)
-				return r.ManageError(instance, err)
+				return r.ManageError(context.TODO(), instance, err)
 			}
 			// Increment prometheus metrics for must gather total
 			localmetrics.MetricMustGatherTotal.Inc()
-			return r.ManageSuccess(instance)
+			return r.ManageSuccess(context.TODO(), instance)
 		}
 		// Error reading the object - requeue the request.
 		log.Error(err, "unable to look up", "job", types.NamespacedName{
 			Name:      job.GetName(),
 			Namespace: job.GetNamespace(),
 		})
-		return r.ManageError(instance, err)
+		return r.ManageError(context.TODO(), instance, err)
 	}
 
 	// Check status of job and update any metric counts
@@ -367,14 +316,14 @@ func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Re
 		// requeue instance to handle resource clean-up (delete secret, job, and MustGather)
 		if job1.Status.Succeeded > 0 && instance.GetDeletionTimestamp() == nil {
 			reqLogger.Info("MustGather Job pods succeeded")
-			err := r.DeleteResource(instance)
+			err := r.DeleteResourceIfExists(context.TODO(), instance)
 			return reconcile.Result{}, err
 		}
 		if job1.Status.Failed > 0 && instance.GetDeletionTimestamp() == nil {
 			reqLogger.Info("MustGather Job pods failed")
 			// Increment prometheus metrics for must gather errors
 			localmetrics.MetricMustGatherErrors.Inc()
-			err := r.DeleteResource(instance)
+			err := r.DeleteResourceIfExists(context.TODO(), instance)
 			return reconcile.Result{}, err
 		}
 	}
@@ -384,15 +333,24 @@ func (r *ReconcileMustGather) Reconcile(request reconcile.Request) (reconcile.Re
 	// 2. the job was updated, probably the status piece. we should the update the status of the instance, not supported yet.
 
 	return r.updateStatus(instance, job1)
+
 }
 
-func (r *ReconcileMustGather) updateStatus(instance *mustgatherv1alpha1.MustGather, job *batchv1.Job) (reconcile.Result, error) {
+func (r *MustGatherReconciler) updateStatus(instance *mustgatherv1alpha1.MustGather, job *batchv1.Job) (reconcile.Result, error) {
 	instance.Status.Completed = !job.Status.CompletionTime.IsZero()
 
-	return r.ManageSuccess(instance)
+	return r.ManageSuccess(context.TODO(), instance)
 }
 
-func (r *ReconcileMustGather) IsInitialized(instance *mustgatherv1alpha1.MustGather) bool {
+// SetupWithManager sets up the controller with the Manager.
+func (r *MustGatherReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&mustgatherv1alpha1.MustGather{}, builder.WithPredicates(resourceGenerationOrFinalizerChangedPredicate())).
+		Owns(&batchv1.Job{}, builder.WithPredicates(isStateUpdated())).
+		Complete(r)
+}
+
+func (r *MustGatherReconciler) IsInitialized(instance *mustgatherv1alpha1.MustGather) bool {
 	initialized := true
 	imageSet := strset.New(instance.Spec.MustGatherImages...)
 	if !imageSet.Has(defaultMustGatherImage) {
@@ -426,23 +384,8 @@ func (r *ReconcileMustGather) IsInitialized(instance *mustgatherv1alpha1.MustGat
 	return initialized
 }
 
-func (r *ReconcileMustGather) getJobFromInstance(instance *mustgatherv1alpha1.MustGather) (*unstructured.Unstructured, error) {
-	var err error
-	jobTemplate, err = initializeTemplate()
-	if err != nil {
-		log.Error(err, "unable to initialize job template")
-		return &unstructured.Unstructured{}, err
-	}
-	unstructuredJob, err := util.ProcessTemplate(instance, jobTemplate)
-	if err != nil {
-		log.Error(err, "unable to process", "template", jobTemplate, "with parameter", instance)
-		return &unstructured.Unstructured{}, err
-	}
-	return unstructuredJob, nil
-}
-
 // addFinalizer is a function that adds a finalizer for the MustGather CR
-func (r *ReconcileMustGather) addFinalizer(reqLogger logr.Logger, m *mustgatherv1alpha1.MustGather) error {
+func (r *MustGatherReconciler) addFinalizer(reqLogger logr.Logger, m *mustgatherv1alpha1.MustGather) error {
 	reqLogger.Info("Adding Finalizer for the MustGather")
 	m.SetFinalizers(append(m.GetFinalizers(), mustGatherFinalizer))
 
@@ -453,6 +396,21 @@ func (r *ReconcileMustGather) addFinalizer(reqLogger logr.Logger, m *mustgatherv
 		return err
 	}
 	return nil
+}
+
+func (r *MustGatherReconciler) getJobFromInstance(instance *mustgatherv1alpha1.MustGather) (*unstructured.Unstructured, error) {
+	var err error
+	jobTemplate, err = initializeTemplate()
+	if err != nil {
+		log.Error(err, "unable to initialize job template")
+		return &unstructured.Unstructured{}, err
+	}
+	unstructuredJob, err := templates.ProcessTemplate(context.TODO(), instance, jobTemplate)
+	if err != nil {
+		log.Error(err, "unable to process", "template", jobTemplate, "with parameter", instance)
+		return &unstructured.Unstructured{}, err
+	}
+	return unstructuredJob, nil
 }
 
 // contains is a helper function for finalizer
