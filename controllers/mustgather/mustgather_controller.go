@@ -20,7 +20,6 @@ import (
 	"context"
 	goerror "errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"reflect"
 	"strings"
@@ -80,7 +79,7 @@ func initializeTemplate() (*template.Template, error) {
 	if !ok {
 		templateFileName = "/etc/templates/job.template.yaml"
 	}
-	text, err := ioutil.ReadFile(templateFileName)
+	text, err := os.ReadFile(templateFileName)
 	if err != nil {
 		log.Error(err, "Error reading job template file", "filename", templateFileName)
 		return &template.Template{}, err
