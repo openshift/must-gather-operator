@@ -66,9 +66,8 @@ spec:
         - mountPath: /must-gather-upload
           name: must-gather-upload
         {{- if .Spec.PrivateSsl }}          
-        - mountPath: /tmp
+        - mountPath: /ssl
           name: aws-certs
-          readOnly: true
         {{- end }}
         env:
         {{ if .Spec.ProxyConfig.HTTPProxy -}}
@@ -129,7 +128,7 @@ spec:
               key: aws_region
         {{- if .Spec.PrivateSsl }}
         - name: AWS_CA_BUNDLE
-          value: /tmp/private-aws-certificate.crt
+          value: /ssl/private-aws-certificate.crt
         {{- end }}
   {{- end }}
 {{- end }}
