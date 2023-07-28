@@ -1,0 +1,29 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: case-management-creds
+  namespace: openshift-must-gather-operator
+type: Opaque
+data:
+  password: bWlsbGVubml1bQ==
+  username: YWJvaG1lZWQ=
+  aws_access_key_id: S2Fpamh3WDF2SWxjZ25NOGREdUU=
+  aws_secret_access_key: M0NlTEppeGpndFpMWHdZWjhHdGkydzB5ZVdPTHRjQXlKSFBhemF1Nw==
+  aws_endpoint_url: aHR0cHM6Ly8xOTIuMTY4LjIuMTc6OTAwMA==
+  aws_region: dXMtZWFzdC0x
+  ssl_cert: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUI4akNDQVplZ0F3SUJBZ0lRUlRGUXpmN202dmJPWTFOd3AxYzNSVEFLQmdncWhrak9QUVFEQWpCQU1Sd3cKR2dZRFZRUUtFeE5EWlhKMFoyVnVJRVJsZG1Wc2IzQnRaVzUwTVNBd0hnWURWUVFMREJkaGFHMWxaRUJ2Y0dWdQpjMmhwWm5RZ0tFRm9iV1ZrS1RBZUZ3MHlNekE0TURRd09UQTNORFJhRncweU5EQTRNRE13T1RBM05EUmFNRUF4CkhEQWFCZ05WQkFvVEUwTmxjblJuWlc0Z1JHVjJaV3h2Y0cxbGJuUXhJREFlQmdOVkJBc01GMkZvYldWa1FHOXcKWlc1emFHbG1kQ0FvUVdodFpXUXBNRmt3RXdZSEtvWkl6ajBDQVFZSUtvWkl6ajBEQVFjRFFnQUU5QkpybjZLOQpqcWdtWXp5WjNrMWVlOUZ4ejdTU2lKaGhEYWJxdyt5TlFMWEN0ZTgxaWhTMUxQUXpSSWo5UU5GWENLT2RJbGdZCkpkQUF5Q1Q0WUljOG1xTnpNSEV3RGdZRFZSMFBBUUgvQkFRREFnS2tNQk1HQTFVZEpRUU1NQW9HQ0NzR0FRVUYKQndNQk1BOEdBMVVkRXdFQi93UUZNQU1CQWY4d0hRWURWUjBPQkJZRUZQME9SZmlpY01qdzdBd09pQmhFQ1dvWgo0dCtyTUJvR0ExVWRFUVFUTUJHQ0NXeHZZMkZzYUc5emRJY0V3S2dDRVRBS0JnZ3Foa2pPUFFRREFnTkpBREJHCkFpRUEvcmp2b3hUQUxlSklNRFpVdllUem9TWGpGeDhLczlUUXUrV3NNVDQ2SXNFQ0lRRDM4T3p4WW9nT3ZZTzEKUTZja2NaT2RrL1l1Rk5CUWx6MHNTSjgvdlkrdHpnPT0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
+---
+apiVersion: managed.openshift.io/v1alpha1
+kind: MustGather
+metadata:
+  name: example-mustgather
+spec:
+  caseID: '02527285'
+  caseManagementAccountSecretRef:
+    name: case-management-creds
+  serviceAccountRef:
+    name: must-gather-admin
+  target: s3
+  awsBucket: mustgather01
+  privateSsl: true

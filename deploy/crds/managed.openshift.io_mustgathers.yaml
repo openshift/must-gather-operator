@@ -99,6 +99,11 @@ spec:
                 type: string
                 enum:
                   - s3
+              awsBucket:
+                type: string
+              privateSsl:
+                type: boolean
+                default: false
             required:
             - caseID
             - caseManagementAccountSecretRef

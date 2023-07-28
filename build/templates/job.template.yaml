@@ -23,7 +23,6 @@ spec:
       shareProcessNamespace: true
       containers:        
 {{- $timeout := .Spec.MustGatherTimeout}}
-{{/* 
 {{ range $index, $element := .Spec.MustGatherImages }} 
       - command:
         - /bin/bash
@@ -41,24 +40,23 @@ spec:
         - mountPath: /must-gather
           name: must-gather-output
 {{- end }}
-*/}}
       - command:
         - /bin/bash
         - -c
         - |
-          # count=0
-          # until [ $count -gt 4 ]
-          # do
-          #   while `pgrep -a gather > /dev/null`
-          #   do
-          #     echo "waiting for gathers to complete ..." 
-          #     sleep 120
-          #     count=0
-          #   done
-          #   echo "no gather is running ($count / 4)"
-          #   ((count++))
-          #   sleep 30
-          # done
+          count=0
+          until [ $count -gt 4 ]
+          do
+            while `pgrep -a gather > /dev/null`
+            do
+              echo "waiting for gathers to complete ..." 
+              sleep 120
+              count=0
+            done
+            echo "no gather is running ($count / 4)"
+            ((count++))
+            sleep 30
+          done
           /usr/local/bin/upload
         image: THIS_STRING_WILL_BE_REPLACED_BUT_DONT_CHANGE_IT
         name: upload
@@ -67,6 +65,11 @@ spec:
           name: must-gather-output
         - mountPath: /must-gather-upload
           name: must-gather-upload
+        {{- if .Spec.PrivateSsl }}          
+        - mountPath: /tmp
+          name: aws-certs
+          readOnly: true
+        {{- end }}
         env:
         {{ if .Spec.ProxyConfig.HTTPProxy -}}
         - name: http_proxy
@@ -99,7 +102,11 @@ spec:
         - name: internal_user
           value: "{{ .Spec.InternalUser }}"
 {{- if .Spec.Target }}
+        - name: TARGET
+          value: {{ .Spec.Target }}
   {{- if eq .Spec.Target "s3" }}
+        - name: AWS_BUCKET
+          value: {{ .Spec.AwsBucket }}
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
@@ -120,6 +127,10 @@ spec:
             secretKeyRef:
               name: {{ .Spec.CaseManagementAccountSecretRef.Name }}
               key: aws_region
+        {{- if .Spec.PrivateSsl }}
+        - name: AWS_CA_BUNDLE
+          value: /tmp/private-aws-certificate.crt
+        {{- end }}
   {{- end }}
 {{- end }}
       serviceAccountName: {{ .Spec.ServiceAccountRef.Name }}
@@ -128,4 +139,12 @@ spec:
         name: must-gather-output
       - emptyDir: {}
         name: must-gather-upload
+      {{- if .Spec.PrivateSsl }}
+      - name: aws-certs
+        secret:
+          secretName: {{ .Spec.CaseManagementAccountSecretRef.Name }}
+          items:
+          - key: ssl_cert
+            path: private-aws-certificate.crt
+      {{- end }}
 

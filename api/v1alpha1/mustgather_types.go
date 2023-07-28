@@ -62,6 +62,16 @@ type MustGatherSpec struct {
 	// It is only honored if set. Otherwise, the target is the Red Hat sFTP server
 	// +kubebuilder:validation:Optional
 	Target string `json:"target,omitempty" validate:"oneof=s3"`
+
+	// The AWS Bucket name to send the files to
+	// It is only honored if set. Otherwise, the target is the Red Hat sFTP server
+	// +kubebuilder:validation:Optional
+	AwsBucket string `json:"awsBucket,omitempty"`
+
+	// Whether we are using a private certificate to connect to S3.
+	// this is an optional parameter.
+	// +kubebuilder:default:=false
+	PrivateSsl bool `json:"privateSsl,omitempty"`
 }
 
 // +k8s:openapi-gen=true

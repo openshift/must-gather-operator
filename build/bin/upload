@@ -11,48 +11,58 @@
 
 set -o errexit
 
-# Testing that we have a successful connection to S3
-/usr/local/bin/s3_login
-sleep infinity
-# must_gather_output=${must_gather_output:="/must-gather-output"}
-# must_gather_upload=${must_gather_upload:="/must-gather-upload"}
-# FILENAME_PREFIX=${FILENAME_PREFIX:="must-gather"}
-# CURRENT_TIMESTAMP=$(date --utc +%Y%m%d_%H%M%SZ)
-# CSP_FILENAME=${FILENAME_PREFIX}-${CURRENT_TIMESTAMP}.tar.gz
-# CSP_FILE="${must_gather_upload}/${CSP_FILENAME}"
-# FTP_HOST=sftp.access.redhat.com
-# SFTP_OPTIONS="-o BatchMode=no -o StrictHostKeyChecking=no -b"
+must_gather_output=${must_gather_output:="/must-gather-output"}
+must_gather_upload=${must_gather_upload:="/must-gather-upload"}
+FILENAME_PREFIX=${FILENAME_PREFIX:="must-gather"}
+CURRENT_TIMESTAMP=$(date --utc +%Y%m%d_%H%M%SZ)
+CSP_FILENAME=${FILENAME_PREFIX}-${CURRENT_TIMESTAMP}.tar.gz
+CSP_FILE="${must_gather_upload}/${CSP_FILENAME}"
+FTP_HOST=sftp.access.redhat.com
+SFTP_OPTIONS="-o BatchMode=no -o StrictHostKeyChecking=no -b"
 
-# if [ -z "${caseid}" ] || [ -z "${username}" ] || [ -z "${password}" ];
-# then
-#   echo "Error: Required Parameters have not been provided. Exiting..."
-#   exit 1
-# fi
+if [ -z "${caseid}" ] || [ -z "${username}" ] || [ -z "${password}" ];
+then
+  echo "Error: Required Parameters have not been provided. Exiting..."
+  exit 1
+fi
 
-# echo "Archiving files from $must_gather_output to $must_gather_upload/${CSP_FILENAME}"
-# tar --ignore-failed-read -caf "$must_gather_upload/${CSP_FILENAME}" $must_gather_output/
+echo "Archiving files from $must_gather_output to $must_gather_upload/${CSP_FILENAME}"
+tar --ignore-failed-read -caf "$must_gather_upload/${CSP_FILENAME}" $must_gather_output/
 
-# echo "Uploading '${CSP_FILENAME}' to Red Hat Customer SFTP Server for case ${caseid}"
+echo "Uploading '${CSP_FILENAME}' for case ${caseid}"
 
-# REMOTE_FILENAME=${caseid}_${CSP_FILENAME}
+REMOTE_FILENAME=${caseid}_${CSP_FILENAME}
 
-# if [[ "${internal_user}" == true ]]; then
-#   # internal users must upload to a different path on the sftp
-#   REMOTE_FILENAME="${username}/${REMOTE_FILENAME}"
-# fi
-
-# # upload file and detect any erros
-# echo "Uploading ${CSP_FILE}..."
-# export SSHPASS=${password}
-# sshpass -e sftp ${SFTP_OPTIONS} - ${username}@${FTP_HOST} << EOF
-#     put ${CSP_FILE} ${REMOTE_FILENAME}
-#     bye
-# EOF
-
-# if [ $? -eq 0 ];
-# then
-#   echo "Successfully uploaded '${CSP_FILENAME}' to Red Hat SFTP Server for case ${caseid}!"
-# else
-#   echo "Error: Upload to Red Hat Customer SFTP Server failed."
-#   exit 1
-# fi
+if [[ "${internal_user}" == true ]]; then
+  # internal users must upload to a different path on the sftp
+  REMOTE_FILENAME="${username}/${REMOTE_FILENAME}"
+fi
+# If we have a defined target, then we need to use it instead of uploading to Red Hat
+if [ -z "$TARGET" ]; then
+  echo "Target: Red Hat sFTP server"
+  # upload file and detect any erros
+  echo "Uploading ${CSP_FILE}..."
+  export SSHPASS=${password}
+  sshpass -e sftp ${SFTP_OPTIONS} - ${username}@${FTP_HOST} << EOF
+      put ${CSP_FILE} ${REMOTE_FILENAME}
+      bye
+EOF
+  if [ $? -eq 0 ];
+  then
+    echo "Successfully uploaded '${CSP_FILENAME}' to Red Hat SFTP Server for case ${caseid}!"
+  else
+    echo "Error: Upload to Red Hat Customer SFTP Server failed."
+    exit 1
+  fi
+else
+  if [[ $TARGET -eq "s3" ]]; then
+    echo "Target: S3 Bucket"
+    aws s3 cp ${CSP_FILE} s3://${AWS_BUCKET}
+    if [ $? -eq 0 ]; then
+      echo "Successfully uploaded '${CSP_FILENAME}' to $AWS_BUCKET bucket!"
+    else
+      echo "Error: Upload to AWS Bucket failed."
+      exit 1
+    fi
+  fi
+fi

@@ -86,7 +86,49 @@ In order to run, the operator needs a secret to be created by the admin as follo
 ```shell
 oc create secret generic case-management-creds --from-literal=username=<username> --from-literal=password=<password>
 ```
+## Uploading to a (local) S3 bucket
+Some environments are air-gapped. They cannot reach Red Hat sFTP servers directly. One option is to send the files to an S3 bucket that could be provisioned internally (or in a DMZ) then uploaded to Red Hat from there.
 
+To use this option, you need to add some details to the `case-management-creds` Secret that define:
+- The AWS credentials (aws_access_key_id, aws_secret_access_key, and region)
+- Optionally, the endpoint_url. This is the internal URL for accessing the S3 bucket internally. If left blank, the public AWS S3 API will be contacted.
+- The bucket name
+A sample Secret could look like this:
+```yaml
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: case-management-creds
+  namespace: openshift-must-gather-operator
+type: Opaque
+data:
+  password: bWlsbGVubml1bQ==
+  username: YWJvaG1lZWQ=
+  aws_access_key_id: S2Fpamh3WDF2SWxjZ25NOGREdUU=
+  aws_secret_access_key: M0NlTEppeGpndFpMWHdZWjhHdGkydzB5ZVdPTHRjQXlKSFBhemF1Nw==
+  aws_endpoint_url: aHR0cDovLzE5Mi4xNjguMi4xNzo5MDAw
+  aws_region: dXMtZWFzdC0x
+```
+After you apply the secret using something like `oc apply -f case-management-creds.yaml`, you need to add the following details to the CR (Custom Resource):
+- `target`: Set it to `s3`.
+- `awsBucket`: The name of the S3 bucket where the files should go.
+
+An example CR:
+```yaml
+apiVersion: managed.openshift.io/v1alpha1
+kind: MustGather
+metadata:
+  name: example-mustgather
+spec:
+  caseID: '02527285'
+  caseManagementAccountSecretRef:
+    name: case-management-creds
+  serviceAccountRef:
+    name: must-gather-admin
+  target: s3
+  awsBucket: mustgather01
+```
 ## Local Development
 
 Execute the following steps to develop the functionality locally. It is recommended that development be done using a cluster with `cluster-admin` permissions.
