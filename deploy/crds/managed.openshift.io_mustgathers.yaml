@@ -95,6 +95,10 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+              target:
+                type: string
+                enum:
+                  - s3
             required:
             - caseID
             - caseManagementAccountSecretRef

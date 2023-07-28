@@ -1,54 +1,58 @@
 #!/bin/sh -e
 
-# this shell is responsible for compressing the must gather files and uploading to the case management system
+# this shell is responsible for compressing the must gather files and uploading to the case management system or to another target like S3
 # it can count on the following variables to be set
 # username: the user name for redhat case management system
 # password: the password for redhat case management system
 # caseid: the case id to upload to
 # must_gather_output: the directory in which the must gather agents have collected the information
 # must_gather_upload: a workspace directory that can be used as stage to zip and upload the must gather compressed file
+# must_gather_target: where to send the file. By default it goes to Red Hat's sFTP server.
 
 set -o errexit
 
-must_gather_output=${must_gather_output:="/must-gather-output"}
-must_gather_upload=${must_gather_upload:="/must-gather-upload"}
-FILENAME_PREFIX=${FILENAME_PREFIX:="must-gather"}
-CURRENT_TIMESTAMP=$(date --utc +%Y%m%d_%H%M%SZ)
-CSP_FILENAME=${FILENAME_PREFIX}-${CURRENT_TIMESTAMP}.tar.gz
-CSP_FILE="${must_gather_upload}/${CSP_FILENAME}"
-FTP_HOST=sftp.access.redhat.com
-SFTP_OPTIONS="-o BatchMode=no -o StrictHostKeyChecking=no -b"
+# Testing that we have a successful connection to S3
+/usr/local/bin/s3_login
+sleep infinity
+# must_gather_output=${must_gather_output:="/must-gather-output"}
+# must_gather_upload=${must_gather_upload:="/must-gather-upload"}
+# FILENAME_PREFIX=${FILENAME_PREFIX:="must-gather"}
+# CURRENT_TIMESTAMP=$(date --utc +%Y%m%d_%H%M%SZ)
+# CSP_FILENAME=${FILENAME_PREFIX}-${CURRENT_TIMESTAMP}.tar.gz
+# CSP_FILE="${must_gather_upload}/${CSP_FILENAME}"
+# FTP_HOST=sftp.access.redhat.com
+# SFTP_OPTIONS="-o BatchMode=no -o StrictHostKeyChecking=no -b"
 
-if [ -z "${caseid}" ] || [ -z "${username}" ] || [ -z "${password}" ];
-then
-  echo "Error: Required Parameters have not been provided. Exiting..."
-  exit 1
-fi
+# if [ -z "${caseid}" ] || [ -z "${username}" ] || [ -z "${password}" ];
+# then
+#   echo "Error: Required Parameters have not been provided. Exiting..."
+#   exit 1
+# fi
 
-echo "Archiving files from $must_gather_output to $must_gather_upload/${CSP_FILENAME}"
-tar --ignore-failed-read -caf "$must_gather_upload/${CSP_FILENAME}" $must_gather_output/
+# echo "Archiving files from $must_gather_output to $must_gather_upload/${CSP_FILENAME}"
+# tar --ignore-failed-read -caf "$must_gather_upload/${CSP_FILENAME}" $must_gather_output/
 
-echo "Uploading '${CSP_FILENAME}' to Red Hat Customer SFTP Server for case ${caseid}"
+# echo "Uploading '${CSP_FILENAME}' to Red Hat Customer SFTP Server for case ${caseid}"
 
-REMOTE_FILENAME=${caseid}_${CSP_FILENAME}
+# REMOTE_FILENAME=${caseid}_${CSP_FILENAME}
 
-if [[ "${internal_user}" == true ]]; then
-  # internal users must upload to a different path on the sftp
-  REMOTE_FILENAME="${username}/${REMOTE_FILENAME}"
-fi
+# if [[ "${internal_user}" == true ]]; then
+#   # internal users must upload to a different path on the sftp
+#   REMOTE_FILENAME="${username}/${REMOTE_FILENAME}"
+# fi
 
-# upload file and detect any erros
-echo "Uploading ${CSP_FILE}..."
-export SSHPASS=${password}
-sshpass -e sftp ${SFTP_OPTIONS} - ${username}@${FTP_HOST} << EOF
-    put ${CSP_FILE} ${REMOTE_FILENAME}
-    bye
-EOF
+# # upload file and detect any erros
+# echo "Uploading ${CSP_FILE}..."
+# export SSHPASS=${password}
+# sshpass -e sftp ${SFTP_OPTIONS} - ${username}@${FTP_HOST} << EOF
+#     put ${CSP_FILE} ${REMOTE_FILENAME}
+#     bye
+# EOF
 
-if [ $? -eq 0 ];
-then
-  echo "Successfully uploaded '${CSP_FILENAME}' to Red Hat SFTP Server for case ${caseid}!"
-else
-  echo "Error: Upload to Red Hat Customer SFTP Server failed."
-  exit 1
-fi
+# if [ $? -eq 0 ];
+# then
+#   echo "Successfully uploaded '${CSP_FILENAME}' to Red Hat SFTP Server for case ${caseid}!"
+# else
+#   echo "Error: Upload to Red Hat Customer SFTP Server failed."
+#   exit 1
+# fi

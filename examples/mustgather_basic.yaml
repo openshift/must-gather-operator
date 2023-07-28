@@ -8,3 +8,4 @@ spec:
     name: case-management-creds
   serviceAccountRef:
     name: must-gather-admin
+  target: s3

@@ -1,0 +1,35 @@
+#!/bin/sh -e
+
+# this shell is responsible for configuring the AWS client. 
+# It exports AWS variables that allow the awscli tool to run without having to configure it.
+# It can count on the following variables to be set:
+# AWS_ACCESS_KEY_ID: The AWS secret access key ID
+# AWS_SECRET_ACCESS_KEY: the AWS secret access key
+# AWS_ENDPOINT_URL: [Optional] If you are using a local S3 solution like Minio you need to specify the URL here.
+# AWS_REGION: [Optional] if you are using the AWS servers, you can set it. Otherwise, it will default to us-east-1
+
+set -o errexit
+
+# Check if AWS_ACCESS_KEY_ID is set and export it
+if [ -z "$AWS_ACCESS_KEY_ID" ]; then
+  echo "Error: AWS_ACCESS_KEY_ID is not set."
+  exit 1
+fi
+
+# Check if AWS_SECRET_ACCESS_KEY is set and export it
+if [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+  echo "Error: AWS_SECRET_ACCESS_KEY is not set."
+  exit 1
+fi
+
+# If AWS_ENDPOINT_URL is not set, set an empty default value
+AWS_ENDPOINT_URL="${AWS_ENDPOINT_URL:-""}"
+
+# If AWS_REGION is not set, use the default one
+AWS_REGION="${AWS_REGION:-us-east-1}"
+
+# Export the environment variables
+export AWS_ACCESS_KEY_ID
+export AWS_SECRET_ACCESS_KEY
+export AWS_ENDPOINT_URL
+export AWS_REGION

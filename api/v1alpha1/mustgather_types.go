@@ -57,6 +57,11 @@ type MustGatherSpec struct {
 	// See documentation for further information.
 	// +kubebuilder:default:=true
 	InternalUser bool `json:"internalUser,omitempty"`
+
+	// Target specifies the target service (e.g., "S3", "GCP", etc.)
+	// It is only honored if set. Otherwise, the target is the Red Hat sFTP server
+	// +kubebuilder:validation:Optional
+	Target string `json:"target,omitempty" validate:"oneof=s3"`
 }
 
 // +k8s:openapi-gen=true
