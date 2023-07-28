@@ -24,11 +24,16 @@ ENV OPERATOR=/usr/local/bin/must-gather-operator \
     USER_NAME=must-gather-operator \
     JOB_TEMPLATE_FILE_NAME=/etc/templates/job.template.yaml
 
-RUN microdnf install tar gzip openssh-clients wget shadow-utils procps && \
+RUN microdnf install tar gzip openssh-clients wget shadow-utils procps unzip && \
     wget https://kojipkgs.fedoraproject.org/packages/sshpass/1.06/9.el8/x86_64/sshpass-1.06-9.el8.x86_64.rpm && \
     rpm -U sshpass-1.06-9.el8.x86_64.rpm && \
     rm -f sshpass-1.06-9.el8.x86_64.rpm && \
-    microdnf clean all
+    microdnf clean all && \
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip && \
+    ./aws/install && \
+    rm -rf aws awscliv2.zip
+
 
 COPY --from=builder /src/build/_output/bin/${OPERATOR_BIN} /usr/local/bin/${OPERATOR_BIN}
 COPY --from=builder /src/build/bin /usr/local/bin

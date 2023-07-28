@@ -29,7 +29,8 @@ spec:
       containers:
         - name: must-gather-operator
           # Replace this with the built image name
-          image: quay.io/app-sre/must-gather-operator:latest
+          # image: quay.io/app-sre/must-gather-operator:latest
+          image: "afakharany/mustgather:2.0"
           command:
           - must-gather-operator
           imagePullPolicy: Always
@@ -42,3 +43,5 @@ spec:
                   fieldPath: metadata.name
             - name: OPERATOR_NAME
               value: "must-gather-operator"
+            - name: OPERATOR_IMAGE
+              value: "afakharany/mustgather:2.0"
