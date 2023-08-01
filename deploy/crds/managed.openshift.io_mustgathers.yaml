@@ -95,6 +95,19 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+              clean:
+                description: clean specifies whether MustGather clean should be invoked before uploading the files.
+                default: false
+                type: boolean
+              mustGatherCleanConfigMapRef:
+                description: the ConfigMap that would contain the configuraion parameters for the Must Gather Clean to work
+                properties:
+                  name:
+                    description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      TODO: Add other useful fields. apiVersion, kind, uid?'
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic              
             required:
             - caseID
             - caseManagementAccountSecretRef

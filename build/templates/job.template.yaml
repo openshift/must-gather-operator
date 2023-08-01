@@ -65,6 +65,12 @@ spec:
           name: must-gather-output
         - mountPath: /must-gather-upload
           name: must-gather-upload
+        {{- if eq .Spec.Clean true }}
+        - mountPath: /must-gather-output-cleaned
+          name: must-gather-output-cleaned
+        - mountPath: /must-gather-clean-config
+          name: config-volume
+        {{- end }}
         env:
         {{ if .Spec.ProxyConfig.HTTPProxy -}}
         - name: http_proxy
@@ -96,10 +102,18 @@ spec:
           value: /must-gather-upload
         - name: internal_user
           value: "{{ .Spec.InternalUser }}"
+        - name: clean
+          value: "{{ .Spec.Clean }}"
       serviceAccountName: {{ .Spec.ServiceAccountRef.Name }}
       volumes:
       - emptyDir: {}
         name: must-gather-output
       - emptyDir: {}
         name: must-gather-upload
-
+{{- if eq .Spec.Clean true }}
+      - emptyDir: {}
+        name: must-gather-output-cleaned
+      - name: config-volume
+        configMap:
+          name: {{ .Spec.MustGatherCleanConfigMapRef.Name }}
+{{- end }}

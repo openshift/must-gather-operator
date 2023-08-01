@@ -58,6 +58,72 @@ spec:
     https_proxy: https://my_http_proxy
     no_proxy: master-api
 ```
+## Mustgather Clean support
+You can optionally enable [Must Gather Clean](https://github.com/openshift/must-gather-clean), an obfuscation tool that is used to mask sensitive information from the logs (for example, IP address, Secrets, etc.)
+
+Must Gather Clean works by reading a YAML configuration file. This file can be loaded in a ConfigMap and referenced in the Custom Resource. 
+
+An example CR that enables Must Gather Clean could look as follows:
+```yaml
+apiVersion: managed.openshift.io/v1alpha1
+kind: MustGather
+metadata:
+  name: example-mustgather
+spec:
+  caseID: '02527285'
+  caseManagementAccountSecretRef:
+    name: case-management-creds
+  serviceAccountRef:
+    name: must-gather-admin
+  clean: true
+  mustGatherCleanConfigMapRef:
+    name: mustgather-clean-configmap
+```
+The ConfigMap must be applied to the cluster before creating the CR (for example, `oc apply -f examples/mustgather_clean_configmap.yaml`)
+
+This is a sample ConfigMap that contains an example Must Gather Clean configuration taken from the official docs:
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mustgather-clean-configmap
+  namespace: openshift-must-gather-operator
+data:
+  config.yaml: |
+    config:
+      obfuscate:
+        - type: IP
+          replacementType: Consistent
+          target: All
+        - type: MAC
+          replacementType: Consistent
+          target: All
+        - type: Domain
+          replacementType: Consistent
+          target: All
+          domainNames:
+            - "rhcloud.com"
+            - "dev.rhcloud.com"
+      omit:
+        - type: Kubernetes
+          kubernetesResource:
+            kind: "Secret"
+        - type: Kubernetes
+          kubernetesResource:
+            kind: "ConfigMap"
+        - type: Kubernetes
+          kubernetesResource:
+            kind: CertificateSigningRequest
+            apiVersion: certificates.k8s.io/v1
+        - type: Kubernetes
+          kubernetesResource:
+            kind: CertificateSigningRequestList
+            apiVersion: certificates.k8s.io/v1
+        - type: Kubernetes
+          kubernetesResource:
+            kind: MachineConfig
+            apiVersion: machineconfiguration.openshift.io/v1
+```
 
 ## Garbage collection
 
