@@ -14,11 +14,11 @@ import (
 
 func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenAPIDefinition {
 	return map[string]common.OpenAPIDefinition{
-		"github.com/openshift/must-gather-operator/api/v1alpha1.ProxySpec": schema_openshift_must_gather_operator_api_v1alpha1_ProxySpec(ref),
+		"github.com/ehvs/must-gather-operator/api/v1alpha1.ProxySpec": schema_ehvs_must_gather_operator_api_v1alpha1_ProxySpec(ref),
 	}
 }
 
-func schema_openshift_must_gather_operator_api_v1alpha1_ProxySpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_ehvs_must_gather_operator_api_v1alpha1_ProxySpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{

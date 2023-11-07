@@ -35,6 +35,11 @@ spec:
           spec:
             description: MustGatherSpec defines the desired state of MustGather
             properties:
+              audit:
+                default: false
+                description: A flag to specify if audit logs must be collected See
+                  documentation for further information.
+                type: boolean
               caseID:
                 description: The is of the case this must gather will be uploaded
                   to
