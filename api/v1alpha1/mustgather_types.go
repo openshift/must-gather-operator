@@ -44,6 +44,11 @@ type MustGatherSpec struct {
 	// +listType=set
 	MustGatherImages []string `json:"mustGatherImages,omitempty"`
 
+	// A flag to specify if audit logs must be collected
+	// See documentation for further information.
+	// +kubebuilder:default:=false
+	Audit bool `json:"audit,omitempty"`
+
 	// This represents the proxy configuration to be used. If left empty it will default to the cluster-level proxy configuration.
 	// +kubebuilder:validation:Optional
 	ProxyConfig ProxySpec `json:"proxyConfig,omitempty"`

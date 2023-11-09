@@ -21,14 +21,19 @@ spec:
       backoffLimit: 6
       restartPolicy: OnFailure     
       shareProcessNamespace: true
-      containers:        
+      containers:
+{{- $audit := .Spec.Audit}}        
 {{- $timeout := .Spec.MustGatherTimeout}}
 {{ range $index, $element := .Spec.MustGatherImages }} 
       - command:
         - /bin/bash
         - -c 
         - |
+{{ if $audit }}
+          timeout {{ $timeout }} bash -x -c -- '/usr/bin/gather_audit_logs'
+{{ else }}  
           timeout {{ $timeout }} bash -x -c -- '/usr/bin/gather'
+{{ end }}
           status=$?
           if [[ $status -eq 124 || $status -eq 137 ]]; then
             echo "Gather timed out."
