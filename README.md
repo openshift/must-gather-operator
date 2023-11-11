@@ -18,7 +18,8 @@ spec:
 
 This request will collect the standard must-gather info and upload it to case `#02527285` using the credentials found in the `caseManagementCreds` secret.
 
-A more complex example:
+## Adding other must-gather images
+In this example we are using a specific service account (which must have cluster-admin permissions as per must-gather requirements), and we are specifying a couple of additional must gather images to be run for the `kubevirt` and `ocs` subsystem. If not specified, serviceAccountRef.Name will default to `default`. Also the standard must gather image: `quay.io/openshift/origin-must-gather:latest` is always added by default.
 
 ```yaml
 apiVersion: managed.openshift.io/v1alpha1
@@ -35,8 +36,22 @@ spec:
   - quay.io/kubevirt/must-gather:latest
   - quay.io/ocs-dev/ocs-must-gather
 ```
-
-In this example we are using a specific service account (which must have cluster-admin permissions as per must-gather requirements), and we are specifying a couple of additional must gather images to be run for the `kubevirt` and `ocs` subsystem. If not specified, serviceAccountRef.Name will default to `default`. Also the standard must gather image: `quay.io/openshift/origin-must-gather:latest` is always added by default.
+## Collecting Audit logs
+The field `audit` is **false** by default unless explicetely set to **true**.
+This will generate the default collection of audit logs as per [the collection script: gather_audit_logs](https://github.com/openshift/must-gather/blob/master/collection-scripts/gather_audit_logs)
+```yaml
+apiVersion: managed.openshift.io/v1alpha1
+kind: MustGather
+metadata:
+  name: example-mustgather-full
+spec:
+  caseID: '02527285'
+  caseManagementAccountSecretRef:
+    name: case-management-creds
+  serviceAccountRef:
+    name: must-gather-admin
+  audit: true
+```
 
 ## Proxy Support
 
