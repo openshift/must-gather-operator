@@ -2,8 +2,6 @@ module github.com/openshift/must-gather-operator
 
 go 1.21
 
-toolchain go1.22.2
-
 require (
 	github.com/go-logr/logr v1.2.4
 	github.com/onsi/ginkgo/v2 v2.11.0
