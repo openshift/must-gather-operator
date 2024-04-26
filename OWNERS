@@ -1,8 +1,14 @@
 reviewers:
+- alexvulaj
 - bng0y
+- devppratik
 - dustman9000
 approvers:
+- alexvulaj
 - bng0y
+- devppratik
 - dustman9000
 - srep-functional-leads
-maintainer:
+maintainers:
+- bng0y
+- dustman9000
