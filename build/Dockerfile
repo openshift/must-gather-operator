@@ -1,4 +1,4 @@
-FROM quay.io/app-sre/boilerplate:image-v4.0.2 AS builder
+FROM quay.io/app-sre/boilerplate:image-v5.0.0 AS builder
 ENV OPERATOR=/usr/local/bin/must-gather-operator \
     OPERATOR_BIN=must-gather-operator \
     USER_UID=1001 \
