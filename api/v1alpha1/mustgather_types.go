@@ -53,12 +53,13 @@ type MustGatherSpec struct {
 	// +kubebuilder:validation:Optional
 	ProxyConfig ProxySpec `json:"proxyConfig,omitempty"`
 
-	// A time limit for gather command to complete a floating point number with an optional suffix:
-	// "s" for seconds (the default), "m" for minutes, "h" for hours or "d" for days will default to: $DEFAULT_MUST_GATHER_TIMEOUT'
+	// A time limit for gather command to complete a floating point number with a suffix:
+	// "s" for seconds, "m" for minutes, "h" for hours, or "d" for days.
+	// Will default to no time limit.
 	// +kubebuilder:validation:Optional
-	MustGatherTimeout string `json:"mustGatherTimeout,omitempty"`
+	MustGatherTimeout metav1.Duration `json:"mustGatherTimeout,omitempty"`
 
-	// A flag to specify if the upload user provided in the  caseManagementAccountSecret is a RH internal user.
+	// A flag to specify if the upload user provided in the caseManagementAccountSecret is a RH internal user.
 	// See documentation for further information.
 	// +kubebuilder:default:=true
 	InternalUser bool `json:"internalUser,omitempty"`

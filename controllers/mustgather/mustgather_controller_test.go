@@ -77,7 +77,7 @@ func createMustGatherObject() *mustgatherv1alpha1.MustGather {
 				Name: "case-management-creds",
 			},
 			ServiceAccountRef: corev1.LocalObjectReference{
-				Name: "must-gather-admin",
+				Name: "",
 			},
 			MustGatherImages: []string{"quay.io/openshift/origin-must-gather:latest"},
 		},

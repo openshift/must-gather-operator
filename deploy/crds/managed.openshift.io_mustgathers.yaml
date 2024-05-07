@@ -64,7 +64,7 @@ spec:
               internalUser:
                 default: true
                 description: |-
-                  A flag to specify if the upload user provided in the  caseManagementAccountSecret is a RH internal user.
+                  A flag to specify if the upload user provided in the caseManagementAccountSecret is a RH internal user.
                   See documentation for further information.
                 type: boolean
               mustGatherImages:
@@ -76,8 +76,9 @@ spec:
                 x-kubernetes-list-type: set
               mustGatherTimeout:
                 description: |-
-                  A time limit for gather command to complete a floating point number with an optional suffix:
-                  "s" for seconds (the default), "m" for minutes, "h" for hours or "d" for days will default to: $DEFAULT_MUST_GATHER_TIMEOUT'
+                  A time limit for gather command to complete a floating point number with a suffix:
+                  "s" for seconds, "m" for minutes, "h" for hours, or "d" for days.
+                  Will default to no time limit.
                 type: string
               proxyConfig:
                 description: This represents the proxy configuration to be used. If
