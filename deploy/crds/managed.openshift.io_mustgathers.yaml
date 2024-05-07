@@ -79,6 +79,7 @@ spec:
                   A time limit for gather command to complete a floating point number with a suffix:
                   "s" for seconds, "m" for minutes, "h" for hours, or "d" for days.
                   Will default to no time limit.
+                format: duration
                 type: string
               proxyConfig:
                 description: This represents the proxy configuration to be used. If
