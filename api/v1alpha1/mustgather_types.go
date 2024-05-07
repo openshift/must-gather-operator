@@ -57,6 +57,7 @@ type MustGatherSpec struct {
 	// "s" for seconds, "m" for minutes, "h" for hours, or "d" for days.
 	// Will default to no time limit.
 	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Format=duration
 	MustGatherTimeout metav1.Duration `json:"mustGatherTimeout,omitempty"`
 
 	// A flag to specify if the upload user provided in the caseManagementAccountSecret is a RH internal user.
