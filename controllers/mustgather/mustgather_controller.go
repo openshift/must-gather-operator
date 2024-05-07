@@ -20,11 +20,6 @@ import (
 	"context"
 	goerror "errors"
 	"fmt"
-	"os"
-	"reflect"
-	"strings"
-	"text/template"
-
 	"github.com/go-logr/logr"
 	configv1 "github.com/openshift/api/config/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
@@ -38,11 +33,15 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"os"
+	"reflect"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"strings"
+	"text/template"
 )
 
 const ControllerName = "mustgather-controller"
@@ -50,12 +49,10 @@ const ControllerName = "mustgather-controller"
 const templateFileNameEnv = "JOB_TEMPLATE_FILE_NAME"
 const defaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"
 const defaultMustGatherNamespace = "openshift-must-gather-operator"
-const defaultMustGatherTimeoutENV = "DEFAULT_MUST_GATHER_TIMEOUT"
 
 var log = logf.Log.WithName(ControllerName)
 
 var defaultMustGatherImage string
-var defaultMustGatherTimeout string
 
 var jobTemplate *template.Template
 
@@ -66,12 +63,6 @@ func init() {
 		defaultMustGatherImage = "quay.io/openshift/origin-must-gather:latest"
 	}
 	fmt.Println("using default must gather image: " + defaultMustGatherImage)
-
-	defaultMustGatherTimeout, ok = os.LookupEnv(defaultMustGatherTimeoutENV)
-	if !ok {
-		defaultMustGatherTimeout = "0"
-	}
-	fmt.Println("using default gather timeout: " + defaultMustGatherTimeout)
 }
 
 func initializeTemplate() (*template.Template, error) {
@@ -355,10 +346,6 @@ func (r *MustGatherReconciler) IsInitialized(instance *mustgatherv1alpha1.MustGa
 	if !imageSet.Has(defaultMustGatherImage) {
 		imageSet.Add(defaultMustGatherImage)
 		instance.Spec.MustGatherImages = imageSet.List()
-		initialized = false
-	}
-	if instance.Spec.MustGatherTimeout == "" {
-		instance.Spec.MustGatherTimeout = defaultMustGatherTimeout
 		initialized = false
 	}
 
