@@ -8,6 +8,3 @@ spec:
     name: case-management-creds
   serviceAccountRef:
     name: must-gather-admin
-  mustGatherImages:
-  - quay.io/kubevirt/must-gather:latest
-  - quay.io/ocs-dev/ocs-must-gather

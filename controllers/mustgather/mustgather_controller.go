@@ -20,6 +20,7 @@ import (
 	"context"
 	goerror "errors"
 	"fmt"
+	"github.com/blang/semver/v4"
 	"github.com/go-logr/logr"
 	configv1 "github.com/openshift/api/config/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
@@ -27,7 +28,6 @@ import (
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
 	"github.com/redhat-cop/operator-utils/pkg/util"
 	"github.com/redhat-cop/operator-utils/pkg/util/templates"
-	"github.com/scylladb/go-set/strset"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -47,25 +47,13 @@ import (
 const ControllerName = "mustgather-controller"
 
 const templateFileNameEnv = "JOB_TEMPLATE_FILE_NAME"
-const defaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"
 const defaultMustGatherNamespace = "openshift-must-gather-operator"
 
 var log = logf.Log.WithName(ControllerName)
 
-var defaultMustGatherImage string
-
 var jobTemplate *template.Template
 
-func init() {
-	var ok bool
-	defaultMustGatherImage, ok = os.LookupEnv(defaultMustGatherImageEnv)
-	if !ok {
-		defaultMustGatherImage = "quay.io/openshift/origin-must-gather:latest"
-	}
-	fmt.Println("using default must gather image: " + defaultMustGatherImage)
-}
-
-func initializeTemplate() (*template.Template, error) {
+func initializeTemplate(clusterVersion string) (*template.Template, error) {
 	templateFileName, ok := os.LookupEnv(templateFileNameEnv)
 	if !ok {
 		templateFileName = "/etc/templates/job.template.yaml"
@@ -76,14 +64,15 @@ func initializeTemplate() (*template.Template, error) {
 		return &template.Template{}, err
 	}
 	// Inject the operator image URI from the pod's env variables
-	operator_image, varPresent := os.LookupEnv("OPERATOR_IMAGE")
+	operatorImage, varPresent := os.LookupEnv("OPERATOR_IMAGE")
 	if !varPresent {
 		err := goerror.New("Operator image environment variable not found")
 		log.Error(err, "Error: no operator image found for job template")
 		return &template.Template{}, err
 	}
-	// TODO: make this a normal template parameter instead. This is ugly but works
-	str := strings.Replace(string(text), "THIS_STRING_WILL_BE_REPLACED_BUT_DONT_CHANGE_IT", operator_image, 1)
+	// TODO: make these normal template parameters instead. This is ugly but works
+	str := strings.Replace(string(text), "THIS_STRING_WILL_BE_REPLACED_BUT_DONT_CHANGE_IT", operatorImage, 1)
+	str = strings.Replace(str, "MUST_GATHER_IMAGE_DONT_CHANGE", clusterVersion, 1)
 	jobTemplate, err := template.New("MustGatherJob").Parse(str)
 	if err != nil {
 		log.Error(err, "Error parsing template", "template", str)
@@ -342,12 +331,6 @@ func (r *MustGatherReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *MustGatherReconciler) IsInitialized(instance *mustgatherv1alpha1.MustGather) bool {
 	initialized := true
-	imageSet := strset.New(instance.Spec.MustGatherImages...)
-	if !imageSet.Has(defaultMustGatherImage) {
-		imageSet.Add(defaultMustGatherImage)
-		instance.Spec.MustGatherImages = imageSet.List()
-		initialized = false
-	}
 
 	if instance.Spec.ServiceAccountRef.Name == "" {
 		instance.Spec.ServiceAccountRef.Name = "default"
@@ -385,8 +368,12 @@ func (r *MustGatherReconciler) addFinalizer(reqLogger logr.Logger, m *mustgather
 }
 
 func (r *MustGatherReconciler) getJobFromInstance(instance *mustgatherv1alpha1.MustGather) (*unstructured.Unstructured, error) {
-	var err error
-	jobTemplate, err = initializeTemplate()
+	version, err := r.getClusterVersionForJobTemplate("version")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cluster version for job template: %w", err)
+	}
+
+	jobTemplate, err = initializeTemplate(version)
 	if err != nil {
 		log.Error(err, "unable to initialize job template")
 		return &unstructured.Unstructured{}, err
@@ -397,6 +384,28 @@ func (r *MustGatherReconciler) getJobFromInstance(instance *mustgatherv1alpha1.M
 		return &unstructured.Unstructured{}, err
 	}
 	return unstructuredJob, nil
+}
+
+func (r *MustGatherReconciler) getClusterVersionForJobTemplate(clusterVersionName string) (string, error) {
+	clusterVersion := &configv1.ClusterVersion{}
+	err := r.GetClient().Get(context.TODO(), types.NamespacedName{Name: clusterVersionName}, clusterVersion)
+	if err != nil {
+		return "", fmt.Errorf("unable to get clusterversion '%v': %w", clusterVersionName, err)
+	}
+
+	var version string
+	for _, history := range clusterVersion.Status.History {
+		if history.State == "Completed" {
+			version = history.Version
+			break
+		}
+	}
+	if version == "" {
+		return "", goerror.New("unable to determine cluster version from status history")
+	}
+
+	parsedVersion, _ := semver.New(version)
+	return fmt.Sprintf("%v.%v", parsedVersion.Major, parsedVersion.Minor), nil
 }
 
 // contains is a helper function for finalizer
