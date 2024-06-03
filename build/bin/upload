@@ -25,8 +25,15 @@ then
   exit 1
 fi
 
-echo "Archiving files from $must_gather_output to $must_gather_upload/${CSP_FILENAME}"
-tar --ignore-failed-read -caf "$must_gather_upload/${CSP_FILENAME}" $must_gather_output/
+if [[ "${clean}" == true ]]; then 
+  echo "Running MustGather Clean against the file using /must-gather-clean-config/config.yaml configuration"
+  /usr/local/bin/must-gather-clean -c /must-gather-clean-config/config.yaml -i ${must_gather_output} -r /tmp -o /must-gather-output-cleaned
+  echo "Archiving files from /must-gather-output-cleaned to $must_gather_upload/${CSP_FILENAME}"
+  tar --ignore-failed-read -caf "$must_gather_upload/${CSP_FILENAME}" /must-gather-output-cleaned
+else
+  echo "Archiving files from $must_gather_output to $must_gather_upload/${CSP_FILENAME}"
+  tar --ignore-failed-read -caf "$must_gather_upload/${CSP_FILENAME}" $must_gather_output/
+fi
 
 echo "Uploading '${CSP_FILENAME}' to Red Hat Customer SFTP Server for case ${caseid}"
 
