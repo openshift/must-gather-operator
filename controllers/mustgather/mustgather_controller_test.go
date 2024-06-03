@@ -24,7 +24,7 @@ import (
 )
 
 func TestMustGatherController(t *testing.T) {
-	os.Setenv("JOB_TEMPLATE_FILE_NAME", "../../../build/templates/job.template.yaml")
+	_ = os.Setenv("JOB_TEMPLATE_FILE_NAME", "../../../build/templates/job.template.yaml")
 
 	mgObj := createMustGatherObject()
 	secObj := createMustGatherSecretObject()

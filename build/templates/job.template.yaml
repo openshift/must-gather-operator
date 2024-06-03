@@ -1,8 +1,5 @@
 apiVersion: batch/v1
 kind: Job
-metadata:
-  name: {{ .ObjectMeta.Name }}
-  namespace: {{ .ObjectMeta.Namespace }}
 spec:
   template:
     spec:
@@ -21,22 +18,9 @@ spec:
       restartPolicy: OnFailure
       shareProcessNamespace: true
       containers:
-{{- $audit := .Spec.Audit}}        
-{{- $timeout := .Spec.MustGatherTimeout.Duration}}
       - command:
         - /bin/bash
-        - -c 
-        - |
-{{ if $audit }}
-          timeout {{ $timeout }} bash -x -c -- '/usr/bin/gather_audit_logs'
-{{ else }}  
-          timeout {{ $timeout }} bash -x -c -- '/usr/bin/gather'
-{{ end }}
-          status=$?
-          if [[ $status -eq 124 || $status -eq 137 ]]; then
-            echo "Gather timed out."
-            exit 0
-          fi
+        - -c
         image: quay.io/openshift/origin-must-gather:MUST_GATHER_IMAGE_DONT_CHANGE
         name: gather
         volumeMounts:
@@ -68,37 +52,20 @@ spec:
         - mountPath: /must-gather-upload
           name: must-gather-upload
         env:
-        {{ if .Spec.ProxyConfig.HTTPProxy -}}
-        - name: http_proxy
-          value: {{ .Spec.ProxyConfig.HTTPProxy }}
-        {{ end -}}
-        {{ if .Spec.ProxyConfig.HTTPSProxy -}}
-        - name: https_proxy
-          value: {{ .Spec.ProxyConfig.HTTPSProxy }}
-        {{ end -}}
-        {{ if .Spec.ProxyConfig.NoProxy -}}
-        - name: no_proxy
-          value: {{ .Spec.ProxyConfig.NoProxy }}
-        {{ end -}}
         - name: username
           valueFrom:
             secretKeyRef:
-              name: {{ .Spec.CaseManagementAccountSecretRef.Name }}
               key: username
         - name: password
           valueFrom:
             secretKeyRef:
-              name: {{ .Spec.CaseManagementAccountSecretRef.Name }}
               key: password
         - name: caseid
-          value: "{{ .Spec.CaseID }}"
         - name: must_gather_output
           value: /must-gather
         - name: must_gather_upload
           value: /must-gather-upload
         - name: internal_user
-          value: "{{ .Spec.InternalUser }}"
-      serviceAccountName: {{ .Spec.ServiceAccountRef.Name }}
       volumes:
       - emptyDir: {}
         name: must-gather-output

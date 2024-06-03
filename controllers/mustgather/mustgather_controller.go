@@ -27,12 +27,11 @@ import (
 	"github.com/openshift/must-gather-operator/pkg/k8sutil"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
 	"github.com/redhat-cop/operator-utils/pkg/util"
-	"github.com/redhat-cop/operator-utils/pkg/util/templates"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"os"
 	"reflect"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -40,20 +39,32 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"strconv"
 	"strings"
-	"text/template"
 )
 
-const ControllerName = "mustgather-controller"
+const (
+	ControllerName = "mustgather-controller"
 
-const templateFileNameEnv = "JOB_TEMPLATE_FILE_NAME"
-const defaultMustGatherNamespace = "openshift-must-gather-operator"
+	templateFileNameEnv        = "JOB_TEMPLATE_FILE_NAME"
+	defaultMustGatherNamespace = "openshift-must-gather-operator"
+
+	gatherCommandBinaryAudit   = "gather_audit_logs"
+	gatherCommandBinaryNoAudit = "gather"
+	gatherCommand              = "\ntimeout %v bash -x -c -- '/usr/bin/%v'\n\nstatus=$?\nif [[ $status -eq 124 || $status -eq 137 ]]; then\n  echo \"Gather timed out.\"\n  exit 0\nfi"
+
+	containerEnvNameUsername     = "username"
+	containerEnvNamePassword     = "password"
+	containerEnvNameCaseID       = "caseid"
+	containerEnvNameInternalUser = "internal_user"
+	containerEnvNameHttpProxy    = "http_proxy"
+	containerEnvNameHttpsProxy   = "https_proxy"
+	containerEnvNameNoProxy      = "no_proxy"
+)
 
 var log = logf.Log.WithName(ControllerName)
 
-var jobTemplate *template.Template
-
-func initializeTemplate(clusterVersion string) (*template.Template, error) {
+func initializeTemplate(clusterVersion string) (string, error) {
 	templateFileName, ok := os.LookupEnv(templateFileNameEnv)
 	if !ok {
 		templateFileName = "/etc/templates/job.template.yaml"
@@ -61,24 +72,20 @@ func initializeTemplate(clusterVersion string) (*template.Template, error) {
 	text, err := os.ReadFile(templateFileName)
 	if err != nil {
 		log.Error(err, "Error reading job template file", "filename", templateFileName)
-		return &template.Template{}, err
+		return "", err
 	}
 	// Inject the operator image URI from the pod's env variables
 	operatorImage, varPresent := os.LookupEnv("OPERATOR_IMAGE")
 	if !varPresent {
 		err := goerror.New("Operator image environment variable not found")
 		log.Error(err, "Error: no operator image found for job template")
-		return &template.Template{}, err
+		return "", err
 	}
+
 	// TODO: make these normal template parameters instead. This is ugly but works
 	str := strings.Replace(string(text), "THIS_STRING_WILL_BE_REPLACED_BUT_DONT_CHANGE_IT", operatorImage, 1)
 	str = strings.Replace(str, "MUST_GATHER_IMAGE_DONT_CHANGE", clusterVersion, 1)
-	jobTemplate, err := template.New("MustGatherJob").Parse(str)
-	if err != nil {
-		log.Error(err, "Error parsing template", "template", str)
-		return &template.Template{}, err
-	}
-	return jobTemplate, err
+	return str, err
 }
 
 // blank assignment to verify that MustGatherReconciler implements reconcile.Reconciler
@@ -367,23 +374,78 @@ func (r *MustGatherReconciler) addFinalizer(reqLogger logr.Logger, m *mustgather
 	return nil
 }
 
-func (r *MustGatherReconciler) getJobFromInstance(instance *mustgatherv1alpha1.MustGather) (*unstructured.Unstructured, error) {
+func (r *MustGatherReconciler) getJobFromInstance(instance *mustgatherv1alpha1.MustGather) (*batchv1.Job, error) {
 	version, err := r.getClusterVersionForJobTemplate("version")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cluster version for job template: %w", err)
 	}
 
-	jobTemplate, err = initializeTemplate(version)
+	jobTemplate, err := initializeTemplate(version)
 	if err != nil {
 		log.Error(err, "unable to initialize job template")
-		return &unstructured.Unstructured{}, err
+		return nil, err
 	}
-	unstructuredJob, err := templates.ProcessTemplate(context.TODO(), instance, jobTemplate)
+
+	job, err := processJobTemplate(jobTemplate, instance)
 	if err != nil {
-		log.Error(err, "unable to process", "template", jobTemplate, "with parameter", instance)
-		return &unstructured.Unstructured{}, err
+		log.Error(err, "unable to process job template")
+		return nil, err
 	}
-	return unstructuredJob, nil
+
+	return job, nil
+}
+
+func processJobTemplate(jobTemplate string, instance *mustgatherv1alpha1.MustGather) (*batchv1.Job, error) {
+	job := &batchv1.Job{}
+	err := yaml.Unmarshal([]byte(jobTemplate), job)
+	if err != nil {
+		return nil, fmt.Errorf("failed to umarshal job template: %w", err)
+	}
+	job.ObjectMeta.Name = instance.ObjectMeta.Name
+	job.ObjectMeta.Namespace = instance.ObjectMeta.Namespace
+
+	var gatherCommandBinary string
+	if audit := instance.Spec.Audit; audit {
+		gatherCommandBinary = gatherCommandBinaryAudit
+	} else {
+		gatherCommandBinary = gatherCommandBinaryNoAudit
+	}
+
+	job.Spec.Template.Spec.Containers[0].Command = append(
+		job.Spec.Template.Spec.Containers[0].Command,
+		fmt.Sprintf(gatherCommand, instance.Spec.MustGatherTimeout.Duration, gatherCommandBinary),
+	)
+
+	for i, env := range job.Spec.Template.Spec.Containers[1].Env {
+		switch env.Name {
+		case containerEnvNameUsername, containerEnvNamePassword:
+			env.ValueFrom.SecretKeyRef.Name = instance.Spec.CaseManagementAccountSecretRef.Name
+		case containerEnvNameCaseID:
+			env.Value = instance.Spec.CaseID
+		case containerEnvNameInternalUser:
+			env.Value = strconv.FormatBool(instance.Spec.InternalUser)
+		}
+		job.Spec.Template.Spec.Containers[1].Env[i] = env
+	}
+
+	if httpProxy := instance.Spec.ProxyConfig.HTTPProxy; httpProxy != "" {
+		httpProxyEnvar := corev1.EnvVar{Name: containerEnvNameHttpProxy, Value: httpProxy}
+		job.Spec.Template.Spec.Containers[1].Env = append(job.Spec.Template.Spec.Containers[1].Env, httpProxyEnvar)
+	}
+
+	if httpsProxy := instance.Spec.ProxyConfig.HTTPSProxy; httpsProxy != "" {
+		httpProxyEnvar := corev1.EnvVar{Name: containerEnvNameHttpsProxy, Value: httpsProxy}
+		job.Spec.Template.Spec.Containers[1].Env = append(job.Spec.Template.Spec.Containers[1].Env, httpProxyEnvar)
+	}
+
+	if noProxy := instance.Spec.ProxyConfig.NoProxy; noProxy != "" {
+		noProxyEnvar := corev1.EnvVar{Name: containerEnvNameNoProxy, Value: noProxy}
+		job.Spec.Template.Spec.Containers[1].Env = append(job.Spec.Template.Spec.Containers[1].Env, noProxyEnvar)
+	}
+
+	job.Spec.Template.Spec.ServiceAccountName = instance.Spec.ServiceAccountRef.Name
+
+	return job, nil
 }
 
 func (r *MustGatherReconciler) getClusterVersionForJobTemplate(clusterVersionName string) (string, error) {
