@@ -18,13 +18,11 @@ spec:
         - effect: NoSchedule
           key: node-role.kubernetes.io/infra
           operator: Exists
-      backoffLimit: 6
-      restartPolicy: OnFailure     
+      restartPolicy: OnFailure
       shareProcessNamespace: true
       containers:
 {{- $audit := .Spec.Audit}}        
 {{- $timeout := .Spec.MustGatherTimeout.Duration}}
-{{ range $index, $element := .Spec.MustGatherImages }} 
       - command:
         - /bin/bash
         - -c 
@@ -39,12 +37,11 @@ spec:
             echo "Gather timed out."
             exit 0
           fi
-        image: {{ $element }}
-        name: gather-{{ $index }}
+        image: quay.io/openshift/origin-must-gather:MUST_GATHER_IMAGE_DONT_CHANGE
+        name: gather
         volumeMounts:
         - mountPath: /must-gather
           name: must-gather-output
-{{- end }}
       - command:
         - /bin/bash
         - -c

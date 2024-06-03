@@ -39,11 +39,6 @@ type MustGatherSpec struct {
 	/* +kubebuilder:default:="{Name:default}" */
 	ServiceAccountRef corev1.LocalObjectReference `json:"serviceAccountRef,omitempty"`
 
-	// The list of must gather images to run, optional, it will default to: $DEFAULT_MUST_GATHER_IMAGE
-	// +kubebuilder:validation:Optional
-	// +listType=set
-	MustGatherImages []string `json:"mustGatherImages,omitempty"`
-
 	// A flag to specify if audit logs must be collected
 	// See documentation for further information.
 	// +kubebuilder:default:=false

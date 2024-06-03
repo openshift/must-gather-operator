@@ -14,7 +14,7 @@ func (in *MustGather) DeepCopyInto(out *MustGather) {
 	*out = *in
 	out.TypeMeta = in.TypeMeta
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
-	in.Spec.DeepCopyInto(&out.Spec)
+	out.Spec = in.Spec
 	in.Status.DeepCopyInto(&out.Status)
 }
 
@@ -73,11 +73,6 @@ func (in *MustGatherSpec) DeepCopyInto(out *MustGatherSpec) {
 	*out = *in
 	out.CaseManagementAccountSecretRef = in.CaseManagementAccountSecretRef
 	out.ServiceAccountRef = in.ServiceAccountRef
-	if in.MustGatherImages != nil {
-		in, out := &in.MustGatherImages, &out.MustGatherImages
-		*out = make([]string, len(*in))
-		copy(*out, *in)
-	}
 	out.ProxyConfig = in.ProxyConfig
 	out.MustGatherTimeout = in.MustGatherTimeout
 }

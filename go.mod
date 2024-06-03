@@ -3,6 +3,7 @@ module github.com/openshift/must-gather-operator
 go 1.21
 
 require (
+	github.com/blang/semver/v4 v4.0.0
 	github.com/go-logr/logr v1.2.4
 	github.com/onsi/ginkgo/v2 v2.11.0
 	github.com/onsi/gomega v1.27.10
@@ -12,7 +13,6 @@ require (
 	github.com/operator-framework/operator-lib v0.11.0
 	github.com/prometheus/client_golang v1.16.0
 	github.com/redhat-cop/operator-utils v1.3.7
-	github.com/scylladb/go-set v1.0.2
 	k8s.io/api v0.28.2
 	k8s.io/apimachinery v0.28.2
 	k8s.io/client-go v0.28.2
