@@ -27,11 +27,9 @@ import (
 	"github.com/openshift/must-gather-operator/pkg/k8sutil"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
 	"github.com/redhat-cop/operator-utils/pkg/util"
-	"github.com/redhat-cop/operator-utils/pkg/util/templates"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"os"
 	"reflect"
@@ -40,46 +38,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"strings"
-	"text/template"
 )
 
-const ControllerName = "mustgather-controller"
+const (
+	ControllerName = "mustgather-controller"
 
-const templateFileNameEnv = "JOB_TEMPLATE_FILE_NAME"
-const defaultMustGatherNamespace = "openshift-must-gather-operator"
+	defaultMustGatherNamespace = "openshift-must-gather-operator"
+)
 
 var log = logf.Log.WithName(ControllerName)
-
-var jobTemplate *template.Template
-
-func initializeTemplate(clusterVersion string) (*template.Template, error) {
-	templateFileName, ok := os.LookupEnv(templateFileNameEnv)
-	if !ok {
-		templateFileName = "/etc/templates/job.template.yaml"
-	}
-	text, err := os.ReadFile(templateFileName)
-	if err != nil {
-		log.Error(err, "Error reading job template file", "filename", templateFileName)
-		return &template.Template{}, err
-	}
-	// Inject the operator image URI from the pod's env variables
-	operatorImage, varPresent := os.LookupEnv("OPERATOR_IMAGE")
-	if !varPresent {
-		err := goerror.New("Operator image environment variable not found")
-		log.Error(err, "Error: no operator image found for job template")
-		return &template.Template{}, err
-	}
-	// TODO: make these normal template parameters instead. This is ugly but works
-	str := strings.Replace(string(text), "THIS_STRING_WILL_BE_REPLACED_BUT_DONT_CHANGE_IT", operatorImage, 1)
-	str = strings.Replace(str, "MUST_GATHER_IMAGE_DONT_CHANGE", clusterVersion, 1)
-	jobTemplate, err := template.New("MustGatherJob").Parse(str)
-	if err != nil {
-		log.Error(err, "Error parsing template", "template", str)
-		return &template.Template{}, err
-	}
-	return jobTemplate, err
-}
 
 // blank assignment to verify that MustGatherReconciler implements reconcile.Reconciler
 var _ reconcile.Reconciler = &MustGatherReconciler{}
@@ -367,23 +334,21 @@ func (r *MustGatherReconciler) addFinalizer(reqLogger logr.Logger, m *mustgather
 	return nil
 }
 
-func (r *MustGatherReconciler) getJobFromInstance(instance *mustgatherv1alpha1.MustGather) (*unstructured.Unstructured, error) {
+func (r *MustGatherReconciler) getJobFromInstance(instance *mustgatherv1alpha1.MustGather) (*batchv1.Job, error) {
+	// Inject the operator image URI from the pod's env variables
+	operatorImage, varPresent := os.LookupEnv("OPERATOR_IMAGE")
+	if !varPresent {
+		err := goerror.New("Operator image environment variable not found")
+		log.Error(err, "Error: no operator image found for job template")
+		return nil, err
+	}
+
 	version, err := r.getClusterVersionForJobTemplate("version")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cluster version for job template: %w", err)
 	}
 
-	jobTemplate, err = initializeTemplate(version)
-	if err != nil {
-		log.Error(err, "unable to initialize job template")
-		return &unstructured.Unstructured{}, err
-	}
-	unstructuredJob, err := templates.ProcessTemplate(context.TODO(), instance, jobTemplate)
-	if err != nil {
-		log.Error(err, "unable to process", "template", jobTemplate, "with parameter", instance)
-		return &unstructured.Unstructured{}, err
-	}
-	return unstructuredJob, nil
+	return getJobTemplate(operatorImage, version, *instance), nil
 }
 
 func (r *MustGatherReconciler) getClusterVersionForJobTemplate(clusterVersionName string) (string, error) {
