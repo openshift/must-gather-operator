@@ -3,7 +3,6 @@ package mustgather
 import (
 	"context"
 	configv1 "github.com/openshift/api/config/v1"
-	"os"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"testing"
 
@@ -24,8 +23,6 @@ import (
 )
 
 func TestMustGatherController(t *testing.T) {
-	_ = os.Setenv("JOB_TEMPLATE_FILE_NAME", "../../../build/templates/job.template.yaml")
-
 	mgObj := createMustGatherObject()
 	secObj := createMustGatherSecretObject()
 
