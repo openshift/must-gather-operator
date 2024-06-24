@@ -47,6 +47,7 @@ func getJobTemplate(operatorImage string, clusterVersion string, mustGather v1al
 			mustGather.Spec.ProxyConfig.HTTPProxy,
 			mustGather.Spec.ProxyConfig.HTTPSProxy,
 			mustGather.Spec.ProxyConfig.NoProxy,
+			mustGather.Spec.CaseManagementAccountSecretRef,
 		),
 	)
 	return job
@@ -136,6 +137,7 @@ func getUploadContainer(
 	httpProxy string,
 	httpsProxy string,
 	noProxy string,
+	secretKeyRefName corev1.LocalObjectReference,
 ) corev1.Container {
 	container := corev1.Container{
 		Command: []string{
@@ -160,7 +162,8 @@ func getUploadContainer(
 				Name: uploadEnvUsername,
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
-						Key: uploadEnvUsername,
+						Key:                  uploadEnvUsername,
+						LocalObjectReference: secretKeyRefName,
 					},
 				},
 			},
@@ -168,7 +171,8 @@ func getUploadContainer(
 				Name: uploadEnvPassword,
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
-						Key: uploadEnvPassword,
+						Key:                  uploadEnvPassword,
+						LocalObjectReference: secretKeyRefName,
 					},
 				},
 			},
