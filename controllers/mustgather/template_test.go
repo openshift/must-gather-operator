@@ -71,7 +71,7 @@ func Test_getGatherContainer(t *testing.T) {
 				testFailed = true
 			}
 
-			if !strings.HasPrefix(containerCommand, fmt.Sprintf("\ntimeout %v", tt.timeout)) {
+			if !strings.HasPrefix(containerCommand, fmt.Sprintf("timeout %v", tt.timeout)) {
 				t.Logf("the duration was not properly added to the container command, got %v but wanted %v", strings.Split(containerCommand, " ")[1], tt.timeout.String())
 				testFailed = true
 			}

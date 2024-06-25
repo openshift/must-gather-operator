@@ -19,19 +19,21 @@ const (
 
 	gatherCommandBinaryAudit   = "gather_audit_logs"
 	gatherCommandBinaryNoAudit = "gather"
-	gatherCommand              = "\ntimeout %v bash -x -c -- '/usr/bin/%v'\n\nstatus=$?\nif [[ $status -eq 124 || $status -eq 137 ]]; then\n  echo \"Gather timed out.\"\n  exit 0\nfi"
+	gatherCommand              = "timeout %v bash -x -c -- '/usr/bin/%v'\n\nstatus=$?\nif [[ $status -eq 124 || $status -eq 137 ]]; then\n  echo \"Gather timed out.\"\n  exit 0\nfi"
 	mustGatherImage            = "quay.io/openshift/origin-must-gather"
 	gatherContainerName        = "gather"
 
-	uploadContainerName   = "upload"
-	uploadEnvUsername     = "username"
-	uploadEnvPassword     = "password"
-	uploadEnvCaseId       = "caseid"
-	uploadEnvInternalUser = "internal_user"
-	uploadEnvHttpProxy    = "http_proxy"
-	uploadEnvHttpsProxy   = "https_proxy"
-	uploadEnvNoProxy      = "no_proxy"
-	uploadCommand         = "count=0\nuntil [ $count -gt 4 ]\ndo\n  while `pgrep -a gather > /dev/null`\n  do\n    echo \"waiting for gathers to complete ...\" \n    sleep 120\n    count=0\n  done\n  echo \"no gather is running ($count / 4)\"\n  ((count++))\n  sleep 30\ndone\n/usr/local/bin/upload\n"
+	uploadContainerName       = "upload"
+	uploadEnvUsername         = "username"
+	uploadEnvPassword         = "password"
+	uploadEnvCaseId           = "caseid"
+	uploadEnvInternalUser     = "internal_user"
+	uploadEnvHttpProxy        = "http_proxy"
+	uploadEnvHttpsProxy       = "https_proxy"
+	uploadEnvNoProxy          = "no_proxy"
+	uploadEnvMustGatherOutput = "must_gather_output"
+	uploadEnvMustGatherUpload = "must_gather_upload"
+	uploadCommand             = "count=0\nuntil [ $count -gt 4 ]\ndo\n  while `pgrep -a gather > /dev/null`\n  do\n    echo \"waiting for gathers to complete ...\"\n    sleep 120\n    count=0\n  done\n  echo \"no gather is running ($count / 4)\"\n  ((count++))\n  sleep 30\ndone\n/usr/local/bin/upload"
 )
 
 func getJobTemplate(operatorImage string, clusterVersion string, mustGather v1alpha1.MustGather) *batchv1.Job {
@@ -179,6 +181,14 @@ func getUploadContainer(
 			{
 				Name:  uploadEnvCaseId,
 				Value: caseId,
+			},
+			{
+				Name:  uploadEnvMustGatherOutput,
+				Value: volumeMountPath,
+			},
+			{
+				Name:  uploadEnvMustGatherUpload,
+				Value: volumeUploadMountPath,
 			},
 			{
 				Name:  uploadEnvInternalUser,
