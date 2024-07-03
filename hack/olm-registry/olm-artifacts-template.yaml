@@ -1,3 +1,6 @@
+# !!! DO NOT EDIT !!!
+# This SSS is being removed and its contents migrated to the Release Bundle.
+# Please join #wg-rvmo if you have any questions or need to edit this file.
 apiVersion: v1
 kind: Template
 parameters:
@@ -27,7 +30,7 @@ objects:
     clusterDeploymentSelector:
       matchLabels:
         api.openshift.com/managed: 'true'
-    resourceApplyMode: Sync
+    resourceApplyMode: Upsert
     resources:
     - apiVersion: v1
       kind: Namespace
