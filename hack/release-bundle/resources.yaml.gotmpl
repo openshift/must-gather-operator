@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-${OPERATOR_NAME}
+  annotations:
+    package-operator.run/phase: namespaces
+    openshift.io/node-selector: ""
+  labels:
+    openshift.io/cluster-logging: "true"
+    openshift.io/cluster-monitoring: 'true'
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: ${OPERATOR_NAME}-registry
+  namespace: openshift-${OPERATOR_NAME}
+  annotations:
+    package-operator.run/phase: ${OPERATOR_NAME}
+  labels:
+    opsrc-datastore: "true"
+    opsrc-provider: redhat
+spec:
+  image: ${REGISTRY_IMG}@${IMAGE_DIGEST}
+  displayName: ${OPERATOR_NAME}
+  icon:
+    base64data: ''
+    mediatype: ''
+  publisher: Red Hat
+  sourceType: grpc
+  grpcPodConfig:
+    securityContextConfig: restricted
+    nodeSelector:
+      node-role.kubernetes.io: infra
+    tolerations:
+    - effect: NoSchedule
+      key: node-role.kubernetes.io/infra
+      operator: Exists
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: ${OPERATOR_NAME}
+  namespace: openshift-${OPERATOR_NAME}
+  annotations:
+    package-operator.run/phase: ${OPERATOR_NAME}
+spec:
+  channel: ${CHANNEL}
+  name: ${OPERATOR_NAME}
+  source: ${OPERATOR_NAME}-registry
+  sourceNamespace: openshift-${OPERATOR_NAME}
+---
+apiVersion: operators.coreos.com/v1alpha2
+kind: OperatorGroup
+metadata:
+  name: ${OPERATOR_NAME}
+  namespace: openshift-${OPERATOR_NAME}
+  annotations:
+    package-operator.run/phase: ${OPERATOR_NAME}
+    olm.operatorframework.io/exclude-global-namespace-resolution: 'true'
+spec:
+  targetNamespaces:
+  - openshift-${OPERATOR_NAME}
