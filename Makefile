@@ -1,4 +1,8 @@
 FIPS_ENABLED=true
+RELEASE_BRANCHED_BUILDS?=true
+
+# This needs to be hardcoded until https://issues.redhat.com/browse/SDCICD-1336 is fixed
+RELEASE_BRANCH=release-4.13
 
 include boilerplate/generated-includes.mk
 
