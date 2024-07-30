@@ -23,11 +23,6 @@ const (
 	// OperatorNameEnvVar is the constant for env variable OPERATOR_NAME
 	// which is the name of the current operator
 	OperatorNameEnvVar = "OPERATOR_NAME"
-
-	// WatchNamespaceEnvVar is the constant for env variable WATCH_NAMESPACE
-	// which is the namespace where the watch activity happens.
-	// this value is empty if the operator is running with clusterScope.
-	WatchNamespaceEnvVar = "WATCH_NAMESPACE"
 )
 
 // ErrNoNamespace indicates that a namespace could not be found for the current
@@ -40,15 +35,6 @@ var ErrRunLocal = fmt.Errorf("operator run mode forced to local")
 
 func isRunModeLocal() bool {
 	return os.Getenv(ForceRunModeEnv) == string(LocalRunMode)
-}
-
-// GetWatchNamespace returns the namespace the operator should be watching for changes
-func GetWatchNamespace() (string, error) {
-	ns, found := os.LookupEnv(WatchNamespaceEnvVar)
-	if !found {
-		return "", fmt.Errorf("%s must be set", WatchNamespaceEnvVar)
-	}
-	return ns, nil
 }
 
 // GetOperatorNamespace returns the namespace the operator should be running in.
