@@ -32,6 +32,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -42,10 +43,9 @@ import (
 	"github.com/operator-framework/operator-lib/leader"
 	"github.com/redhat-cop/operator-utils/pkg/util"
 
-	"github.com/openshift/api/config/v1"
+	v1 "github.com/openshift/api/config/v1"
 	managedv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 	"github.com/openshift/must-gather-operator/controllers/mustgather"
-	"github.com/openshift/must-gather-operator/pkg/k8sutil"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
 	//+kubebuilder:scaffold:imports
 )
@@ -55,6 +55,8 @@ const (
 	ForceRunModeEnv = "OSDK_FORCE_RUN_MODE"
 	// Flags that the operator is running locally
 	LocalRunMode = "local"
+	// Namespace for operator to watch
+	namespace = "openshift-must-gather-operator"
 )
 
 var (
@@ -103,12 +105,6 @@ func main() {
 
 	printVersion()
 
-	namespace, err := k8sutil.GetWatchNamespace()
-	if err != nil {
-		log.Error(err, "Failed to get watch namespace")
-		os.Exit(1)
-	}
-
 	options := ctrl.Options{
 		Scheme:                 scheme,
 		MetricsBindAddress:     "0", // metricsAddr,
@@ -116,14 +112,9 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "b15e5fc1.openshift.io",
-	}
-
-	// Add support for MultiNamespace set in WATCH_NAMESPACE (e.g ns1,ns2)
-	// Note that this is not intended to be used for excluding namespaces, this is better done via a Predicate
-	// Also note that you may face performance issues when using this with a high number of namespaces.
-	// More Info: https://godoc.org/github.com/kubernetes-sigs/controller-runtime/pkg/cache#MultiNamespacedCacheBuilder
-	if strings.Contains(namespace, ",") {
-		options.Cache.Namespaces = strings.Split(namespace, "")
+		Cache: cache.Options{
+			Namespaces: []string{namespace},
+		},
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), options)
