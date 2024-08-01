@@ -1,5 +1,4 @@
 FIPS_ENABLED=true
-RELEASE_BRANCHED_BUILDS?=true
 
 include boilerplate/generated-includes.mk
 
