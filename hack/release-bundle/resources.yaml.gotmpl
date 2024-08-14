@@ -3,6 +3,7 @@ kind: Namespace
 metadata:
   name: openshift-${OPERATOR_NAME}
   annotations:
+    package-operator.run/collision-protection: IfNoController
     package-operator.run/phase: namespaces
     openshift.io/node-selector: ""
   labels:
@@ -15,6 +16,7 @@ metadata:
   name: ${OPERATOR_NAME}-registry
   namespace: openshift-${OPERATOR_NAME}
   annotations:
+    package-operator.run/collision-protection: IfNoController
     package-operator.run/phase: ${OPERATOR_NAME}
   labels:
     opsrc-datastore: "true"
@@ -42,6 +44,7 @@ metadata:
   name: ${OPERATOR_NAME}
   namespace: openshift-${OPERATOR_NAME}
   annotations:
+    package-operator.run/collision-protection: IfNoController
     package-operator.run/phase: ${OPERATOR_NAME}
 spec:
   channel: ${CHANNEL}
@@ -55,6 +58,7 @@ metadata:
   name: ${OPERATOR_NAME}
   namespace: openshift-${OPERATOR_NAME}
   annotations:
+    package-operator.run/collision-protection: IfNoController
     package-operator.run/phase: ${OPERATOR_NAME}
     olm.operatorframework.io/exclude-global-namespace-resolution: 'true'
 spec:
