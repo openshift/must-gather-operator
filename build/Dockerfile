@@ -1,4 +1,4 @@
-FROM quay.io/app-sre/boilerplate:image-v5.0.0 AS builder
+FROM quay.io/app-sre/boilerplate:image-v5.0.1 AS builder
 ENV OPERATOR=/usr/local/bin/must-gather-operator \
     OPERATOR_BIN=must-gather-operator \
     USER_UID=1001 \
@@ -16,7 +16,7 @@ COPY . /src
 
 RUN make go-build
 
-FROM registry.access.redhat.com/ubi8/ubi-minimal:8.10-1018
+FROM registry.access.redhat.com/ubi8/ubi-minimal:8.10-1052
 ENV OPERATOR=/usr/local/bin/must-gather-operator \
     OPERATOR_BIN=must-gather-operator \
     USER_UID=1001 \
