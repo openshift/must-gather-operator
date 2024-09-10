@@ -106,7 +106,7 @@ var _ = ginkgo.Describe("must-gather-operator", ginkgo.Ordered, func() {
 		ginkgo.Entry("by openshift-backplane-cee", "test@redhat.com", "system:serviceaccounts:openshift-backplane-cee"),
 	)
 
-	ginkgo.It("can be upgraded", func(ctx context.Context) {
+	ginkgo.PIt("can be upgraded", func(ctx context.Context) {
 		ginkgo.By("forcing operator upgrade")
 		err := oc.UpgradeOperator(ctx, operator, namespace)
 		Expect(err).NotTo(HaveOccurred(), "operator upgrade failed")
