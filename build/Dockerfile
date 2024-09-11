@@ -22,10 +22,7 @@ ENV OPERATOR=/usr/local/bin/must-gather-operator \
     USER_UID=1001 \
     USER_NAME=must-gather-operator
 
-RUN microdnf install tar gzip openssh-clients wget shadow-utils procps && \
-    wget https://kojipkgs.fedoraproject.org/packages/sshpass/1.06/9.el8/x86_64/sshpass-1.06-9.el8.x86_64.rpm && \
-    rpm -U sshpass-1.06-9.el8.x86_64.rpm && \
-    rm -f sshpass-1.06-9.el8.x86_64.rpm && \
+RUN microdnf install tar gzip openssh-clients wget shadow-utils procps sshpass && \
     microdnf clean all
 
 COPY --from=builder /src/build/_output/bin/${OPERATOR_BIN} /usr/local/bin/${OPERATOR_BIN}
