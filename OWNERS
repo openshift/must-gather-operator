@@ -1,8 +1,15 @@
 reviewers:
+- alexvulaj
+- bng0y
+- devppratik
 - dustman9000
-- csheremeta
 approvers:
+- alexvulaj
+- bng0y
+- devppratik
 - dustman9000
-- csheremeta
-maintainer:
-- csheremeta
+- mmazur
+- srep-functional-leads
+maintainers:
+- bng0y
+- dustman9000

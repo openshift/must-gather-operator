@@ -3,6 +3,15 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: must-gather-operator
 rules:
+  # cluster version
+  - apiGroups:
+      - "config.openshift.io"
+    resources:
+      - clusterversions
+      - clusterversions/status
+    verbs:
+      - list
+      - get
   # leader election
   - apiGroups:
       - ""
