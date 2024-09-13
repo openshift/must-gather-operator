@@ -104,3 +104,4 @@ export DEFAULT_MUST_GATHER_IMAGE='quay.io/openshift/origin-must-gather:latest'
 export JOB_TEMPLATE_FILE_NAME=./build/templates/job.template.yaml
 OPERATOR_NAME=must-gather-operator operator-sdk run --verbose --local --namespace ''
 ```
+
