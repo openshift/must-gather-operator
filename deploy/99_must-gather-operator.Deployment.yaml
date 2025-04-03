@@ -33,6 +33,10 @@ spec:
           command:
           - must-gather-operator
           imagePullPolicy: Always
+          resources:
+            limits:
+              memory: "1Gi"
+              cpu: "100m"
           env:
             - name: POD_NAME
               valueFrom:
