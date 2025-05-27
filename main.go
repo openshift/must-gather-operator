@@ -108,11 +108,9 @@ func main() {
 
 	options := ctrl.Options{
 		Scheme: scheme,
-
 		Metrics: metricsserver.Options{
 			BindAddress: "0",
 		},
-
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "b15e5fc1.openshift.io",
