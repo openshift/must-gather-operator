@@ -1,4 +1,4 @@
-FROM quay.io/redhat-services-prod/openshift/boilerplate:image-v6.0.1 AS builder
+FROM quay.io/redhat-services-prod/openshift/boilerplate:image-v7.3.0 AS builder
 ENV OPERATOR=/usr/local/bin/must-gather-operator \
     OPERATOR_BIN=must-gather-operator \
     USER_UID=1001 \
@@ -16,7 +16,7 @@ COPY . /src
 
 RUN make go-build
 
-FROM registry.access.redhat.com/ubi8/ubi-minimal:8.10-1179.1741863533
+FROM registry.access.redhat.com/ubi8/ubi-minimal:8.10-1255
 ENV OPERATOR=/usr/local/bin/must-gather-operator \
     OPERATOR_BIN=must-gather-operator \
     USER_UID=1001 \
