@@ -47,6 +47,7 @@ import (
 	managedv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 	"github.com/openshift/must-gather-operator/controllers/mustgather"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -106,14 +107,18 @@ func main() {
 	printVersion()
 
 	options := ctrl.Options{
-		Scheme:                 scheme,
-		MetricsBindAddress:     "0", // metricsAddr,
-		Port:                   9443,
+		Scheme: scheme,
+		Metrics: metricsserver.Options{
+			BindAddress: "0",
+		},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "b15e5fc1.openshift.io",
 		Cache: cache.Options{
-			Namespaces: []string{namespace},
+
+			DefaultNamespaces: map[string]cache.Config{
+				namespace: {},
+			},
 		},
 	}
 
