@@ -16,6 +16,7 @@ COPY . /src
 
 RUN make go-build
 
+# ubi-micro does not work for clusters with fips enabled unless we make OpenSSL available
 FROM registry.access.redhat.com/ubi8/ubi-minimal:8.10-1255
 ENV OPERATOR=/usr/local/bin/must-gather-operator \
     OPERATOR_BIN=must-gather-operator \
