@@ -32,7 +32,7 @@ objects:
     - apiVersion: v1
       kind: Namespace
       metadata:
-        name: openshift-must-gather-operator
+        name: must-gather-operator
         annotations:
           openshift.io/node-selector: ""
         labels:

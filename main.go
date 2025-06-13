@@ -57,7 +57,7 @@ const (
 	// Flags that the operator is running locally
 	LocalRunMode = "local"
 	// Namespace for operator to watch
-	namespace = "openshift-must-gather-operator"
+	namespace = "must-gather-operator"
 )
 
 var (

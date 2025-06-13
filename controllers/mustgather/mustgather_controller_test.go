@@ -2,9 +2,10 @@ package mustgather
 
 import (
 	"context"
+	"testing"
+
 	configv1 "github.com/openshift/api/config/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"testing"
 
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 	"github.com/redhat-cop/operator-utils/pkg/util"
@@ -68,7 +69,7 @@ func createMustGatherObject() *mustgatherv1alpha1.MustGather {
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-must-gather",
-			Namespace: "openshift-must-gather-operator",
+			Namespace: "must-gather-operator",
 		},
 		Spec: mustgatherv1alpha1.MustGatherSpec{
 			CaseID: "01234567",
@@ -90,7 +91,7 @@ func createMustGatherSecretObject() *corev1.Secret {
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "case-management-creds",
-			Namespace: "openshift-must-gather-operator",
+			Namespace: "must-gather-operator",
 		},
 		Data: map[string][]byte{
 			"username": []byte("somefakeuser"),
