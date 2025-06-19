@@ -20,6 +20,9 @@ import (
 	"context"
 	goerror "errors"
 	"fmt"
+	"os"
+	"reflect"
+
 	"github.com/blang/semver/v4"
 	"github.com/go-logr/logr"
 	configv1 "github.com/openshift/api/config/v1"
@@ -31,8 +34,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"os"
-	"reflect"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -338,7 +339,7 @@ func (r *MustGatherReconciler) getJobFromInstance(instance *mustgatherv1alpha1.M
 	// Inject the operator image URI from the pod's env variables
 	operatorImage, varPresent := os.LookupEnv("OPERATOR_IMAGE")
 	if !varPresent {
-		err := goerror.New("Operator image environment variable not found")
+		err := goerror.New("operator image environment variable not found")
 		log.Error(err, "Error: no operator image found for job template")
 		return nil, err
 	}

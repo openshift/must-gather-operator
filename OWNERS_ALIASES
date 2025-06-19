@@ -6,7 +6,7 @@ aliases:
   srep-functional-team-aurora:
     - abyrne55
     - dakotalongRH
-    - lnguyen1401
+    - joshbranham
     - luis-falcon
     - reedcort
   srep-functional-team-fedramp:
@@ -14,30 +14,29 @@ aliases:
     - theautoroboto
     - rhdedgar
     - katherinelc321
-    - robotmaxtron
     - rojasreinold
-    - hbhushan3
     - fsferraz-rh
   srep-functional-team-hulk:
-    - a7vicky
-    - rendhalver
     - ravitri
-    - shitaljante
     - devppratik
     - Tafhim
     - tkong-redhat
     - TheUndeadKing
     - vaidehi411
     - chamalabey
+    - charlesgong
+    - rbhilare
   srep-functional-team-orange:
     - bergmannf
-    - bng0y
-    - typeid
     - Makdaam
-    - mrWinston
     - Nikokolas3270
-    - ninabauer
     - RaphaelBut
+    - MateSaary
+    - rolandmkunkel
+    - petrkotas
+    - zmird-r
+    - evlin-rh
+    - hectorakemp
   srep-functional-team-rocket:
     - aliceh
     - anispate
@@ -46,21 +45,24 @@ aliases:
     - nephomaniac
     - tnierman
   srep-functional-team-security:
-    - gsleeman
     - jaybeeunix
     - sam-nguyen7
     - wshearn
     - dem4gus
     - npecka
+    - pshickeydev
+    - casey-williams-rh
+    - boranx
   srep-functional-team-thor:
-    - bmeng
+    - a7vicky
+    - diakovnec
     - MitaliBhalla
-    - hectorakemp
     - feichashao
     - samanthajayasinghe
     - xiaoyu74
     - Dee-6777
     - Tessg22
+    - smarthall
   srep-infra-cicd:
     - mmazur
     - mrsantamaria
@@ -72,25 +74,23 @@ aliases:
     - clcollins
     - Nikokolas3270
     - theautoroboto
-    - bmeng
-    - mjlshen
+    - smarthall
     - sam-nguyen7
     - ravitri
-    - mmazur
   srep-team-leads:
     - rafael-azevedo
     - iamkirkbater
-    - NautiluX
     - rogbas
     - fahlmant
     - dustman9000
     - wanghaoran1988
     - bng0y
+    - bmeng
+    - typeid
   sre-group-leads:
     - apahim
     - maorfr
     - rogbas
   srep-architects:
-    - jewzaam
     - jharrington22
     - cblecker
