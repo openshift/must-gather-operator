@@ -2,12 +2,13 @@ package mustgather
 
 import (
 	"fmt"
-	v1 "k8s.io/api/core/v1"
 	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	v1 "k8s.io/api/core/v1"
 )
 
 func Test_initializeJobTemplate(t *testing.T) {
@@ -181,7 +182,7 @@ func Test_getUploadContainer(t *testing.T) {
 					}
 				case uploadEnvUsername, uploadEnvPassword:
 					if !reflect.DeepEqual(env.ValueFrom.SecretKeyRef.LocalObjectReference, tt.secretKeyRefName) {
-						t.Logf("expected %v envar to have secret key ref name %v but got %v", env.Name, tt.secretKeyRefName.Name, env.ValueFrom.SecretKeyRef.LocalObjectReference.Name)
+						t.Logf("expected %v envar to have secret key ref name %v but got %v", env.Name, tt.secretKeyRefName.Name, env.ValueFrom.SecretKeyRef.Name)
 						testFailed = true
 					}
 				}

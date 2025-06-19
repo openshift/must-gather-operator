@@ -7,7 +7,7 @@ require (
 	github.com/go-logr/logr v1.2.4
 	github.com/onsi/ginkgo/v2 v2.11.0
 	github.com/onsi/gomega v1.27.10
-	github.com/openshift/api v0.0.0-20230803134339-2d9b46419536
+	github.com/openshift/api v0.0.0-20240729140855-0a58f8c30a8c
 	github.com/openshift/operator-custom-metrics v0.5.0
 	github.com/openshift/osde2e-common v0.0.0-20231010150014-8a4449a371e6
 	github.com/operator-framework/operator-lib v0.11.0
