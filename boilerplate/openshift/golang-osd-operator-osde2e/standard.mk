@@ -19,6 +19,7 @@ HARNESS_IMAGE_TAG=$(CURRENT_COMMIT)
 # invocation; otherwise it could collide across jenkins jobs. We'll use
 # a .docker folder relative to pwd (the repo root).
 CONTAINER_ENGINE_CONFIG_DIR = .docker
+JENKINS_DOCKER_CONFIG_FILE = /var/lib/jenkins/.docker/config.json
 export REGISTRY_AUTH_FILE = ${CONTAINER_ENGINE_CONFIG_DIR}/config.json
 
 # If this configuration file doesn't exist, podman will error out. So
@@ -27,7 +28,7 @@ ifeq (,$(wildcard $(REGISTRY_AUTH_FILE)))
 $(shell mkdir -p $(CONTAINER_ENGINE_CONFIG_DIR))
 # Copy the node container auth file so that we get access to the registries the
 # parent node has access to
-$(shell cp /var/lib/jenkins/.docker/config.json $(REGISTRY_AUTH_FILE))
+$(shell if test -f $(JENKINS_DOCKER_CONFIG_FILE); then cp $(JENKINS_DOCKER_CONFIG_FILE) $(REGISTRY_AUTH_FILE); fi)
 endif
 
 # ==> Docker uses --config=PATH *before* (any) subcommand; so we'll glue
@@ -60,13 +61,8 @@ container-engine-login:
 	@${CONTAINER_ENGINE} login -u="${REGISTRY_USER}" -p="${REGISTRY_TOKEN}" quay.io
 
 ######################
-# Targets used by osde2e test harness
+# Targets used by e2e test harness
 ######################
-
-# create e2e scaffolding
-.PHONY: e2e-harness-generate
-e2e-harness-generate:
-	${OSDE2E_CONVENTION_DIR}/e2e-harness-generate.sh $(OPERATOR_NAME) $(OSDE2E_CONVENTION_DIR)
 
 # create binary
 .PHONY: e2e-harness-build
@@ -74,11 +70,11 @@ e2e-harness-build: GOFLAGS_MOD=-mod=mod
 e2e-harness-build: GOENV=GOOS=${GOOS} GOARCH=${GOARCH} CGO_ENABLED=0 GOFLAGS="${GOFLAGS_MOD}"
 e2e-harness-build:
 	go mod tidy
-	${GOENV} go test ./osde2e -v -c --tags=osde2e -o harness.test
+	go test ./test/e2e -v -c --tags=osde2e -o harness.test
 
 # TODO: Push to a known image tag and commit id
 # push harness image
 .PHONY: e2e-image-build-push
 e2e-image-build-push:
-	${OSDE2E_CONVENTION_DIR}/e2e-image-build-push.sh "./osde2e/Dockerfile $(IMAGE_REGISTRY)/$(HARNESS_IMAGE_REPOSITORY)/$(HARNESS_IMAGE_NAME):$(HARNESS_IMAGE_TAG)"
-	${OSDE2E_CONVENTION_DIR}/e2e-image-build-push.sh "./osde2e/Dockerfile $(IMAGE_REGISTRY)/$(HARNESS_IMAGE_REPOSITORY)/$(HARNESS_IMAGE_NAME):latest"
+	${OSDE2E_CONVENTION_DIR}/e2e-image-build-push.sh "./test/e2e/Dockerfile $(IMAGE_REGISTRY)/$(HARNESS_IMAGE_REPOSITORY)/$(HARNESS_IMAGE_NAME):$(HARNESS_IMAGE_TAG)"
+	${OSDE2E_CONVENTION_DIR}/e2e-image-build-push.sh "./test/e2e/Dockerfile $(IMAGE_REGISTRY)/$(HARNESS_IMAGE_REPOSITORY)/$(HARNESS_IMAGE_NAME):latest"
