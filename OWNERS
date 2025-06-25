@@ -2,12 +2,14 @@ reviewers:
 - bng0y
 - devppratik
 - dustman9000
+- srep-functional-team-hulk
 approvers:
 - bng0y
 - devppratik
 - dustman9000
 - mmazur
 - srep-functional-leads
+- srep-team-leads
 maintainers:
 - bng0y
 - dustman9000
