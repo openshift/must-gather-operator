@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: Template
+parameters:
+- name: REGISTRY_IMG
+  required: true
+- name: CHANNEL
+  required: true
+- name: IMAGE_TAG
+  required: true
+- name: IMAGE_DIGEST
+  required: true
+- name: REPO_NAME
+  value: must-gather-operator
+  required: true
+metadata:
+  name: selectorsyncset-template
+objects:
+- apiVersion: hive.openshift.io/v1
+  kind: SelectorSyncSet
+  metadata:
+    labels:
+      managed.openshift.io/gitHash: ${IMAGE_TAG}
+      managed.openshift.io/gitRepoName: ${REPO_NAME}
+      managed.openshift.io/osd: 'true'
+    name: must-gather-operator
+  spec:
+    clusterDeploymentSelector:
+      matchLabels:
+        api.openshift.com/managed: 'true'
+    resourceApplyMode: Upsert
+    resources:
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: openshift-must-gather-operator
+        annotations:
+          openshift.io/node-selector: ""
+        labels:
+          openshift.io/cluster-logging: "true"
+          openshift.io/cluster-monitoring: 'true'
+    - apiVersion: operators.coreos.com/v1alpha1
+      kind: CatalogSource
+      metadata:
+        labels:
+          opsrc-datastore: "true"
+          opsrc-provider: redhat
+        name: ${REPO_NAME}-registry
+        namespace: openshift-${REPO_NAME}
+      spec:
+        image: ${REGISTRY_IMG}@${IMAGE_DIGEST}
+        displayName: ${REPO_NAME}
+        icon:
+          base64data: ''
+          mediatype: ''
+        publisher: Red Hat
+        sourceType: grpc
+        grpcPodConfig:
+          securityContextConfig: restricted
+          nodeSelector:
+            node-role.kubernetes.io: infra
+          tolerations:
+          - effect: NoSchedule
+            key: node-role.kubernetes.io/infra
+            operator: Exists
+    - apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: ${REPO_NAME}
+        namespace: openshift-${REPO_NAME}
+      spec:
+        channel: ${CHANNEL}
+        name: ${REPO_NAME}
+        source: ${REPO_NAME}-registry
+        sourceNamespace: openshift-${REPO_NAME}
+    - apiVersion: operators.coreos.com/v1alpha2
+      kind: OperatorGroup
+      metadata:
+        name: ${REPO_NAME}
+        namespace: openshift-${REPO_NAME}
+        annotations:
+          olm.operatorframework.io/exclude-global-namespace-resolution: 'true'
+      spec:
+        targetNamespaces:
+        - openshift-${REPO_NAME}
