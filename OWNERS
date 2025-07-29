@@ -1,15 +1,12 @@
 reviewers:
-- bng0y
-- devppratik
-- dustman9000
-- srep-functional-team-hulk
+- shivprakashmuley
+- swghosh
+- TrilokGeer
 approvers:
-- bng0y
-- devppratik
-- dustman9000
-- mmazur
-- srep-functional-leads
-- srep-team-leads
+- shivprakashmuley
+- swghosh
+- TrilokGeer
 maintainers:
-- bng0y
-- dustman9000
+- shivprakashmuley
+- swghosh
+- TrilokGeer
