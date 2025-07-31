@@ -44,7 +44,7 @@ import (
 const (
 	ControllerName = "mustgather-controller"
 
-	defaultMustGatherNamespace = "openshift-must-gather-operator"
+	defaultMustGatherNamespace = "must-gather-operator"
 )
 
 var log = logf.Log.WithName(ControllerName)

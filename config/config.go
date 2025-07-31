@@ -5,7 +5,7 @@ const (
 	OperatorName string = "must-gather-operator"
 
 	// OperatorNamespace
-	OperatorNamespace string = "openshift-must-gather-operator"
+	OperatorNamespace string = "must-gather-operator"
 
 	// MGO is being distributed as part of RVMO now, so use skiprange
 	EnableOLMSkipRange string = "true"

@@ -9,4 +9,4 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: must-gather-admin
-  namespace: openshift-must-gather-operator
+  namespace: must-gather-operator
