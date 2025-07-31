@@ -1,0 +1,13 @@
+---
+kind: ImageStream
+apiVersion: image.openshift.io/v1
+spec:
+  tags:
+  - name: must-gather-operator
+    from:
+      kind: DockerImage
+      name: quay.io/openshift/origin-must-gather-operator:latest
+  - name: must-gather
+    from:
+      kind: DockerImage
+      name: quay.io/openshift/origin-must-gather:latest 

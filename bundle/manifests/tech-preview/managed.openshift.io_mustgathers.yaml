@@ -1,0 +1,193 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.4
+  name: mustgathers.managed.openshift.io
+spec:
+  group: managed.openshift.io
+  names:
+    kind: MustGather
+    listKind: MustGatherList
+    plural: mustgathers
+    singular: mustgather
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: MustGather is the Schema for the mustgathers API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: MustGatherSpec defines the desired state of MustGather
+            properties:
+              audit:
+                default: false
+                description: |-
+                  A flag to specify if audit logs must be collected
+                  See documentation for further information.
+                type: boolean
+              caseID:
+                description: The is of the case this must gather will be uploaded
+                  to
+                type: string
+              caseManagementAccountSecretRef:
+                description: the secret container a username and password field to
+                  be used to authenticate with red hat case management systems
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              internalUser:
+                default: true
+                description: |-
+                  A flag to specify if the upload user provided in the caseManagementAccountSecret is a RH internal user.
+                  See documentation for further information.
+                type: boolean
+              mustGatherTimeout:
+                description: |-
+                  A time limit for gather command to complete a floating point number with a suffix:
+                  "s" for seconds, "m" for minutes, "h" for hours, or "d" for days.
+                  Will default to no time limit.
+                format: duration
+                type: string
+              proxyConfig:
+                description: This represents the proxy configuration to be used. If
+                  left empty it will default to the cluster-level proxy configuration.
+                properties:
+                  httpProxy:
+                    description: httpProxy is the URL of the proxy for HTTP requests.  Empty
+                      means unset and will not result in an env var.
+                    type: string
+                  httpsProxy:
+                    description: httpsProxy is the URL of the proxy for HTTPS requests.  Empty
+                      means unset and will not result in an env var.
+                    type: string
+                  noProxy:
+                    description: noProxy is the list of domains for which the proxy
+                      should not be used.  Empty means unset and will not result in
+                      an env var.
+                    type: string
+                type: object
+              serviceAccountRef:
+                description: |-
+                  the service account to use to run the must gather job pod, defaults to default
+                  +kubebuilder:default:="{Name:default}"
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+            required:
+            - caseID
+            - caseManagementAccountSecretRef
+            type: object
+          status:
+            description: MustGatherStatus defines the observed state of MustGather
+            properties:
+              completed:
+                type: boolean
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastUpdate:
+                format: date-time
+                type: string
+              reason:
+                type: string
+              status:
+                type: string
+            required:
+            - completed
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
