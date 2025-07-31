@@ -78,7 +78,6 @@ tags
 .history
 # End of https://www.gitignore.io/api/go,vim,emacs,visualstudiocode
 mustgather-example.yaml
-vendor/
 .venv/*
 *.code-workspace
 # (Link to) operator-sdk binary from `make op-generate`
