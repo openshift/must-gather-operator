@@ -17,7 +17,47 @@ CURRENT_TIMESTAMP=$(date --utc +%Y%m%d_%H%M%SZ)
 CSP_FILENAME=${FILENAME_PREFIX}-${CURRENT_TIMESTAMP}.tar.gz
 CSP_FILE="${must_gather_upload}/${CSP_FILENAME}"
 FTP_HOST=sftp.access.redhat.com
-SFTP_OPTIONS="-o BatchMode=no -o StrictHostKeyChecking=no -b"
+SFTP_OPTIONS="-o BatchMode=no -o StrictHostKeyChecking=no "
+
+# Setup proxy command if proxy environment variables are set
+PROXY_COMMAND=""
+if [ -n "${http_proxy}" ] || [ -n "${https_proxy}" ]; then
+  # Use https_proxy if available, otherwise use http_proxy
+  PROXY_URL="${https_proxy:-${http_proxy}}"
+
+  # Extract proxy components from URL (format: http://[user:pass@]host:port[/path])
+  # Remove protocol prefix
+  PROXY_NO_PROTOCOL=$(echo "${PROXY_URL}" | sed -E 's|^https?://||')
+
+  # Check if authentication is present (contains @)
+  if echo "${PROXY_NO_PROTOCOL}" | grep -q '@'; then
+    # Extract user:password part
+    PROXY_AUTH=$(echo "${PROXY_NO_PROTOCOL}" | sed -E 's|^([^@]+)@.*|\1|')
+    PROXY_USER=$(echo "${PROXY_AUTH}" | cut -d: -f1)
+    PROXY_PASSWORD=$(echo "${PROXY_AUTH}" | cut -d: -f2)
+
+    # Extract host:port part (after @)
+    PROXY_HOST_PORT=$(echo "${PROXY_NO_PROTOCOL}" | sed -E 's|^[^@]+@([^/]+).*|\1|')
+  else
+    # No authentication, just host:port
+    PROXY_HOST_PORT=$(echo "${PROXY_NO_PROTOCOL}" | sed -E 's|^([^/]+).*|\1|')
+    PROXY_USER=""
+    PROXY_PASSWORD=""
+  fi
+
+  # Extract individual host and port
+  PROXY_HOST=$(echo "${PROXY_HOST_PORT}" | cut -d: -f1)
+  PROXY_PORT=$(echo "${PROXY_HOST_PORT}" | cut -d: -f2)
+
+  if [ -n "${PROXY_HOST_PORT}" ]; then
+    if [ -n "${PROXY_USER}" ] && [ -n "${PROXY_PASSWORD}" ]; then
+      PROXY_COMMAND="-o ProxyCommand nc --proxy ${PROXY_HOST_PORT} --proxy-auth ${PROXY_USER}:${PROXY_PASSWORD} --proxy-type http %h %p"
+    else
+      PROXY_COMMAND="-o ProxyCommand nc --proxy ${PROXY_HOST_PORT} --proxy-type http %h %p"
+    fi
+  fi
+fi
+
 
 if [ -z "${caseid}" ] || [ -z "${username}" ] || [ -z "${password}" ];
 then
@@ -40,10 +80,17 @@ fi
 # upload file and detect any erros
 echo "Uploading ${CSP_FILE}..."
 export SSHPASS=${password}
-sshpass -e sftp ${SFTP_OPTIONS} - ${username}@${FTP_HOST} << EOF
+if [ -n "${PROXY_COMMAND}" ]; then
+  sshpass -e sftp ${SFTP_OPTIONS} "${PROXY_COMMAND}" ${username}@${FTP_HOST} << EOF
     put ${CSP_FILE} ${REMOTE_FILENAME}
     bye
 EOF
+else
+  sshpass -e sftp ${SFTP_OPTIONS} -b - ${username}@${FTP_HOST} << EOF
+    put ${CSP_FILE} ${REMOTE_FILENAME}
+    bye
+EOF
+fi
 
 if [ $? -eq 0 ];
 then

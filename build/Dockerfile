@@ -22,7 +22,7 @@ ENV OPERATOR=/usr/local/bin/must-gather-operator \
     USER_UID=1001 \
     USER_NAME=must-gather-operator
 
-RUN microdnf install -y tar gzip openssh-clients wget shadow-utils procps sshpass && \
+RUN microdnf install -y tar gzip openssh-clients wget shadow-utils procps sshpass nc && \
     microdnf clean all
 
 COPY --from=builder /src/build/_output/bin/${OPERATOR_BIN} /usr/local/bin/${OPERATOR_BIN}
