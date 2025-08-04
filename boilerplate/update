@@ -102,7 +102,7 @@ EOF
   fi
 
   if [ -z "$BOILERPLATE_GIT_REPO" ]; then
-    BOILERPLATE_GIT_REPO=git@github.com:openshift/boilerplate.git
+    BOILERPLATE_GIT_REPO=https://github.com/openshift/boilerplate.git
   fi
   if [ -z "$BOILERPLATE_GIT_CLONE" ]; then
     BOILERPLATE_GIT_CLONE="git clone"
