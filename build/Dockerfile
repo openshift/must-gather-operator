@@ -1,7 +1,7 @@
 FROM quay.io/redhat-services-prod/openshift/boilerplate:image-v8.0.0 AS builder
 ENV OPERATOR=/usr/local/bin/must-gather-operator \
     OPERATOR_BIN=must-gather-operator \
-    USER_UID=1001 \
+    USER_UID=65534 \
     USER_NAME=must-gather-operator
 
 RUN mkdir /src
@@ -19,7 +19,7 @@ RUN make go-build
 FROM registry.access.redhat.com/ubi9/ubi-minimal:9.6-1754456323
 ENV OPERATOR=/usr/local/bin/must-gather-operator \
     OPERATOR_BIN=must-gather-operator \
-    USER_UID=1001 \
+    USER_UID=65534 \
     USER_NAME=must-gather-operator
 
 RUN microdnf install -y tar gzip openssh-clients wget shadow-utils procps sshpass nc && \
@@ -28,8 +28,6 @@ RUN microdnf install -y tar gzip openssh-clients wget shadow-utils procps sshpas
 COPY --from=builder /src/build/_output/bin/${OPERATOR_BIN} /usr/local/bin/${OPERATOR_BIN}
 COPY --from=builder /src/build/bin /usr/local/bin
 
-RUN /usr/local/bin/user_setup
-
-ENTRYPOINT ["/usr/local/bin/entrypoint"]
+ENTRYPOINT ["/usr/local/bin/must-gather-operator"]
 
 USER ${USER_UID}
