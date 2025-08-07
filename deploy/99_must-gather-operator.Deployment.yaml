@@ -29,7 +29,7 @@ spec:
       containers:
         - name: must-gather-operator
           # Replace this with the built image name
-          image: quay.io/app-sre/must-gather-operator:latest
+          image: quay.io/openshift/origin-must-gather-operator:latest
           command:
           - must-gather-operator
           imagePullPolicy: Always
@@ -38,9 +38,19 @@ spec:
               memory: "1Gi"
               cpu: "100m"
           env:
+            - name: OPERATOR_NAME
+              value: must-gather-operator
+            - name: DEFAULT_MUST_GATHER_IMAGE
+              value: quay.io/openshift/origin-must-gather:latest
+            - name: OPERATOR_IMAGE
+              value: quay.io/openshift/origin-must-gather-operator:latest
+            - name: OPERATOR_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: POD_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: OPERATOR_NAME
-              value: "must-gather-operator"
+            - name: WATCH_NAMESPACE
+              value: ""
