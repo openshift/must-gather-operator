@@ -196,16 +196,24 @@ spec:
               - command:
                 - must-gather-operator
                 env:
-                - name: WATCH_NAMESPACE
+                - name: OPERATOR_NAME
+                  value: must-gather-operator
+                - name: DEFAULT_MUST_GATHER_IMAGE
+                  value: quay.io/openshift/origin-must-gather:latest
+                - name: OPERATOR_IMAGE
+                  value: quay.io/openshift/origin-must-gather-operator:latest
+                - name: OPERATOR_NAMESPACE
                   valueFrom:
                     fieldRef:
-                      fieldPath: metadata.annotations['olm.targetNamespaces']
+                      fieldPath: metadata.namespace
                 - name: POD_NAME
                   valueFrom:
                     fieldRef:
                       fieldPath: metadata.name
-                - name: OPERATOR_NAME
-                  value: must-gather-operator
+                - name: WATCH_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.annotations['olm.targetNamespaces']
                 image: quay.io/openshift/origin-must-gather-operator:latest
                 imagePullPolicy: Always
                 name: must-gather-operator
