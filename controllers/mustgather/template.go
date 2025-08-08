@@ -35,9 +35,7 @@ const (
 	uploadEnvMustGatherUpload = "must_gather_upload"
 	uploadCommand             = "count=0\nuntil [ $count -gt 4 ]\ndo\n  while `pgrep -a gather > /dev/null`\n  do\n    echo \"waiting for gathers to complete ...\"\n    sleep 120\n    count=0\n  done\n  echo \"no gather is running ($count / 4)\"\n  ((count++))\n  sleep 30\ndone\n/usr/local/bin/upload"
 
-	// User configuration constants
-	userUID      = 65534
-	userName     = "must-gather-operator"
+	// SSH directory and known hosts file
 	sshDir       = "/tmp/must-gather-operator/.ssh"
 	knownHostsFile = "/tmp/must-gather-operator/.ssh/known_hosts"
 )
@@ -70,12 +68,6 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 		Spec: batchv1.JobSpec{
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
-					SecurityContext: &corev1.PodSecurityContext{
-						RunAsUser:    ToPtr(int64(userUID)),
-						RunAsGroup:   ToPtr(int64(userUID)),
-						RunAsNonRoot: ToPtr(true),
-						FSGroup:      ToPtr(int64(userUID)),
-					},
 					Affinity: &corev1.Affinity{
 						NodeAffinity: &corev1.NodeAffinity{
 							PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{
