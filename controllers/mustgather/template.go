@@ -34,6 +34,10 @@ const (
 	uploadEnvMustGatherOutput = "must_gather_output"
 	uploadEnvMustGatherUpload = "must_gather_upload"
 	uploadCommand             = "count=0\nuntil [ $count -gt 4 ]\ndo\n  while `pgrep -a gather > /dev/null`\n  do\n    echo \"waiting for gathers to complete ...\"\n    sleep 120\n    count=0\n  done\n  echo \"no gather is running ($count / 4)\"\n  ((count++))\n  sleep 30\ndone\n/usr/local/bin/upload"
+
+	// SSH directory and known hosts file
+	sshDir       = "/tmp/must-gather-operator/.ssh"
+	knownHostsFile = "/tmp/must-gather-operator/.ssh/known_hosts"
 )
 
 func getJobTemplate(operatorImage string, clusterVersion string, mustGather v1alpha1.MustGather) *batchv1.Job {
@@ -115,11 +119,15 @@ func getGatherContainer(audit bool, timeout time.Duration, mustGatherImageVersio
 		commandBinary = gatherCommandBinaryNoAudit
 	}
 
+	// Create the modified gather command that includes SSH setup
+	gatherCommandWithSSH := fmt.Sprintf("mkdir -p %s && touch %s && chmod 700 %s && chmod 600 %s && %s",
+		sshDir, knownHostsFile, sshDir, knownHostsFile, fmt.Sprintf(gatherCommand, timeout, commandBinary))
+
 	return corev1.Container{
 		Command: []string{
 			"/bin/bash",
 			"-c",
-			fmt.Sprintf(gatherCommand, timeout, commandBinary),
+			gatherCommandWithSSH,
 		},
 		Image: fmt.Sprintf("%v:%v", mustGatherImage, mustGatherImageVersion),
 		Name:  gatherContainerName,
@@ -141,11 +149,15 @@ func getUploadContainer(
 	noProxy string,
 	secretKeyRefName corev1.LocalObjectReference,
 ) corev1.Container {
+	// Create the modified upload command that includes SSH setup
+	uploadCommandWithSSH := fmt.Sprintf("mkdir -p %s && touch %s && chmod 700 %s && chmod 600 %s && %s",
+		sshDir, knownHostsFile, sshDir, knownHostsFile, uploadCommand)
+
 	container := corev1.Container{
 		Command: []string{
 			"/bin/bash",
 			"-c",
-			uploadCommand,
+			uploadCommandWithSSH,
 		},
 		Image: operatorImage,
 		Name:  uploadContainerName,

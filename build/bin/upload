@@ -17,7 +17,8 @@ CURRENT_TIMESTAMP=$(date --utc +%Y%m%d_%H%M%SZ)
 CSP_FILENAME=${FILENAME_PREFIX}-${CURRENT_TIMESTAMP}.tar.gz
 CSP_FILE="${must_gather_upload}/${CSP_FILENAME}"
 FTP_HOST=sftp.access.redhat.com
-SFTP_OPTIONS="-o BatchMode=no -o StrictHostKeyChecking=no "
+KNOWN_HOSTS_PATH="/tmp/must-gather-operator/.ssh/known_hosts"
+SFTP_OPTIONS="-o BatchMode=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=${KNOWN_HOSTS_PATH} "
 
 # Setup proxy command if proxy environment variables are set
 PROXY_COMMAND=""
