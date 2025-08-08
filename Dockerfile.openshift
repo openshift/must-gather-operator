@@ -8,18 +8,12 @@ COPY . /go/src/github.com/openshift/must-gather-operator
 RUN make go-build
 
 FROM registry.ci.openshift.org/ocp/ubi-minimal:9
-ENV OPERATOR=/usr/local/bin/must-gather-operator \
-    OPERATOR_BIN=must-gather-operator \
-    USER_UID=65534 \
-    USER_NAME=must-gather-operator
 
 RUN microdnf install -y tar gzip openssh-clients wget shadow-utils procps sshpass nc && \
     microdnf clean all
 
-COPY --from=builder /go/src/github.com/openshift/must-gather-operator/build/_output/bin/${OPERATOR_BIN} /usr/local/bin/${OPERATOR_BIN}
+COPY --from=builder /go/src/github.com/openshift/must-gather-operator/build/_output/bin/must-gather-operator /usr/local/bin/must-gather-operator
 COPY --from=builder /go/src/github.com/openshift/must-gather-operator/build/bin /usr/local/bin
 
-RUN /usr/local/bin/user_setup
-
-USER ${USER_UID}
-ENTRYPOINT ["/usr/local/bin/entrypoint"]
+USER 65534:65534
+ENTRYPOINT ["/usr/local/bin/must-gather-operator"]
