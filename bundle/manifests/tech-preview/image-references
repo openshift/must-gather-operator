@@ -7,7 +7,7 @@ spec:
     from:
       kind: DockerImage
       name: quay.io/openshift/origin-must-gather-operator:latest
-  - name: must-gather
+  - name: must-gather-rhel9
     from:
       kind: DockerImage
       name: quay.io/openshift/origin-must-gather:latest 
