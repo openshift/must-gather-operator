@@ -119,15 +119,11 @@ func getGatherContainer(audit bool, timeout time.Duration, mustGatherImageVersio
 		commandBinary = gatherCommandBinaryNoAudit
 	}
 
-	// Create the modified gather command that includes SSH setup
-	gatherCommandWithSSH := fmt.Sprintf("mkdir -p %s && touch %s && chmod 700 %s && chmod 600 %s && %s",
-		sshDir, knownHostsFile, sshDir, knownHostsFile, fmt.Sprintf(gatherCommand, timeout, commandBinary))
-
 	return corev1.Container{
 		Command: []string{
 			"/bin/bash",
 			"-c",
-			gatherCommandWithSSH,
+			fmt.Sprintf(gatherCommand, timeout, commandBinary),
 		},
 		Image: fmt.Sprintf("%v:%v", mustGatherImage, mustGatherImageVersion),
 		Name:  gatherContainerName,
@@ -150,7 +146,7 @@ func getUploadContainer(
 	secretKeyRefName corev1.LocalObjectReference,
 ) corev1.Container {
 	// Create the modified upload command that includes SSH setup
-	uploadCommandWithSSH := fmt.Sprintf("mkdir -p %s && touch %s && chmod 700 %s && chmod 600 %s && %s",
+	uploadCommandWithSSH := fmt.Sprintf("mkdir -p %s; touch %s; chmod 700 %s; chmod 600 %s; %s",
 		sshDir, knownHostsFile, sshDir, knownHostsFile, uploadCommand)
 
 	container := corev1.Container{
