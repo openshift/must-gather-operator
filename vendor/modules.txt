@@ -261,6 +261,7 @@ github.com/openshift/osde2e-common/pkg/gomega/matchers
 ## explicit; go 1.17
 github.com/operator-framework/operator-lib/internal/utils
 github.com/operator-framework/operator-lib/leader
+github.com/operator-framework/operator-lib/proxy
 # github.com/pkg/errors v0.9.1
 ## explicit
 github.com/pkg/errors
