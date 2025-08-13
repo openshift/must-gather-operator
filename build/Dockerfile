@@ -1,35 +1,19 @@
 FROM quay.io/redhat-services-prod/openshift/boilerplate:image-v8.0.0 AS builder
-ENV OPERATOR=/usr/local/bin/must-gather-operator \
-    OPERATOR_BIN=must-gather-operator \
-    USER_UID=1001 \
-    USER_NAME=must-gather-operator
-
-RUN mkdir /src
 
 # Copy and download the dependecies so that they are cached locally in the stages.
-COPY go.mod /src
-COPY go.sum /src
-WORKDIR /src
-RUN go mod download
+WORKDIR /go/src/github.com/openshift/must-gather-operator
 
-COPY . /src
+COPY . /go/src/github.com/openshift/must-gather-operator
 
 RUN make go-build
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.6-1754456323
-ENV OPERATOR=/usr/local/bin/must-gather-operator \
-    OPERATOR_BIN=must-gather-operator \
-    USER_UID=1001 \
-    USER_NAME=must-gather-operator
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.6-1754584681
 
 RUN microdnf install -y tar gzip openssh-clients wget shadow-utils procps sshpass nc && \
     microdnf clean all
 
-COPY --from=builder /src/build/_output/bin/${OPERATOR_BIN} /usr/local/bin/${OPERATOR_BIN}
-COPY --from=builder /src/build/bin /usr/local/bin
+COPY --from=builder /go/src/github.com/openshift/must-gather-operator/build/_output/bin/must-gather-operator /usr/local/bin/must-gather-operator
+COPY --from=builder /go/src/github.com/openshift/must-gather-operator/build/bin /usr/local/bin
 
-RUN /usr/local/bin/user_setup
-
-ENTRYPOINT ["/usr/local/bin/entrypoint"]
-
-USER ${USER_UID}
+USER 65534:65534
+ENTRYPOINT ["/usr/local/bin/must-gather-operator"]
