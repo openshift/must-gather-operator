@@ -9,7 +9,7 @@ RUN make go-build
 
 FROM registry.ci.openshift.org/ocp/4.20:base-rhel9
 
-RUN dnf install tar gzip openssh-clients wget shadow-utils procps sshpass nc && \
+RUN dnf install -y tar gzip openssh-clients wget shadow-utils procps sshpass nc && \
     dnf clean all
 
 COPY --from=builder /go/src/github.com/openshift/must-gather-operator/build/_output/bin/must-gather-operator /usr/local/bin/must-gather-operator
