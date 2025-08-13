@@ -6,6 +6,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/operator-framework/operator-lib/proxy"
 	"strconv"
 	"time"
 )
@@ -43,6 +44,38 @@ const (
 func getJobTemplate(operatorImage string, clusterVersion string, mustGather v1alpha1.MustGather) *batchv1.Job {
 	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, mustGather.Spec.ServiceAccountRef.Name)
 
+	var httpProxy, httpsProxy, noProxy string
+
+	// Check if proxy configuration is provided in the CR
+	if mustGather.Spec.ProxyConfig.HTTPProxy != "" || mustGather.Spec.ProxyConfig.HTTPSProxy != "" || mustGather.Spec.ProxyConfig.NoProxy != "" {
+		// Use proxy configuration from CR
+		httpProxy = mustGather.Spec.ProxyConfig.HTTPProxy
+		httpsProxy = mustGather.Spec.ProxyConfig.HTTPSProxy
+		noProxy = mustGather.Spec.ProxyConfig.NoProxy
+	} else {
+		// Fallback to operator's environment proxy variables
+		envVars := proxy.ReadProxyVarsFromEnv()
+		if len(envVars) > 0 {
+			// Extract proxy values from the environment variables slice
+			for _, envVar := range envVars {
+				switch envVar.Name {
+				case "HTTP_PROXY":
+					if httpProxy == "" {
+						httpProxy = envVar.Value
+					}
+				case "HTTPS_PROXY":
+					if httpsProxy == "" {
+						httpsProxy = envVar.Value
+					}
+				case "NO_PROXY":
+					if noProxy == "" {
+						noProxy = envVar.Value
+					}
+				}
+			}
+		}
+	}
+
 	job.Spec.Template.Spec.Containers = append(
 		job.Spec.Template.Spec.Containers,
 		getGatherContainer(mustGather.Spec.Audit, mustGather.Spec.MustGatherTimeout.Duration, clusterVersion),
@@ -50,9 +83,9 @@ func getJobTemplate(operatorImage string, clusterVersion string, mustGather v1al
 			operatorImage,
 			mustGather.Spec.CaseID,
 			mustGather.Spec.InternalUser,
-			mustGather.Spec.ProxyConfig.HTTPProxy,
-			mustGather.Spec.ProxyConfig.HTTPSProxy,
-			mustGather.Spec.ProxyConfig.NoProxy,
+			httpProxy,
+			httpsProxy,
+			noProxy,
 			mustGather.Spec.CaseManagementAccountSecretRef,
 		),
 	)
