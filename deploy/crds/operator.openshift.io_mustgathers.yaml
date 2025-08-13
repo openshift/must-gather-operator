@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
-  name: mustgathers.managed.openshift.io
+  name: mustgathers.operator.openshift.io
 spec:
-  group: managed.openshift.io
+  group: operator.openshift.io
   names:
     kind: MustGather
     listKind: MustGatherList
