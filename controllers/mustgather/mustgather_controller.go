@@ -261,17 +261,33 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	} else {
 		// if the job has been marked as Succeeded or Failed but instance has no DeletionTimestamp,
 		// requeue instance to handle resource clean-up (delete secret, job, and MustGather)
-		if job1.Status.Succeeded > 0 && instance.GetDeletionTimestamp() == nil {
+		if job1.Status.Succeeded > 0 {
 			reqLogger.Info("MustGather Job pods succeeded")
-			err := r.DeleteResourceIfExists(context.TODO(), instance)
-			return reconcile.Result{}, err
+			// Update the MustGather CR status to indicate success
+			instance.Status.Status = "Completed"
+			instance.Status.Completed = true
+			instance.Status.Reason = "MustGather Job pods succeeded"
+			err := r.GetClient().Status().Update(context.TODO(), instance)
+			if err != nil {
+				log.Error(err, "unable to update instance", "instance", instance)
+				return r.ManageError(context.TODO(), instance, err)
+			}
+			return reconcile.Result{}, nil
 		}
-		if job1.Status.Failed > 0 && instance.GetDeletionTimestamp() == nil {
+		if job1.Status.Failed > 0 {
 			reqLogger.Info("MustGather Job pods failed")
 			// Increment prometheus metrics for must gather errors
 			localmetrics.MetricMustGatherErrors.Inc()
-			err := r.DeleteResourceIfExists(context.TODO(), instance)
-			return reconcile.Result{}, err
+			// Update the MustGather CR status to indicate failure
+			instance.Status.Status = "Failed"
+			instance.Status.Completed = true
+			instance.Status.Reason = "MustGather Job pods failed"
+			err := r.GetClient().Status().Update(context.TODO(), instance)
+			if err != nil {
+				log.Error(err, "unable to update instance", "instance", instance)
+				return r.ManageError(context.TODO(), instance, err)
+			}
+			return reconcile.Result{}, nil
 		}
 	}
 
