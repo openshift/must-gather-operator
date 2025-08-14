@@ -86,24 +86,4 @@ oc create secret generic case-management-creds --from-literal=username=<username
 
 ## Local Development
 
-Execute the following steps to develop the functionality locally. It is recommended that development be done using a cluster with `cluster-admin` permissions.
-
-In the operator's `Deployment.yaml` [file](deploy/99_must-gather-operator.Deployment.yaml), add a variable to the deployment's `spec.template.spec.containers.env` list called `OPERATOR_IMAGE` and set the value to your local copy of the image:
-```shell
-          env:
-            - name: OPERATOR_IMAGE
-              value: "registry.example/repo/image:latest"
-```
-Then run:
-```shell
-go mod download
-```
-
-Using the [operator-sdk](https://github.com/operator-framework/operator-sdk), run the operator locally:
-
-```shell
-oc apply -f deploy/crds/managed.openshift.io_mustgathers_crd.yaml
-oc new-project must-gather-operator
-export DEFAULT_MUST_GATHER_IMAGE='quay.io/openshift/origin-must-gather:latest'
-OPERATOR_NAME=must-gather-operator operator-sdk run --verbose --local --namespace ''
-```
+For local development notes, refer to [HACKING.md](./HACKING.md).
