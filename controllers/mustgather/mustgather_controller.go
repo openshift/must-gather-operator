@@ -64,6 +64,12 @@ const mustGatherFinalizer = "finalizer.mustgathers.managed.openshift.io"
 //+kubebuilder:rbac:groups=managed.openshift.io,resources=mustgathers,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=managed.openshift.io,resources=mustgathers/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=managed.openshift.io,resources=mustgathers/finalizers,verbs=update
+//+kubebuilder:rbac:groups=config.openshift.io,resources=clusterversions,verbs=get;list;watch
+//+kubebuilder:rbac:groups=batch,resources=jobs;jobs/finalizers,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=get;create
+//+kubebuilder:rbac:groups=apps,resources=deployments;daemonsets;replicasets;statefulsets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=apps,resources=deployments/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=pods;services;services/finalizers;endpoints;persistentvolumeclaims;events;configmaps;secrets,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.

@@ -168,9 +168,24 @@ spec:
           - patch
           - update
         - apiGroups:
+          - managed.openshift.io
+          resources:
+          - mustgathers/finalizers
+          verbs:
+          - update
+        - apiGroups:
+          - config.openshift.io
+          resources:
+          - clusterversions
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
           - batch
           resources:
           - jobs
+          - jobs/finalizers
           verbs:
           - create
           - delete
