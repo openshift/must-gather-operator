@@ -6,10 +6,11 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"github.com/operator-framework/operator-lib/proxy"
 	"strconv"
 	"time"
 )
+
+import "github.com/operator-framework/operator-lib/proxy"
 
 const (
 	infraNodeLabelKey     = "node-role.kubernetes.io/infra"
@@ -37,7 +38,7 @@ const (
 	uploadCommand             = "count=0\nuntil [ $count -gt 4 ]\ndo\n  while `pgrep -a gather > /dev/null`\n  do\n    echo \"waiting for gathers to complete ...\"\n    sleep 120\n    count=0\n  done\n  echo \"no gather is running ($count / 4)\"\n  ((count++))\n  sleep 30\ndone\n/usr/local/bin/upload"
 
 	// SSH directory and known hosts file
-	sshDir       = "/tmp/must-gather-operator/.ssh"
+	sshDir         = "/tmp/must-gather-operator/.ssh"
 	knownHostsFile = "/tmp/must-gather-operator/.ssh/known_hosts"
 )
 
