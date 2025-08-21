@@ -17,8 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1 "k8s.io/api/core/v1"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -63,13 +63,13 @@ type MustGatherSpec struct {
 
 // +k8s:openapi-gen=true
 type ProxySpec struct {
-	// httpProxy is the URL of the proxy for HTTP requests.  Empty means unset and will not result in an env var.
-	// +optional
-	HTTPProxy string `json:"httpProxy,omitempty"`
+	// httpProxy is the URL of the proxy for HTTP requests.
+	// +kubebuilder:validation:Required
+	HTTPProxy string `json:"httpProxy"`
 
-	// httpsProxy is the URL of the proxy for HTTPS requests.  Empty means unset and will not result in an env var.
-	// +optional
-	HTTPSProxy string `json:"httpsProxy,omitempty"`
+	// httpsProxy is the URL of the proxy for HTTPS requests.
+	// +kubebuilder:validation:Required
+	HTTPSProxy string `json:"httpsProxy"`
 
 	// noProxy is the list of domains for which the proxy should not be used.  Empty means unset and will not result in an env var.
 	// +optional
