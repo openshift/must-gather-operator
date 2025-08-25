@@ -90,3 +90,33 @@ spec:
     name: sandbox-admin
 EOF
 ```
+
+## Steps to deploy must-gather operator on cluster
+
+```sh
+# Build the image
+podman build -f build/Dockerfile -t quay.io/{{user_id}}/mustgather:{{tag}} .
+
+# Push the image
+podman push quay.io/{{user_id}}/mustgather:{{tag}}
+
+# Then update `container.image` on `line 32` and `OPERATOR_IMAGE` on `line 46` to new built image i.e. `quay.io/{{user_id}}/mustgather:{{tag}}`
+
+oc apply -f deploy/crds/managed.openshift.io_mustgathers.yaml
+
+# Create namespace must-gather-operator
+oc new-project must-gather-operator
+
+# Create must-gather-operator service account
+oc apply -f examples/other_resources/01_must-gather-operator.ServiceAccount.yaml
+
+# Create must-gather-admin service account
+oc apply -f examples/other_resources/04_must-gather-admin.ServiceAccount.yaml
+
+# Replace with actual user_name and password for upload to work
+oc create secret generic case-management-creds --from-literal=username=test-user --from-literal=password=test-password -n must-gather-operator
+
+oc apply -f deploy/
+
+oc apply -f examples/mustgather_basic.yaml
+```
