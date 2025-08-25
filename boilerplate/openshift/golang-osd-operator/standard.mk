@@ -202,8 +202,8 @@ rm -rf $$TMP_DIR ;\
 }
 endef
 
-CONTROLLER_GEN = controller-gen
-OPENAPI_GEN = openapi-gen
+CONTROLLER_GEN = ../bin/controller-gen
+OPENAPI_GEN = ./bin/openapi-gen
 KUSTOMIZE = kustomize
 YQ = yq
 
@@ -216,13 +216,13 @@ op-generate:
 .PHONY: openapi-generate
 openapi-generate:
 	find ./api -maxdepth 2 -mindepth 1 -type d | xargs -t -I% \
-		$(OPENAPI_GEN) --logtostderr=true \
-			-i % \
-			-o "" \
-			-O zz_generated.openapi \
-			-p % \
-			-h /dev/null \
-			-r "-"
+		$(OPENAPI_GEN) \
+			--logtostderr \
+			--output-dir ./api/v1alpha1 \
+			--output-pkg my.module/api/v1alpha1 \
+			--output-file zz_generated.openapi.go \
+			--go-header-file /dev/null \
+			--report-filename -
 
 .PHONY: manifests
 manifests:
