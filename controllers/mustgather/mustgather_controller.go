@@ -59,11 +59,11 @@ type MustGatherReconciler struct {
 	util.ReconcilerBase
 }
 
-const mustGatherFinalizer = "finalizer.mustgathers.managed.openshift.io"
+const mustGatherFinalizer = "finalizer.mustgathers.operator.openshift.io"
 
-//+kubebuilder:rbac:groups=managed.openshift.io,resources=mustgathers,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=managed.openshift.io,resources=mustgathers/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=managed.openshift.io,resources=mustgathers/finalizers,verbs=update
+//+kubebuilder:rbac:groups=operator.openshift.io,resources=mustgathers,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=operator.openshift.io,resources=mustgathers/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=operator.openshift.io,resources=mustgathers/finalizers,verbs=update
 //+kubebuilder:rbac:groups=config.openshift.io,resources=clusterversions,verbs=get;list;watch
 //+kubebuilder:rbac:groups=batch,resources=jobs;jobs/finalizers,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=get;create
