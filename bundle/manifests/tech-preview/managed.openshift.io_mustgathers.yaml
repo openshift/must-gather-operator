@@ -82,19 +82,26 @@ spec:
                   left empty it will default to the cluster-level proxy configuration.
                 properties:
                   httpProxy:
-                    description: httpProxy is the URL of the proxy for HTTP requests.  Empty
-                      means unset and will not result in an env var.
+                    description: httpProxy is the URL of the proxy for HTTP requests.
                     type: string
                   httpsProxy:
-                    description: httpsProxy is the URL of the proxy for HTTPS requests.  Empty
-                      means unset and will not result in an env var.
+                    description: httpsProxy is the URL of the proxy for HTTPS requests.
                     type: string
                   noProxy:
                     description: noProxy is the list of domains for which the proxy
                       should not be used.  Empty means unset and will not result in
                       an env var.
                     type: string
+                required:
+                - httpProxy
+                - httpsProxy
                 type: object
+              retainResourcesOnCompletion:
+                default: false
+                description: |-
+                  A flag to specify if resources (secret, job, pods) should be retained when the MustGather completes.
+                  If set to true, resources will be retained. If false or not set, resources will be deleted (default behavior).
+                type: boolean
               serviceAccountRef:
                 description: |-
                   the service account to use to run the must gather job pod, defaults to default
