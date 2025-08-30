@@ -7,7 +7,7 @@ COPY . /go/src/github.com/openshift/must-gather-operator
 
 RUN make go-build
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.6-1754584681
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.6-1755695350
 
 RUN microdnf install -y tar gzip openssh-clients wget shadow-utils procps sshpass nc && \
     microdnf clean all

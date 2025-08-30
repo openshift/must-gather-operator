@@ -66,6 +66,13 @@ then
   exit 1
 fi
 
+# Check if upload is enabled (default to true for backward compatibility)
+disable_upload=${disable_upload:=false}
+if [ "${disable_upload}" == "true" ]; then
+  echo "Upload is disabled. Skipping upload to Red Hat Customer SFTP Server."
+  exit 0
+fi
+
 echo "Archiving files from $must_gather_output to $must_gather_upload/${CSP_FILENAME}"
 tar --ignore-failed-read -caf "$must_gather_upload/${CSP_FILENAME}" $must_gather_output/
 

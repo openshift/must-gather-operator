@@ -99,6 +99,7 @@ func Test_getUploadContainer(t *testing.T) {
 		operatorImage    string
 		caseId           string
 		internalUser     bool
+		disableUpload    bool
 		httpProxy        string
 		httpsProxy       string
 		noProxy          string
@@ -109,6 +110,7 @@ func Test_getUploadContainer(t *testing.T) {
 			operatorImage:    "testImage",
 			caseId:           "1234",
 			internalUser:     true,
+			disableUpload:    false,
 			httpProxy:        "testHttpProxy",
 			httpsProxy:       "testHttpsProxy",
 			noProxy:          "testNoProxy",
@@ -118,6 +120,7 @@ func Test_getUploadContainer(t *testing.T) {
 			name:             "Non-internal user",
 			operatorImage:    "testImage",
 			caseId:           "1234",
+			disableUpload:    false,
 			httpProxy:        "testHttpProxy",
 			httpsProxy:       "testHttpsProxy",
 			noProxy:          "testNoProxy",
@@ -127,6 +130,7 @@ func Test_getUploadContainer(t *testing.T) {
 			name:             "No http proxy envar",
 			operatorImage:    "testImage",
 			caseId:           "1234",
+			disableUpload:    false,
 			httpsProxy:       "testHttpsProxy",
 			noProxy:          "testNoProxy",
 			secretKeyRefName: v1.LocalObjectReference{Name: "testSecretKeyRefName"},
@@ -135,6 +139,7 @@ func Test_getUploadContainer(t *testing.T) {
 			name:             "No https proxy envar",
 			operatorImage:    "testImage",
 			caseId:           "1234",
+			disableUpload:    false,
 			httpProxy:        "testHttpProxy",
 			noProxy:          "testNoProxy",
 			secretKeyRefName: v1.LocalObjectReference{Name: "testSecretKeyRefName"},
@@ -143,15 +148,27 @@ func Test_getUploadContainer(t *testing.T) {
 			name:             "No noproxy envar",
 			operatorImage:    "testImage",
 			caseId:           "1234",
+			disableUpload:    false,
 			httpProxy:        "testHttpProxy",
 			httpsProxy:       "testHttpsProxy",
+			secretKeyRefName: v1.LocalObjectReference{Name: "testSecretKeyRefName"},
+		},
+		{
+			name:             "Upload disabled",
+			operatorImage:    "testImage",
+			caseId:           "1234",
+			internalUser:     true,
+			disableUpload:    true,
+			httpProxy:        "testHttpProxy",
+			httpsProxy:       "testHttpsProxy",
+			noProxy:          "testNoProxy",
 			secretKeyRefName: v1.LocalObjectReference{Name: "testSecretKeyRefName"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testFailed := false
-			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.internalUser, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName)
+			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.internalUser, tt.disableUpload, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName)
 
 			if container.Image != tt.operatorImage {
 				t.Logf("expected container image %v but got %v", tt.operatorImage, container.Image)
@@ -168,6 +185,11 @@ func Test_getUploadContainer(t *testing.T) {
 				case uploadEnvInternalUser:
 					if env.Value != strconv.FormatBool(tt.internalUser) {
 						t.Logf("expected internal user envar %v but got %v", tt.internalUser, env.Value)
+						testFailed = true
+					}
+				case uploadEnvDisableUpload:
+					if env.Value != strconv.FormatBool(tt.disableUpload) {
+						t.Logf("expected enable upload envar %v but got %v", tt.disableUpload, env.Value)
 						testFailed = true
 					}
 				case uploadEnvHttpProxy:
@@ -236,6 +258,7 @@ func Test_getJobTemplate_FallbackWhenOnlyNoProxyProvidedInCR(t *testing.T) {
 			CaseID:                         "case",
 			CaseManagementAccountSecretRef: v1.LocalObjectReference{Name: "sec"},
 			ServiceAccountRef:              v1.LocalObjectReference{Name: "sa"},
+			DisableUpload:                  false,
 			ProxyConfig: mustgatherv1alpha1.ProxySpec{
 				NoProxy: "cr-no-proxy",
 			},
@@ -273,6 +296,7 @@ func Test_getJobTemplate_NoFallbackWhenHttpAndHttpsProvidedInCR(t *testing.T) {
 			CaseID:                         "case",
 			CaseManagementAccountSecretRef: v1.LocalObjectReference{Name: "sec"},
 			ServiceAccountRef:              v1.LocalObjectReference{Name: "sa"},
+			DisableUpload:                  false,
 			ProxyConfig: mustgatherv1alpha1.ProxySpec{
 				HTTPProxy:  "http://cr-http:8080",
 				HTTPSProxy: "https://cr-https:8443",
@@ -312,6 +336,7 @@ func Test_getJobTemplate_NoFallbackIfHttpsProvidedButHttpMissing(t *testing.T) {
 			CaseID:                         "case",
 			CaseManagementAccountSecretRef: v1.LocalObjectReference{Name: "sec"},
 			ServiceAccountRef:              v1.LocalObjectReference{Name: "sa"},
+			DisableUpload:                  false,
 			ProxyConfig: mustgatherv1alpha1.ProxySpec{
 				HTTPSProxy: "https://cr-https:8443",
 				// HTTPProxy empty to ensure fallback condition is false
