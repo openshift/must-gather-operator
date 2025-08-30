@@ -59,6 +59,11 @@ type MustGatherSpec struct {
 	// See documentation for further information.
 	// +kubebuilder:default:=true
 	InternalUser bool `json:"internalUser,omitempty"`
+
+	// A flag to control whether the must-gather bundle should be uploaded to SFTP server.
+	// If set to true, the bundle will be collected but not uploaded.
+	// +kubebuilder:default:=false
+	DisableUpload bool `json:"disableUpload,omitempty"`
 }
 
 // +k8s:openapi-gen=true

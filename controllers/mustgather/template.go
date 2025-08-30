@@ -30,6 +30,7 @@ const (
 	uploadEnvPassword         = "password"
 	uploadEnvCaseId           = "caseid"
 	uploadEnvInternalUser     = "internal_user"
+	uploadEnvDisableUpload    = "disable_upload"
 	uploadEnvHttpProxy        = "http_proxy"
 	uploadEnvHttpsProxy       = "https_proxy"
 	uploadEnvNoProxy          = "no_proxy"
@@ -78,6 +79,7 @@ func getJobTemplate(operatorImage string, clusterVersion string, mustGather v1al
 			operatorImage,
 			mustGather.Spec.CaseID,
 			mustGather.Spec.InternalUser,
+			mustGather.Spec.DisableUpload,
 			httpProxy,
 			httpsProxy,
 			noProxy,
@@ -168,6 +170,7 @@ func getUploadContainer(
 	operatorImage string,
 	caseId string,
 	internalUser bool,
+	disableUpload bool,
 	httpProxy string,
 	httpsProxy string,
 	noProxy string,
@@ -229,6 +232,10 @@ func getUploadContainer(
 			{
 				Name:  uploadEnvInternalUser,
 				Value: strconv.FormatBool(internalUser),
+			},
+			{
+				Name:  uploadEnvDisableUpload,
+				Value: strconv.FormatBool(disableUpload),
 			},
 		},
 	}
