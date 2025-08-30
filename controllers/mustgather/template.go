@@ -94,6 +94,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 			Namespace: namespace,
 		},
 		Spec: batchv1.JobSpec{
+			BackoffLimit: ToPtr(int32(3)),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Affinity: &corev1.Affinity{
@@ -120,7 +121,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 							Operator: corev1.TolerationOpExists,
 						},
 					},
-					RestartPolicy:         corev1.RestartPolicyOnFailure,
+					RestartPolicy:         corev1.RestartPolicyNever,
 					ShareProcessNamespace: ToPtr(true),
 					Volumes: []corev1.Volume{
 						{
