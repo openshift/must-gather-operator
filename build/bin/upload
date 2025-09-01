@@ -66,7 +66,7 @@ then
   exit 1
 fi
 
-# Check if upload is enabled (default to true for backward compatibility)
+# Check if upload is disabled (default to false for backward compatibility)
 disable_upload=${disable_upload:=false}
 if [ "${disable_upload}" == "true" ]; then
   echo "Upload is disabled. Skipping upload to Red Hat Customer SFTP Server."
