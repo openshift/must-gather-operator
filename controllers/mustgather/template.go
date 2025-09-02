@@ -2,15 +2,17 @@ package mustgather
 
 import (
 	"fmt"
-	"github.com/openshift/must-gather-operator/api/v1alpha1"
+	"strconv"
+	"time"
+
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"strconv"
-	"time"
-)
 
-import "github.com/operator-framework/operator-lib/proxy"
+	"github.com/openshift/must-gather-operator/api/v1alpha1"
+
+	"github.com/operator-framework/operator-lib/proxy"
+)
 
 const (
 	infraNodeLabelKey     = "node-role.kubernetes.io/infra"
@@ -21,7 +23,7 @@ const (
 
 	gatherCommandBinaryAudit   = "gather_audit_logs"
 	gatherCommandBinaryNoAudit = "gather"
-	gatherCommand              = "timeout %v bash -x -c -- '/usr/bin/%v'\n\nstatus=$?\nif [[ $status -eq 124 || $status -eq 137 ]]; then\n  echo \"Gather timed out.\"\n  exit 0\nfi"
+	gatherCommand              = "timeout %v bash -x -c -- '/usr/bin/%v' 2>&1 | tee /must-gather/must-gather.log\n\nstatus=$?\nif [[ $status -eq 124 || $status -eq 137 ]]; then\n  echo \"Gather timed out.\"\n  exit 0\nfi | tee -a /must-gather/must-gather.log"
 	mustGatherImage            = "quay.io/openshift/origin-must-gather"
 	gatherContainerName        = "gather"
 
