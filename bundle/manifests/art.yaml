@@ -1,15 +1,15 @@
 updates:
-  - file: "tech-preview/must-gather-operator.clusterserviceversion.yaml" # relative to this file
+  - file: "tech-preview/support-log-gather-operator.clusterserviceversion.yaml" # relative to this file
     update_list:
     # replace metadata.name value
-    - search: "must-gather-operator.v{MAJOR}.{MINOR}.0"
-      replace: "must-gather-operator.v{FULL_VER}"
+    - search: "support-log-gather-operator.v{MAJOR}.{MINOR}.0"
+      replace: "support-log-gather-operator.v{FULL_VER}"
     # replace entire version line, otherwise would replace 4.3.0 anywhere
     - search: "version: {MAJOR}.{MINOR}.0"
       replace: "version: {FULL_VER}"
     - search: 'olm.skipRange: ">=4.20.0-0 <{MAJOR}.{MINOR}.0"'
       replace: 'olm.skipRange: ">=4.20.0-0 <{FULL_VER}"'
-  - file: "must-gather-operator.package.yaml"
+  - file: "support-log-gather-operator.package.yaml"
     update_list:
-    - search: "currentCSV: must-gather-operator.v{MAJOR}.{MINOR}.0"
-      replace: "currentCSV: must-gather-operator.v{FULL_VER}" 
+    - search: "currentCSV: support-log-gather-operator.v{MAJOR}.{MINOR}.0"
+      replace: "currentCSV: support-log-gather-operator.v{FULL_VER}" 

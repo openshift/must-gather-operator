@@ -1,4 +1,4 @@
 packageName: must-gather-operator
 channels:
 - name: tech-preview
-  currentCSV: must-gather-operator.v4.20.0 
+  currentCSV: support-log-gather-operator.v4.20.0
