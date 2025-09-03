@@ -8,7 +8,7 @@ metadata:
     operatorframework.io/suggested-namespace: must-gather-operator
     capabilities: Full Lifecycle
     description: Operator to enable CEE to collect must-gathers from OSDv4 clusters
-    containerImage: quay.io/openshift/origin-must-gather-operator:latest
+    containerImage: quay.io/openshift/origin-support-log-gather-operator:latest
     createdAt: "2020-07-31T16:12:36Z"
     support: Red Hat
     repository: https://github.com/openshift/must-gather-operator
@@ -216,7 +216,7 @@ spec:
                 - name: DEFAULT_MUST_GATHER_IMAGE
                   value: quay.io/openshift/origin-must-gather:latest
                 - name: OPERATOR_IMAGE
-                  value: quay.io/openshift/origin-must-gather-operator:latest
+                  value: quay.io/openshift/origin-support-log-gather-operator:latest
                 - name: OPERATOR_NAMESPACE
                   valueFrom:
                     fieldRef:
@@ -229,7 +229,7 @@ spec:
                   valueFrom:
                     fieldRef:
                       fieldPath: metadata.annotations['olm.targetNamespaces']
-                image: quay.io/openshift/origin-must-gather-operator:latest
+                image: quay.io/openshift/origin-support-log-gather-operator:latest
                 imagePullPolicy: Always
                 name: must-gather-operator
                 resources:

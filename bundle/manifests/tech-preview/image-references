@@ -6,7 +6,7 @@ spec:
   - name: must-gather-operator
     from:
       kind: DockerImage
-      name: quay.io/openshift/origin-must-gather-operator:latest
+      name: quay.io/openshift/origin-support-log-gather-operator:latest
   - name: must-gather-rhel9
     from:
       kind: DockerImage
