@@ -25,6 +25,7 @@ const (
 	mustGatherImage            = "quay.io/openshift/origin-must-gather"
 	gatherContainerName        = "gather"
 
+	backoffLimit              = 3
 	uploadContainerName       = "upload"
 	uploadEnvUsername         = "username"
 	uploadEnvPassword         = "password"
@@ -94,7 +95,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 			Namespace: namespace,
 		},
 		Spec: batchv1.JobSpec{
-			BackoffLimit: ToPtr(int32(3)),
+			BackoffLimit: ToPtr(int32(backoffLimit)),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Affinity: &corev1.Affinity{
