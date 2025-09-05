@@ -123,20 +123,22 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			// finalization logic fails, don't remove the finalizer so
 			// that we can retry during the next reconciliation.
 
-			// delete secret in the operator namespace
-			tmpSecretName := instance.Spec.CaseManagementAccountSecretRef.Name
-			tmpSecret := &corev1.Secret{}
-			err = r.GetClient().Get(context.TODO(), types.NamespacedName{
-				Namespace: operatorNs,
-				Name:      tmpSecretName,
-			}, tmpSecret)
-			if err != nil {
-				reqLogger.Error(err, fmt.Sprintf("Failed to get %s secret", tmpSecretName))
-			} else {
-				err = r.GetClient().Delete(context.TODO(), tmpSecret)
+			// delete secret in the operator namespace (only if upload is enabled)
+			if !instance.Spec.DisableUpload && instance.Spec.CaseManagementAccountSecretRef.Name != "" {
+				tmpSecretName := instance.Spec.CaseManagementAccountSecretRef.Name
+				tmpSecret := &corev1.Secret{}
+				err = r.GetClient().Get(context.TODO(), types.NamespacedName{
+					Namespace: operatorNs,
+					Name:      tmpSecretName,
+				}, tmpSecret)
 				if err != nil {
-					reqLogger.Error(err, fmt.Sprintf("Failed to delete %s secret", tmpSecretName))
-					return reconcile.Result{}, err
+					reqLogger.Error(err, fmt.Sprintf("Failed to get %s secret", tmpSecretName))
+				} else {
+					err = r.GetClient().Delete(context.TODO(), tmpSecret)
+					if err != nil {
+						reqLogger.Error(err, fmt.Sprintf("Failed to delete %s secret", tmpSecretName))
+						return reconcile.Result{}, err
+					}
 				}
 			}
 
@@ -207,41 +209,45 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	if err != nil {
 		if errors.IsNotFound(err) {
-			// look up user secret and copy it to operator namespace
-			secretName := instance.Spec.CaseManagementAccountSecretRef.Name
-			userSecret := &corev1.Secret{}
-			err = r.GetClient().Get(context.TODO(), types.NamespacedName{
-				Namespace: instance.Namespace,
-				Name:      secretName,
-			}, userSecret)
-			if err != nil {
-				log.Info(fmt.Sprintf("Error getting secret (%s)!", instance.Spec.CaseManagementAccountSecretRef.Name))
-				return reconcile.Result{}, err
-			}
+			// look up user secret and copy it to operator namespace (only if upload is enabled)
+			if !instance.Spec.DisableUpload {
+				// Note: Field validation is now handled by CEL validation rules at API level
 
-			// create secret in the operator namespace
-			newSecret := &corev1.Secret{}
-			err = r.GetClient().Get(context.TODO(), types.NamespacedName{
-				Namespace: operatorNs,
-				Name:      secretName,
-			}, newSecret)
-			if err != nil {
-				if errors.IsNotFound(err) {
-					newSecret.Name = secretName
-					newSecret.Namespace = operatorNs
-					newSecret.Data = userSecret.Data
-					newSecret.Type = userSecret.Type
-					err = r.GetClient().Create(context.TODO(), newSecret)
-					if err != nil {
-						log.Error(err, fmt.Sprintf("Error creating new secret %s", secretName))
-						return reconcile.Result{}, err
-					}
-				} else {
-					log.Error(err, fmt.Sprintf("Error getting new secret %s", secretName))
+				secretName := instance.Spec.CaseManagementAccountSecretRef.Name
+				userSecret := &corev1.Secret{}
+				err = r.GetClient().Get(context.TODO(), types.NamespacedName{
+					Namespace: instance.Namespace,
+					Name:      secretName,
+				}, userSecret)
+				if err != nil {
+					log.Info(fmt.Sprintf("Error getting secret (%s)!", instance.Spec.CaseManagementAccountSecretRef.Name))
 					return reconcile.Result{}, err
 				}
+
+				// create secret in the operator namespace
+				newSecret := &corev1.Secret{}
+				err = r.GetClient().Get(context.TODO(), types.NamespacedName{
+					Namespace: operatorNs,
+					Name:      secretName,
+				}, newSecret)
+				if err != nil {
+					if errors.IsNotFound(err) {
+						newSecret.Name = secretName
+						newSecret.Namespace = operatorNs
+						newSecret.Data = userSecret.Data
+						newSecret.Type = userSecret.Type
+						err = r.GetClient().Create(context.TODO(), newSecret)
+						if err != nil {
+							log.Error(err, fmt.Sprintf("Error creating new secret %s", secretName))
+							return reconcile.Result{}, err
+						}
+					} else {
+						log.Error(err, fmt.Sprintf("Error getting new secret %s", secretName))
+						return reconcile.Result{}, err
+					}
+				}
+				log.Info(fmt.Sprintf("Secret %s already exists in the %s namespace", secretName, operatorNs))
 			}
-			log.Info(fmt.Sprintf("Secret %s already exists in the %s namespace", secretName, operatorNs))
 
 			// job is not there, create it.
 			err = r.CreateResourceIfNotExists(context.TODO(), instance, operatorNs, job)
