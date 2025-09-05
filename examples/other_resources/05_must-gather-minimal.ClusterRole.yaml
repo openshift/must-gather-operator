@@ -42,14 +42,20 @@ rules:
   - get
   - list
 - apiGroups: ["storage.k8s.io"]
+- apiGroups: ["storage.k8s.io"]
   resources:
   - storageclasses
   - volumeattachments
   - csidrivers
   - csinodes
+  - csistoragecapacities
+  verbs:
+  - get
+  - list
+- apiGroups: ["snapshot.storage.k8s.io"]
+  resources:
   - volumesnapshotclasses
   - volumesnapshotcontents
-  - csistoragecapacities
   verbs:
   - get
   - list
