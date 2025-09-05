@@ -25,14 +25,17 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // MustGatherSpec defines the desired state of MustGather
+// +kubebuilder:validation:XValidation:rule="!(has(self.disableUpload) && self.disableUpload) ? (has(self.caseID) && self.caseID != '' && has(self.caseManagementAccountSecretRef) && self.caseManagementAccountSecretRef.name != '') : true",message="caseID and caseManagementAccountSecretRef are required when disableUpload is false or unset"
 type MustGatherSpec struct {
 	// The is of the case this must gather will be uploaded to
-	// +kubebuilder:validation:Required
-	CaseID string `json:"caseID"`
+	// Required when disableUpload is false, optional when disableUpload is true
+	// +kubebuilder:validation:Optional
+	CaseID string `json:"caseID,omitempty"`
 
 	// the secret container a username and password field to be used to authenticate with red hat case management systems
-	// +kubebuilder:validation:Required
-	CaseManagementAccountSecretRef corev1.LocalObjectReference `json:"caseManagementAccountSecretRef"`
+	// Required when disableUpload is false, optional when disableUpload is true
+	// +kubebuilder:validation:Optional
+	CaseManagementAccountSecretRef corev1.LocalObjectReference `json:"caseManagementAccountSecretRef,omitempty"`
 
 	// the service account to use to run the must gather job pod, defaults to default
 	// +kubebuilder:validation:Optional

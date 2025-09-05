@@ -200,24 +200,6 @@ func getUploadContainer(
 		},
 		Env: []corev1.EnvVar{
 			{
-				Name: uploadEnvUsername,
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						Key:                  uploadEnvUsername,
-						LocalObjectReference: secretKeyRefName,
-					},
-				},
-			},
-			{
-				Name: uploadEnvPassword,
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
-						Key:                  uploadEnvPassword,
-						LocalObjectReference: secretKeyRefName,
-					},
-				},
-			},
-			{
 				Name:  uploadEnvCaseId,
 				Value: caseId,
 			},
@@ -238,6 +220,30 @@ func getUploadContainer(
 				Value: strconv.FormatBool(disableUpload),
 			},
 		},
+	}
+
+	// Add secret-based environment variables only when upload is enabled and secret is provided
+	if !disableUpload && secretKeyRefName.Name != "" {
+		container.Env = append(container.Env, []corev1.EnvVar{
+			{
+				Name: uploadEnvUsername,
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						Key:                  uploadEnvUsername,
+						LocalObjectReference: secretKeyRefName,
+					},
+				},
+			},
+			{
+				Name: uploadEnvPassword,
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						Key:                  uploadEnvPassword,
+						LocalObjectReference: secretKeyRefName,
+					},
+				},
+			},
+		}...)
 	}
 
 	if httpProxy != "" {
