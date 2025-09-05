@@ -51,9 +51,9 @@ spec:
   serviceAccountRef:
     name: must-gather-admin
   proxyConfig:
-    http_proxy: http://myproxy
-    https_proxy: https://my_http_proxy
-    no_proxy: master-api
+    httpProxy: http://myproxy
+    httpsProxy: https://my_http_proxy
+    noProxy: master-api
 ```
 
 ## Garbage collection
