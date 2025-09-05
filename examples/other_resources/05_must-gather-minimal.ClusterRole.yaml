@@ -346,10 +346,7 @@ rules:
   - alertmanager-main
   verbs:
   - get
-  namespaces:
-  - openshift-monitoring
-  - openshift-user-workload-monitoring
-- apiGroups: ["*"]
+  apiGroups: ["*"]
   resources:
   - "*/status"
   - "*/scale"
