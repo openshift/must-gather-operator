@@ -42,14 +42,20 @@ rules:
   - get
   - list
 - apiGroups: ["storage.k8s.io"]
+- apiGroups: ["storage.k8s.io"]
   resources:
   - storageclasses
   - volumeattachments
   - csidrivers
   - csinodes
+  - csistoragecapacities
+  verbs:
+  - get
+  - list
+- apiGroups: ["snapshot.storage.k8s.io"]
+  resources:
   - volumesnapshotclasses
   - volumesnapshotcontents
-  - csistoragecapacities
   verbs:
   - get
   - list
@@ -72,7 +78,7 @@ rules:
   verbs:
   - get
   - list
-- apiGroups: [""]
+- apiGroups: ["project.openshift.io"]
   resources:
   - projects  # OpenShift namespaces
   verbs:
@@ -346,10 +352,7 @@ rules:
   - alertmanager-main
   verbs:
   - get
-  namespaces:
-  - openshift-monitoring
-  - openshift-user-workload-monitoring
-- apiGroups: ["*"]
+  apiGroups: ["*"]
   resources:
   - "*/status"
   - "*/scale"
