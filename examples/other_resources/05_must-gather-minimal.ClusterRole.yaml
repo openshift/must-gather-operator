@@ -78,7 +78,7 @@ rules:
   verbs:
   - get
   - list
-- apiGroups: [""]
+- apiGroups: ["project.openshift.io"]
   resources:
   - projects  # OpenShift namespaces
   verbs:
