@@ -77,7 +77,7 @@ func TestMustGatherSpec_Validation(t *testing.T) {
 
 // TestMustGatherSpec_CELValidationLogic tests the logic that will be used by CEL validation
 // This simulates what the CEL expression does:
-// !(has(self.disableUpload) && self.disableUpload) ? (has(self.caseID) && self.caseID != ” && has(self.caseManagementAccountSecretRef) && self.caseManagementAccountSecretRef.name != ”) : true
+// !(has(self.disableUpload) && self.disableUpload) ? (has(self.caseID) && self.caseID != '' && has(self.caseManagementAccountSecretRef) && self.caseManagementAccountSecretRef.name != '') : true
 func TestMustGatherSpec_CELValidationLogic(t *testing.T) {
 	tests := []struct {
 		name     string
