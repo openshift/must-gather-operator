@@ -33,13 +33,6 @@ rules:
   - pods/portforward # TODO(swghosh): check requirement
   verbs:
   - create
-- apiGroups:
-  - "*"  # TODO(swghosh): check if we can de-scope down
-  resources:
-  - "*/status"
-  - "*/scale"
-  verbs:
-  - get
 - apiGroups: ["apps"]
   resources:
   - deployments
