@@ -1,12 +1,1 @@
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: must-gather-admin
-roleRef:
-  kind: ClusterRole
-  name: must-gather-minimal
-  apiGroup: rbac.authorization.k8s.io
-subjects:
-- kind: ServiceAccount
-  name: must-gather-admin
-  namespace: must-gather-operator
+deploy/06_must-gather-admin.ClusterRoleBinding.yaml
