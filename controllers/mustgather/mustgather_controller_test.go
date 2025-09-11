@@ -538,6 +538,7 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_not_found_creates_job_successfully",
 			setupEnv: func(t *testing.T) {
+				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
 				os.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
@@ -1004,6 +1005,7 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_not_found_get_secret_returns_non_not_found_error_in_operator_ns",
 			setupEnv: func(t *testing.T) {
+				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
 				os.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
