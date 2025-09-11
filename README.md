@@ -4,7 +4,7 @@ The Must Gather operator helps collecting must-gather information on a cluster a
 To use the operator, a cluster administrator can create the following MustGather CR:
 
 ```yaml
-apiVersion: managed.openshift.io/v1alpha1
+apiVersion: operator.openshift.io/v1alpha1
 kind: MustGather
 metadata:
   name: example-mustgather-basic
@@ -22,7 +22,7 @@ This request will collect the standard must-gather info and upload it to case `#
 The field `audit` is **false** by default unless explicetely set to **true**.
 This will generate the default collection of audit logs as per [the collection script: gather_audit_logs](https://github.com/openshift/must-gather/blob/master/collection-scripts/gather_audit_logs)
 ```yaml
-apiVersion: managed.openshift.io/v1alpha1
+apiVersion: operator.openshift.io/v1alpha1
 kind: MustGather
 metadata:
   name: example-mustgather-full
@@ -40,7 +40,7 @@ spec:
 The Must Gather operator supports using a proxy. The proxy setting can be specified in the MustGather object. If not specified, the cluster default proxy setting will be used. Here is an example:
 
 ```yaml
-apiVersion: managed.openshift.io/v1alpha1
+apiVersion: operator.openshift.io/v1alpha1
 kind: MustGather
 metadata:
   name: example-mustgather-proxy
@@ -71,7 +71,7 @@ Here are the instructions to install the latest release creating the manifest di
 
 ```shell
 git clone git@github.com:openshift/must-gather-operator.git; cd must-gather-operator
-oc apply -f deploy/crds/managed.openshift.io_mustgathers_crd.yaml
+oc apply -f deploy/crds/operator.openshift.io_mustgathers_crd.yaml
 oc new-project must-gather-operator
 oc -n must-gather-operator apply -f deploy
 ```
@@ -102,7 +102,7 @@ go mod download
 Using the [operator-sdk](https://github.com/operator-framework/operator-sdk), run the operator locally:
 
 ```shell
-oc apply -f deploy/crds/managed.openshift.io_mustgathers_crd.yaml
+oc apply -f deploy/crds/operator.openshift.io_mustgathers_crd.yaml
 oc new-project must-gather-operator
 export DEFAULT_MUST_GATHER_IMAGE='quay.io/openshift/origin-must-gather:latest'
 OPERATOR_NAME=must-gather-operator operator-sdk run --verbose --local --namespace ''
