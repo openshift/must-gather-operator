@@ -65,15 +65,7 @@ func Test_getGatherContainer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			testFailed := false
 
-			prev := os.Getenv(defaultMustGatherImageEnv)
-			_ = os.Setenv(defaultMustGatherImageEnv, tt.mustGatherImage)
-			defer func() {
-				if prev == "" {
-					_ = os.Unsetenv(defaultMustGatherImageEnv)
-				} else {
-					_ = os.Setenv(defaultMustGatherImageEnv, prev)
-				}
-			}()
+			t.Setenv(defaultMustGatherImageEnv, tt.mustGatherImage)
 			expectedImage := tt.mustGatherImage
 
 			container := getGatherContainer(tt.audit, tt.timeout)
