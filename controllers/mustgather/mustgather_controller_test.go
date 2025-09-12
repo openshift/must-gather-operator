@@ -12,12 +12,21 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/rest"
 
 	//nolint:staticcheck -- code is tied to a specific controller-runtime version. See OSD-11458
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
+
+func generateFakeClient(objs ...runtime.Object) (client.Client, *runtime.Scheme) {
+	s := scheme.Scheme
+	s.AddKnownTypes(mustgatherv1alpha1.GroupVersion, &mustgatherv1alpha1.MustGather{})
+	cl := fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(objs...).Build()
+	return cl, s
+}
 
 func TestMustGatherController(t *testing.T) {
 	mgObj := createMustGatherObject()
@@ -28,15 +37,14 @@ func TestMustGatherController(t *testing.T) {
 		secObj,
 	}
 
-	s := scheme.Scheme
-	s.AddKnownTypes(mustgatherv1alpha1.GroupVersion, mgObj)
+	var cfg *rest.Config
 
-	cl := fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(objs...).Build()
+	cl, s := generateFakeClient(objs...)
 
 	eventRec := &record.FakeRecorder{}
 
 	r := MustGatherReconciler{
-		ReconcilerBase: util.NewReconcilerBase(cl, s, nil, eventRec, nil),
+		ReconcilerBase: util.NewReconcilerBase(cl, s, cfg, eventRec, nil),
 	}
 
 	req := reconcile.Request{
