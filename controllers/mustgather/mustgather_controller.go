@@ -272,7 +272,11 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			err := r.DeleteResourceIfExists(context.TODO(), instance)
 			return reconcile.Result{}, err
 		}
-		if job1.Status.Failed > 0 && instance.GetDeletionTimestamp() == nil {
+		backoffLimit := int32(0)
+		if job1.Spec.BackoffLimit != nil {
+			backoffLimit = *job1.Spec.BackoffLimit
+		}
+		if job1.Status.Failed > backoffLimit && instance.GetDeletionTimestamp() == nil {
 			reqLogger.Info("MustGather Job pods failed")
 			// Increment prometheus metrics for must gather errors
 			localmetrics.MetricMustGatherErrors.Inc()
