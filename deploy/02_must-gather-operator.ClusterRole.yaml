@@ -12,6 +12,7 @@ rules:
     verbs:
       - list
       - get
+      - watch
   # leader election
   - apiGroups:
       - ""
