@@ -23,7 +23,6 @@ import (
 	"os"
 	"reflect"
 
-	"github.com/blang/semver/v4"
 	"github.com/go-logr/logr"
 	configv1 "github.com/openshift/api/config/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
@@ -350,34 +349,7 @@ func (r *MustGatherReconciler) getJobFromInstance(instance *mustgatherv1alpha1.M
 		return nil, err
 	}
 
-	version, err := r.getClusterVersionForJobTemplate("version")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cluster version for job template: %w", err)
-	}
-
-	return getJobTemplate(operatorImage, version, *instance), nil
-}
-
-func (r *MustGatherReconciler) getClusterVersionForJobTemplate(clusterVersionName string) (string, error) {
-	clusterVersion := &configv1.ClusterVersion{}
-	err := r.GetClient().Get(context.TODO(), types.NamespacedName{Name: clusterVersionName}, clusterVersion)
-	if err != nil {
-		return "", fmt.Errorf("unable to get clusterversion '%v': %w", clusterVersionName, err)
-	}
-
-	var version string
-	for _, history := range clusterVersion.Status.History {
-		if history.State == "Completed" {
-			version = history.Version
-			break
-		}
-	}
-	if version == "" {
-		return "", goerror.New("unable to determine cluster version from status history")
-	}
-
-	parsedVersion, _ := semver.New(version)
-	return fmt.Sprintf("%v.%v", parsedVersion.Major, parsedVersion.Minor), nil
+	return getJobTemplate(operatorImage, *instance), nil
 }
 
 // contains is a helper function for finalizer
