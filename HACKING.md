@@ -24,7 +24,7 @@ go build .
 export OPERATOR_NAMESPACE=must-gather-operator
 export OPERATOR_NAME=must-gather-operator
 export WATCH_NAMESPACE=must-gather-operator
-export DEFAULT_MUST_GATHER_IMAGE='quay.io/openshift/origin-must-gather:latest'
+export DEFAULT_MUST_GATHER_IMAGE='registry.redhat.io/openshift4/ose-must-gather-rhel9:latest'
 export NAMESPACE=must-gather-operator
 
 # the image for the operator is still required,
