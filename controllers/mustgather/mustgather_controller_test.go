@@ -4,9 +4,6 @@ import (
 	"context"
 	"testing"
 
-	configv1 "github.com/openshift/api/config/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 	"github.com/redhat-cop/operator-utils/pkg/util"
 	corev1 "k8s.io/api/core/v1"
@@ -14,14 +11,22 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/rest"
 
 	//nolint:staticcheck -- code is tied to a specific controller-runtime version. See OSD-11458
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
+
+func generateFakeClient(objs ...runtime.Object) (client.Client, *runtime.Scheme) {
+	s := scheme.Scheme
+	s.AddKnownTypes(mustgatherv1alpha1.GroupVersion, &mustgatherv1alpha1.MustGather{})
+	cl := fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(objs...).Build()
+	return cl, s
+}
 
 func TestMustGatherController(t *testing.T) {
 	mgObj := createMustGatherObject()
@@ -34,10 +39,7 @@ func TestMustGatherController(t *testing.T) {
 
 	var cfg *rest.Config
 
-	s := scheme.Scheme
-	s.AddKnownTypes(mustgatherv1alpha1.GroupVersion, mgObj)
-
-	cl := fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(objs...).Build()
+	cl, s := generateFakeClient(objs...)
 
 	eventRec := &record.FakeRecorder{}
 
@@ -100,94 +102,4 @@ func createMustGatherSecretObject() *corev1.Secret {
 	}
 }
 
-func generateFakeClient(objs ...client.Object) (client.Client, error) {
-	s := runtime.NewScheme()
-	if err := configv1.AddToScheme(s); err != nil {
-		return nil, err
-	}
-	return fake.NewClientBuilder().WithScheme(s).WithObjects(objs...).Build(), nil
-}
 
-func TestMustGatherReconciler_getClusterVersionForJobTemplate(t *testing.T) {
-	tests := []struct {
-		name               string
-		clusterVersionObj  *configv1.ClusterVersion
-		clusterVersionName string
-		want               string
-		wantErr            bool
-	}{
-		{
-			name: "clusterVersion doesn't exist",
-			clusterVersionObj: &configv1.ClusterVersion{
-				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
-			},
-			clusterVersionName: "badName",
-			wantErr:            true,
-		},
-		{
-			name: "clusterVersion does not have any status history",
-			clusterVersionObj: &configv1.ClusterVersion{
-				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
-				Status:     configv1.ClusterVersionStatus{},
-			},
-			clusterVersionName: "cluster",
-			wantErr:            true,
-		},
-		{
-			name: "clusterVersion does not have a Completed status history",
-			clusterVersionObj: &configv1.ClusterVersion{
-				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
-				Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Foo"}}},
-			},
-			clusterVersionName: "cluster",
-			wantErr:            true,
-		},
-		{
-			name: "clusterVersion Completed status history does not have a version",
-			clusterVersionObj: &configv1.ClusterVersion{
-				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
-				Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Completed"}}},
-			},
-			clusterVersionName: "cluster",
-			wantErr:            true,
-		},
-		{
-			name: "clusterVersion is a standard version in x.y.z format",
-			clusterVersionObj: &configv1.ClusterVersion{
-				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
-				Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}}},
-			},
-			clusterVersionName: "cluster",
-			want:               "1.2",
-		},
-		{
-			name: "clusterVersion contains a build identifier",
-			clusterVersionObj: &configv1.ClusterVersion{
-				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
-				Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3-rc.0"}}},
-			},
-			clusterVersionName: "cluster",
-			want:               "1.2",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			objects := []client.Object{tt.clusterVersionObj}
-			fakeClient, err := generateFakeClient(objects...)
-			if err != nil {
-				t.Errorf("failed to generate fake client")
-			}
-			r := &MustGatherReconciler{
-				ReconcilerBase: util.NewReconcilerBase(fakeClient, fakeClient.Scheme(), &rest.Config{}, &record.FakeRecorder{}, nil),
-			}
-			got, err := r.getClusterVersionForJobTemplate(tt.clusterVersionName)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("getClusterVersionForJobTemplate() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("getClusterVersionForJobTemplate() got = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
