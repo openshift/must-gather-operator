@@ -2,7 +2,9 @@ package mustgather
 
 import (
 	"fmt"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -24,7 +26,6 @@ const (
 	gatherCommandBinaryAudit   = "gather_audit_logs"
 	gatherCommandBinaryNoAudit = "gather"
 	gatherCommand              = "timeout %v bash -x -c -- '/usr/bin/%v' 2>&1 | tee /must-gather/must-gather.log\n\nstatus=$?\nif [[ $status -eq 124 || $status -eq 137 ]]; then\n  echo \"Gather timed out.\"\n  exit 0\nfi | tee -a /must-gather/must-gather.log"
-	mustGatherImage            = "quay.io/openshift/origin-must-gather"
 	gatherContainerName        = "gather"
 
 	uploadContainerName       = "upload"
@@ -42,9 +43,12 @@ const (
 	// SSH directory and known hosts file
 	sshDir         = "/tmp/must-gather-operator/.ssh"
 	knownHostsFile = "/tmp/must-gather-operator/.ssh/known_hosts"
+
+	// Environment variable specifying the must-gather image
+	defaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"
 )
 
-func getJobTemplate(operatorImage string, clusterVersion string, mustGather v1alpha1.MustGather) *batchv1.Job {
+func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batchv1.Job {
 	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, mustGather.Spec.ServiceAccountRef.Name)
 
 	var httpProxy, httpsProxy, noProxy string
@@ -75,7 +79,7 @@ func getJobTemplate(operatorImage string, clusterVersion string, mustGather v1al
 
 	job.Spec.Template.Spec.Containers = append(
 		job.Spec.Template.Spec.Containers,
-		getGatherContainer(mustGather.Spec.Audit, mustGather.Spec.MustGatherTimeout.Duration, clusterVersion),
+		getGatherContainer(mustGather.Spec.Audit, mustGather.Spec.MustGatherTimeout.Duration),
 		getUploadContainer(
 			operatorImage,
 			mustGather.Spec.CaseID,
@@ -141,7 +145,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 	}
 }
 
-func getGatherContainer(audit bool, timeout time.Duration, mustGatherImageVersion string) corev1.Container {
+func getGatherContainer(audit bool, timeout time.Duration) corev1.Container {
 	var commandBinary string
 	if audit {
 		commandBinary = gatherCommandBinaryAudit
@@ -155,7 +159,7 @@ func getGatherContainer(audit bool, timeout time.Duration, mustGatherImageVersio
 			"-c",
 			fmt.Sprintf(gatherCommand, timeout, commandBinary),
 		},
-		Image: fmt.Sprintf("%v:%v", mustGatherImage, mustGatherImageVersion),
+		Image: strings.TrimSpace(os.Getenv(defaultMustGatherImageEnv)),
 		Name:  gatherContainerName,
 		VolumeMounts: []corev1.VolumeMount{
 			{
