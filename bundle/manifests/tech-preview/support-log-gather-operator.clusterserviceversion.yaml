@@ -141,7 +141,7 @@ spec:
           verbs:
           - get
         - apiGroups:
-          - managed.openshift.io
+          - operator.openshift.io
           resources:
           - mustgathers
           verbs:
@@ -153,7 +153,7 @@ spec:
           - update
           - watch
         - apiGroups:
-          - managed.openshift.io
+          - operator.openshift.io
           resources:
           - mustgathers/status
           verbs:
@@ -236,8 +236,8 @@ spec:
   customresourcedefinitions:
     owned:
     - displayName: Must Gather
-      group: managed.openshift.io
+      group: operator.openshift.io
       kind: MustGather
-      name: mustgathers.managed.openshift.io
+      name: mustgathers.operator.openshift.io
       description: Represents a must-gather diagnostic collection job
       version: v1alpha1
