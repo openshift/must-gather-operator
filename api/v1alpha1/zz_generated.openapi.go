@@ -26,14 +26,16 @@ func schema_openshift_must_gather_operator_api_v1alpha1_ProxySpec(ref common.Ref
 				Properties: map[string]spec.Schema{
 					"httpProxy": {
 						SchemaProps: spec.SchemaProps{
-							Description: "httpProxy is the URL of the proxy for HTTP requests.  Empty means unset and will not result in an env var.",
+							Description: "httpProxy is the URL of the proxy for HTTP requests.",
+							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
 						},
 					},
 					"httpsProxy": {
 						SchemaProps: spec.SchemaProps{
-							Description: "httpsProxy is the URL of the proxy for HTTPS requests.  Empty means unset and will not result in an env var.",
+							Description: "httpsProxy is the URL of the proxy for HTTPS requests.",
+							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
 						},
@@ -46,6 +48,7 @@ func schema_openshift_must_gather_operator_api_v1alpha1_ProxySpec(ref common.Ref
 						},
 					},
 				},
+				Required: []string{"httpProxy", "httpsProxy"},
 			},
 		},
 	}
