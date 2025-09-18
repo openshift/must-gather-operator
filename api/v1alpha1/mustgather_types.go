@@ -59,6 +59,11 @@ type MustGatherSpec struct {
 	// See documentation for further information.
 	// +kubebuilder:default:=true
 	InternalUser bool `json:"internalUser,omitempty"`
+
+	// A flag to specify if resources (secret, job, pods) should be retained when the MustGather completes.
+	// If set to true, resources will be retained. If false or not set, resources will be deleted (default behavior).
+	// +kubebuilder:default:=false
+	RetainResourcesOnCompletion bool `json:"retainResourcesOnCompletion,omitempty"`
 }
 
 // +k8s:openapi-gen=true
