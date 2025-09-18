@@ -375,6 +375,7 @@ func remove(list []string, s string) []string {
 // cleanupMustGatherResources cleans up the secret, job, and pods associated with a MustGather instance
 func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather, operatorNs string) error {
 	reqLogger.Info("cleaning up resources")
+	var err error
 
 	// delete secret in the operator namespace
 	if instance.Spec.UploadTarget != nil && instance.Spec.UploadTarget.SFTP != nil && instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name != "" {
@@ -386,7 +387,7 @@ func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, r
 			},
 		}
 
-		err := r.DeleteResourceIfExists(ctx, tmpSecret)
+		err = r.DeleteResourceIfExists(ctx, tmpSecret)
 
 		if err != nil {
 			reqLogger.Error(err, fmt.Sprintf("failed to delete %s secret", tmpSecretName))
