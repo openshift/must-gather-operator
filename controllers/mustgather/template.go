@@ -33,6 +33,7 @@ const (
 	uploadEnvPassword         = "password"
 	uploadEnvCaseId           = "caseid"
 	uploadEnvInternalUser     = "internal_user"
+	uploadEnvDisableUpload    = "disable_upload"
 	uploadEnvHttpProxy        = "http_proxy"
 	uploadEnvHttpsProxy       = "https_proxy"
 	uploadEnvNoProxy          = "no_proxy"
@@ -84,6 +85,7 @@ func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batch
 			operatorImage,
 			mustGather.Spec.CaseID,
 			mustGather.Spec.InternalUser,
+			mustGather.Spec.DisableUpload,
 			httpProxy,
 			httpsProxy,
 			noProxy,
@@ -174,6 +176,7 @@ func getUploadContainer(
 	operatorImage string,
 	caseId string,
 	internalUser bool,
+	disableUpload bool,
 	httpProxy string,
 	httpsProxy string,
 	noProxy string,
@@ -203,6 +206,32 @@ func getUploadContainer(
 		},
 		Env: []corev1.EnvVar{
 			{
+				Name:  uploadEnvCaseId,
+				Value: caseId,
+			},
+			{
+				Name:  uploadEnvMustGatherOutput,
+				Value: volumeMountPath,
+			},
+			{
+				Name:  uploadEnvMustGatherUpload,
+				Value: volumeUploadMountPath,
+			},
+			{
+				Name:  uploadEnvInternalUser,
+				Value: strconv.FormatBool(internalUser),
+			},
+			{
+				Name:  uploadEnvDisableUpload,
+				Value: strconv.FormatBool(disableUpload),
+			},
+		},
+	}
+
+	// Add secret-based environment variables only when upload is enabled and secret is provided
+	if !disableUpload && secretKeyRefName.Name != "" {
+		container.Env = append(container.Env, []corev1.EnvVar{
+			{
 				Name: uploadEnvUsername,
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
@@ -220,23 +249,7 @@ func getUploadContainer(
 					},
 				},
 			},
-			{
-				Name:  uploadEnvCaseId,
-				Value: caseId,
-			},
-			{
-				Name:  uploadEnvMustGatherOutput,
-				Value: volumeMountPath,
-			},
-			{
-				Name:  uploadEnvMustGatherUpload,
-				Value: volumeUploadMountPath,
-			},
-			{
-				Name:  uploadEnvInternalUser,
-				Value: strconv.FormatBool(internalUser),
-			},
-		},
+		}...)
 	}
 
 	if httpProxy != "" {

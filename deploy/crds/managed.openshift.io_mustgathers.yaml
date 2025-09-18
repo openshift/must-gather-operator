@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.18.1-0.20250818134112-b624019bbe8d
+    controller-gen.kubebuilder.io/version: v0.16.4
   name: mustgathers.managed.openshift.io
 spec:
   group: managed.openshift.io
@@ -46,12 +46,14 @@ spec:
                   See documentation for further information.
                 type: boolean
               caseID:
-                description: The is of the case this must gather will be uploaded
-                  to
+                description: |-
+                  The is of the case this must gather will be uploaded to
+                  Required when disableUpload is false, optional when disableUpload is true
                 type: string
               caseManagementAccountSecretRef:
-                description: the secret container a username and password field to
-                  be used to authenticate with red hat case management systems
+                description: |-
+                  the secret container a username and password field to be used to authenticate with red hat case management systems
+                  Required when disableUpload is false, optional when disableUpload is true
                 properties:
                   name:
                     default: ""
@@ -64,6 +66,12 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+              disableUpload:
+                default: false
+                description: |-
+                  A flag to control whether the must-gather bundle should be uploaded to SFTP server.
+                  If set to true, the bundle will be collected but not uploaded.
+                type: boolean
               internalUser:
                 default: true
                 description: |-
@@ -112,10 +120,13 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
-            required:
-            - caseID
-            - caseManagementAccountSecretRef
             type: object
+            x-kubernetes-validations:
+            - message: caseID and caseManagementAccountSecretRef are required when
+                disableUpload is false or unset
+              rule: '!(has(self.disableUpload) && self.disableUpload) ? (has(self.caseID)
+                && self.caseID != '''' && has(self.caseManagementAccountSecretRef)
+                && self.caseManagementAccountSecretRef.name != '''') : true'
           status:
             description: MustGatherStatus defines the observed state of MustGather
             properties:
