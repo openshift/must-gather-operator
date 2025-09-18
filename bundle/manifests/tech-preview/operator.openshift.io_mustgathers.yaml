@@ -71,6 +71,12 @@ spec:
                 - httpProxy
                 - httpsProxy
                 type: object
+              retainResourcesOnCompletion:
+                default: false
+                description: |-
+                  A flag to specify if resources (secret, job, pods) should be retained when the MustGather completes.
+                  If set to true, resources will be retained. If false or not set, resources will be deleted (default behavior).
+                type: boolean
               serviceAccountRef:
                 description: |-
                   the service account to use to run the must gather job pod, defaults to default
