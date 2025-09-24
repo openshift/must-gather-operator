@@ -87,3 +87,5 @@ mustgather-example.yaml
 saas-must-gather-operator-bundle
 # IDE
 .idea
+# Binaries used by make
+bin/
