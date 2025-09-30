@@ -1,4 +1,4 @@
-FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.24-openshift-4.20 AS builder
+FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.24-openshift-4.21 AS builder
 
 # Copy and download the dependecies so that they are cached locally in the stages.
 WORKDIR /go/src/github.com/openshift/must-gather-operator
@@ -7,7 +7,7 @@ COPY . /go/src/github.com/openshift/must-gather-operator
 
 RUN make go-build
 
-FROM registry.ci.openshift.org/ocp/4.20:base-rhel9
+FROM registry.ci.openshift.org/ocp/4.21:base-rhel9
 
 RUN dnf install -y tar gzip openssh-clients wget shadow-utils procps sshpass nc && \
     dnf clean all
