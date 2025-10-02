@@ -55,7 +55,7 @@ rules:
       - "update"
   # operator business logic
   - apiGroups:
-      - managed.openshift.io
+      - operator.openshift.io
     resources:
       - "mustgathers"
       - mustgathers/finalizers
