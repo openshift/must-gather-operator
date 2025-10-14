@@ -32,6 +32,7 @@ const (
 	uploadEnvUsername         = "username"
 	uploadEnvPassword         = "password"
 	uploadEnvCaseId           = "caseid"
+	uploadEnvHost             = "host"
 	uploadEnvInternalUser     = "internal_user"
 	uploadEnvHttpProxy        = "http_proxy"
 	uploadEnvHttpsProxy       = "https_proxy"
@@ -80,16 +81,28 @@ func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batch
 	job.Spec.Template.Spec.Containers = append(
 		job.Spec.Template.Spec.Containers,
 		getGatherContainer(mustGather.Spec.Audit, mustGather.Spec.MustGatherTimeout.Duration),
-		getUploadContainer(
-			operatorImage,
-			mustGather.Spec.CaseID,
-			mustGather.Spec.InternalUser,
-			httpProxy,
-			httpsProxy,
-			noProxy,
-			mustGather.Spec.CaseManagementAccountSecretRef,
-		),
 	)
+
+	// Add the upload container only if the upload target is specified
+	if mustGather.Spec.UploadTarget != nil && mustGather.Spec.UploadTarget.Type == v1alpha1.UploadTypeSFTP {
+		s := mustGather.Spec.UploadTarget.SFTP
+		if s != nil && s.CaseID != "" && s.CaseManagementAccountSecretRef.Name != "" {
+			job.Spec.Template.Spec.Containers = append(
+				job.Spec.Template.Spec.Containers,
+				getUploadContainer(
+					operatorImage,
+					s.CaseID,
+					s.Host,
+					s.InternalUser,
+					httpProxy,
+					httpsProxy,
+					noProxy,
+					s.CaseManagementAccountSecretRef,
+				),
+			)
+		}
+	}
+
 	return job
 }
 
@@ -173,6 +186,7 @@ func getGatherContainer(audit bool, timeout time.Duration) corev1.Container {
 func getUploadContainer(
 	operatorImage string,
 	caseId string,
+	host string,
 	internalUser bool,
 	httpProxy string,
 	httpsProxy string,
@@ -223,6 +237,10 @@ func getUploadContainer(
 			{
 				Name:  uploadEnvCaseId,
 				Value: caseId,
+			},
+			{
+				Name:  uploadEnvHost,
+				Value: host,
 			},
 			{
 				Name:  uploadEnvMustGatherOutput,

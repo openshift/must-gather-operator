@@ -10,9 +10,9 @@ import (
 	"time"
 
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	v1 "k8s.io/api/core/v1"
 	batchv1 "k8s.io/api/batch/v1"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func Test_initializeJobTemplate(t *testing.T) {
@@ -44,10 +44,10 @@ func Test_initializeJobTemplate(t *testing.T) {
 
 func Test_getGatherContainer(t *testing.T) {
 	tests := []struct {
-		name             string
-		audit            bool
-		timeout          time.Duration
-		mustGatherImage  string
+		name            string
+		audit           bool
+		timeout         time.Duration
+		mustGatherImage string
 	}{
 		{
 			name:            "no audit",
@@ -101,6 +101,7 @@ func Test_getUploadContainer(t *testing.T) {
 		name             string
 		operatorImage    string
 		caseId           string
+		host             string
 		internalUser     bool
 		httpProxy        string
 		httpsProxy       string
@@ -111,6 +112,7 @@ func Test_getUploadContainer(t *testing.T) {
 			name:             "All fields present",
 			operatorImage:    "testImage",
 			caseId:           "1234",
+			host:             "sftp.example.com",
 			internalUser:     true,
 			httpProxy:        "testHttpProxy",
 			httpsProxy:       "testHttpsProxy",
@@ -154,7 +156,7 @@ func Test_getUploadContainer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testFailed := false
-			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.internalUser, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName)
+			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.host, tt.internalUser, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName)
 
 			if container.Image != tt.operatorImage {
 				t.Logf("expected container image %v but got %v", tt.operatorImage, container.Image)
@@ -166,6 +168,11 @@ func Test_getUploadContainer(t *testing.T) {
 				case uploadEnvCaseId:
 					if env.Value != tt.caseId {
 						t.Logf("expected case ID envar %v but got %v", tt.caseId, env.Value)
+						testFailed = true
+					}
+				case uploadEnvHost:
+					if env.Value != tt.host {
+						t.Logf("expected host envar %v but got %v", tt.host, env.Value)
 						testFailed = true
 					}
 				case uploadEnvInternalUser:
@@ -236,11 +243,16 @@ func Test_getJobTemplate_FallbackWhenOnlyNoProxyProvidedInCR(t *testing.T) {
 	mg := mustgatherv1alpha1.MustGather{
 		ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
 		Spec: mustgatherv1alpha1.MustGatherSpec{
-			CaseID:                         "case",
-			CaseManagementAccountSecretRef: v1.LocalObjectReference{Name: "sec"},
-			ServiceAccountRef:              v1.LocalObjectReference{Name: "sa"},
+			ServiceAccountRef: v1.LocalObjectReference{Name: "sa"},
 			ProxyConfig: mustgatherv1alpha1.ProxySpec{
 				NoProxy: "cr-no-proxy",
+			},
+			UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+				Type: mustgatherv1alpha1.UploadTypeSFTP,
+				SFTP: &mustgatherv1alpha1.SFTPSpec{
+					CaseID:                         "case",
+					CaseManagementAccountSecretRef: v1.LocalObjectReference{Name: "sec"},
+				},
 			},
 		},
 	}
@@ -273,13 +285,18 @@ func Test_getJobTemplate_NoFallbackWhenHttpAndHttpsProvidedInCR(t *testing.T) {
 	mg := mustgatherv1alpha1.MustGather{
 		ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
 		Spec: mustgatherv1alpha1.MustGatherSpec{
-			CaseID:                         "case",
-			CaseManagementAccountSecretRef: v1.LocalObjectReference{Name: "sec"},
-			ServiceAccountRef:              v1.LocalObjectReference{Name: "sa"},
+			ServiceAccountRef: v1.LocalObjectReference{Name: "sa"},
 			ProxyConfig: mustgatherv1alpha1.ProxySpec{
 				HTTPProxy:  "http://cr-http:8080",
 				HTTPSProxy: "https://cr-https:8443",
 				// NoProxy intentionally empty
+			},
+			UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+				Type: mustgatherv1alpha1.UploadTypeSFTP,
+				SFTP: &mustgatherv1alpha1.SFTPSpec{
+					CaseID:                         "case",
+					CaseManagementAccountSecretRef: v1.LocalObjectReference{Name: "sec"},
+				},
 			},
 		},
 	}
@@ -312,12 +329,17 @@ func Test_getJobTemplate_NoFallbackIfHttpsProvidedButHttpMissing(t *testing.T) {
 	mg := mustgatherv1alpha1.MustGather{
 		ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
 		Spec: mustgatherv1alpha1.MustGatherSpec{
-			CaseID:                         "case",
-			CaseManagementAccountSecretRef: v1.LocalObjectReference{Name: "sec"},
-			ServiceAccountRef:              v1.LocalObjectReference{Name: "sa"},
+			ServiceAccountRef: v1.LocalObjectReference{Name: "sa"},
 			ProxyConfig: mustgatherv1alpha1.ProxySpec{
 				HTTPSProxy: "https://cr-https:8443",
 				// HTTPProxy empty to ensure fallback condition is false
+			},
+			UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+				Type: mustgatherv1alpha1.UploadTypeSFTP,
+				SFTP: &mustgatherv1alpha1.SFTPSpec{
+					CaseID:                         "case",
+					CaseManagementAccountSecretRef: v1.LocalObjectReference{Name: "sec"},
+				},
 			},
 		},
 	}
