@@ -16,7 +16,7 @@ FILENAME_PREFIX=${FILENAME_PREFIX:="must-gather"}
 CURRENT_TIMESTAMP=$(date --utc +%Y%m%d_%H%M%SZ)
 CSP_FILENAME=${FILENAME_PREFIX}-${CURRENT_TIMESTAMP}.tar.gz
 CSP_FILE="${must_gather_upload}/${CSP_FILENAME}"
-FTP_HOST=sftp.access.redhat.com
+FTP_HOST=${host:-"sftp.access.redhat.com"}
 KNOWN_HOSTS_PATH="/tmp/must-gather-operator/.ssh/known_hosts"
 SFTP_OPTIONS="-o BatchMode=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=${KNOWN_HOSTS_PATH} "
 
