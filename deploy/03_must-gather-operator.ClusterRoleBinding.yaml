@@ -5,7 +5,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: must-gather-operator
-  namespace: must-gather-operator
+  namespace: support-log-gather
 roleRef:
   kind: ClusterRole
   name: must-gather-operator

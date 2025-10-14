@@ -41,8 +41,8 @@ const (
 	uploadCommand             = "count=0\nuntil [ $count -gt 4 ]\ndo\n  while `pgrep -a gather > /dev/null`\n  do\n    echo \"waiting for gathers to complete ...\"\n    sleep 120\n    count=0\n  done\n  echo \"no gather is running ($count / 4)\"\n  ((count++))\n  sleep 30\ndone\n/usr/local/bin/upload"
 
 	// SSH directory and known hosts file
-	sshDir         = "/tmp/must-gather-operator/.ssh"
-	knownHostsFile = "/tmp/must-gather-operator/.ssh/known_hosts"
+	sshDir         = "/tmp/support-log-gather/.ssh"
+	knownHostsFile = "/tmp/support-log-gather/.ssh/known_hosts"
 
 	// Environment variable specifying the must-gather image
 	defaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"

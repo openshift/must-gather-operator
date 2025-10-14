@@ -22,7 +22,7 @@ objects:
       managed.openshift.io/gitHash: ${IMAGE_TAG}
       managed.openshift.io/gitRepoName: ${REPO_NAME}
       managed.openshift.io/osd: 'true'
-    name: must-gather-operator
+    name: support-log-gather
   spec:
     clusterDeploymentSelector:
       matchLabels:
@@ -32,7 +32,7 @@ objects:
     - apiVersion: v1
       kind: Namespace
       metadata:
-        name: must-gather-operator
+        name: support-log-gather
         annotations:
           openshift.io/node-selector: ""
         labels:

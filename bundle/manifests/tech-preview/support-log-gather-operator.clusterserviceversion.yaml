@@ -2,10 +2,10 @@ apiVersion: operators.coreos.com/v1alpha1
 kind: ClusterServiceVersion
 metadata:
   name: support-log-gather-operator.v4.20.0
-  namespace: must-gather-operator
+  namespace: support-log-gather
   annotations:
     categories: Monitoring, Application Runtime
-    operatorframework.io/suggested-namespace: must-gather-operator
+    operatorframework.io/suggested-namespace: support-log-gather
     capabilities: Full Lifecycle
     description: Operator to enable CEE to collect must-gathers from OSDv4 clusters
     containerImage: quay.io/openshift/origin-support-log-gather-operator:latest

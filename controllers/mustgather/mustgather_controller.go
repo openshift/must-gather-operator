@@ -43,7 +43,7 @@ import (
 const (
 	ControllerName = "mustgather-controller"
 
-	defaultMustGatherNamespace = "must-gather-operator"
+	defaultMustGatherNamespace = "support-log-gather"
 )
 
 var log = logf.Log.WithName(ControllerName)
