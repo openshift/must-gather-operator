@@ -76,27 +76,49 @@ func Test_initializeJobTemplate(t *testing.T) {
 }
 
 func Test_getGatherContainer(t *testing.T) {
+
+	testDefaultMustGatherImage := "quay.io/foo/bar/must-gather:latest"
+	testAcmHcpMustGatherImage := "quay.io/acm/hcp/must-gather:latest"
+
 	tests := []struct {
-		name            string
-		audit           bool
-		timeout         time.Duration
-		mustGatherImage string
-		storage         *mustgatherv1alpha1.Storage
+		name                 string
+		audit                bool
+		timeout              time.Duration
+		mustGatherImage      string
+		storage              *mustgatherv1alpha1.Storage
+		hostedClusterOptions mustgatherv1alpha1.HostedClusterOptions
+		expectedImage        string
+		expectedArgs         string
 	}{
 		{
 			name:            "no audit",
 			timeout:         5 * time.Second,
-			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+			mustGatherImage: defaultMustGatherImageEnv,
+			expectedImage:   testDefaultMustGatherImage,
 		},
 		{
 			name:            "audit",
 			audit:           true,
 			timeout:         0 * time.Second,
-			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+			mustGatherImage: defaultMustGatherImageEnv,
+			expectedImage:   testDefaultMustGatherImage,
 		},
 		{
-			name:    "with PVC",
-			timeout: 5 * time.Second,
+			name:            "HCP default",
+			timeout:         5 * time.Second,
+			mustGatherImage: acmHcpMustGatherImage,
+			hostedClusterOptions: mustgatherv1alpha1.HostedClusterOptions{
+				HostedClusterName:      "foo",
+				HostedClusterNamespace: "bar",
+			},
+			expectedImage: testAcmHcpMustGatherImage,
+			expectedArgs:  "--hosted-cluster-namespace=bar --hosted-cluster-name=foo",
+		},
+		{
+			name:            "with PVC",
+			timeout:         5 * time.Second,
+			mustGatherImage: defaultMustGatherImageEnv,
+			expectedImage:   testDefaultMustGatherImage,
 			storage: &mustgatherv1alpha1.Storage{
 				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
 				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
@@ -110,15 +132,16 @@ func Test_getGatherContainer(t *testing.T) {
 		{
 			name:            "robust timeout",
 			timeout:         6*time.Hour + 5*time.Minute + 3*time.Second, // 6h5m3s
-			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+			mustGatherImage: defaultMustGatherImageEnv,
+			expectedImage:   testDefaultMustGatherImage,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(defaultMustGatherImageEnv, tt.mustGatherImage)
-			expectedImage := tt.mustGatherImage
+			t.Setenv(defaultMustGatherImageEnv, testDefaultMustGatherImage)
+			t.Setenv(acmHcpMustGatherImageEnv, testAcmHcpMustGatherImage)
 
-			container := getGatherContainer(tt.audit, tt.timeout, tt.storage)
+			container := getGatherContainer(tt.audit, tt.timeout, tt.storage, tt.mustGatherImage, &tt.hostedClusterOptions)
 
 			containerCommand := container.Command[2]
 			if tt.audit && !strings.Contains(containerCommand, gatherCommandBinaryAudit) {
@@ -132,8 +155,15 @@ func Test_getGatherContainer(t *testing.T) {
 				t.Fatalf("the duration was not properly added to the container command, got %v but wanted %v", strings.Split(containerCommand, " ")[1], timeoutInSeconds)
 			}
 
-			if container.Image != expectedImage {
-				t.Fatalf("expected container image %v but got %v", expectedImage, container.Image)
+			if tt.expectedArgs != "" {
+				if !strings.Contains(containerCommand, tt.expectedArgs) {
+					t.Fatalf("command did not contain expected arguments: %v", tt.expectedArgs)
+
+				}
+			}
+
+			if container.Image != tt.expectedImage {
+				t.Fatalf("expected container image %v but got %v", tt.expectedImage, container.Image)
 			}
 
 			if tt.storage != nil {

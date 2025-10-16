@@ -95,6 +95,12 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		return reconcile.Result{}, err
 	}
 
+	valid, err := r.IsValid(instance)
+	if !valid {
+		log.Error(err, "MustGather resource invalid", "instance", instance)
+		return r.ManageError(ctx, instance, err)
+	}
+
 	// Check if the MustGather instance is marked to be deleted, which is
 	// indicated by the deletion timestamp being set.
 	isMustGatherMarkedToBeDeleted := instance.GetDeletionTimestamp() != nil
@@ -288,6 +294,27 @@ func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, instance 
 	}
 
 	return getJobTemplate(operatorImage, *instance), nil
+}
+
+func (r *MustGatherReconciler) IsValid(instance *mustgatherv1alpha1.MustGather) (bool, error) {
+	if instance.Spec.MustGatherImage == acmHcpMustGatherImage {
+		// If MustGatherImage is set to acm_hcp, hosted cluster namespace and name must be set as well, as they are
+		// required arguments for the acm_hcp must gather image.
+		hostedClusterOptions := instance.Spec.HostedClusterOptions
+		if hostedClusterOptions == nil {
+			return false, goerror.New("hostedClusterOptions must be set when using the acm_hcp must gather image")
+		}
+
+		if hostedClusterOptions.HostedClusterNamespace == "" || hostedClusterOptions.HostedClusterName == "" {
+			return false, goerror.New("hostedClusterNamespace and hostedClusterName must be set when using the acm_hcp must gather image")
+		}
+
+		// If MustGatherImage is set to acm_hcp, we cannot collect audit logs.
+		if instance.Spec.Audit != nil && *instance.Spec.Audit {
+			return false, goerror.New("cannot collect audit logs when using the acm_hcp must gather image")
+		}
+	}
+	return true, nil
 }
 
 // contains is a helper function for finalizer

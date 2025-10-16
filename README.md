@@ -105,5 +105,6 @@ Using the [operator-sdk](https://github.com/operator-framework/operator-sdk), ru
 oc apply -f deploy/crds/operator.openshift.io_mustgathers_crd.yaml
 oc new-project must-gather-operator
 export DEFAULT_MUST_GATHER_IMAGE='quay.io/openshift/origin-must-gather:latest'
+export ACM_HCP_MUST_GATHER_IMAGE='registry.redhat.io/multicluster-engine/must-gather-rhel9:v2.8'
 OPERATOR_NAME=must-gather-operator operator-sdk run --verbose --local --namespace ''
 ```

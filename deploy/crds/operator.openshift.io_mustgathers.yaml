@@ -45,6 +45,34 @@ spec:
                   A flag to specify if audit logs must be collected
                   See documentation for further information.
                 type: boolean
+              hostedClusterOptions:
+                description: The options for running must-gather on a hosted cluster.
+                properties:
+                  hostedClusterName:
+                    description: |-
+                      The name of the hosted cluster to collect the must-gather for.
+                      This field is required if mustGatherImage='acm_hcp'.
+                    type: string
+                  hostedClusterNamespace:
+                    description: |-
+                      The namespace of the hosted cluster to collect the must-gather for.
+                      This field is required if mustGatherImage='acm_hcp'.
+                    type: string
+                required:
+                - hostedClusterName
+                - hostedClusterNamespace
+                type: object
+              mustGatherImage:
+                default: default
+                description: |-
+                  The image to use for the must-gather pods.
+                  This can currently only be one of two values:
+                  'default' for most cases including OCP and Managed OpenShift, which will use quay.io/openshift/must-gather
+                  'acm_hcp' for HCP must gathers, which will use registry.redhat.io/multicluster-engine/must-gather-rhel9:v2.8
+                enum:
+                - default
+                - acm_hcp
+                type: string
               mustGatherTimeout:
                 description: |-
                   A time limit for gather command to complete a floating point number with a suffix:
@@ -191,6 +219,17 @@ spec:
                   rule: 'has(self.type) && self.type == ''SFTP'' ? has(self.sftp)
                     : !has(self.sftp)'
             type: object
+            x-kubernetes-validations:
+            - message: hostedClusterNamespace and hostedClusterName are required when
+                mustGatherImage is 'acm_hcp'
+              rule: self.mustGatherImage != 'acm_hcp' || (has(self.hostedClusterOptions.hostedClusterNamespace)
+                && has(self.hostedClusterOptions.hostedClusterName))
+            - message: audit must be false when mustGatherImage is 'acm_hcp'
+              rule: self.mustGatherImage != 'acm_hcp' || !self.audit
+            - message: hosted cluster fields are only valid when mustGatherImage is
+                'acm_hcp'
+              rule: self.mustGatherImage == 'acm_hcp' || (!has(self.hostedClusterOptions.hostedClusterNamespace)
+                && !has(self.hostedClusterOptions.hostedClusterName))
           status:
             description: MustGatherStatus defines the observed state of MustGather
             properties:
