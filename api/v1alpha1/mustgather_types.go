@@ -63,9 +63,9 @@ type MustGatherSpec struct {
 	// The image to use for the must-gather pods.
 	// This can currently only be one of two values:
 	// 'default' for most cases including OSD/ROSA, which will use quay.io/openshift/must-gather
-	// 'acm_hcp' for HCP must gathers, which will use quay.io/rokejungrh/must-gather
+	// 'acm_hcp' for HCP must gathers, which will use registry.redhat.io/multicluster-engine/must-gather-rhel9:v2.8
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:validation:Enum=default,acm_hcp
+	// +kubebuilder:validation:Enum={"default","acm_hcp"}
 	// +kubebuilder:default:=default
 	MustGatherImage string `json:"mustGatherImage,omitempty"`
 

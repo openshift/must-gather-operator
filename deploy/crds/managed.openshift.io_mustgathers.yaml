@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.18.1-0.20250818134112-b624019bbe8d
+    controller-gen.kubebuilder.io/version: v0.19.1-0.20251013055054-8ef4174c3d65
   name: mustgathers.managed.openshift.io
 spec:
   group: managed.openshift.io
@@ -64,12 +64,33 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+              hostedClusterName:
+                description: |-
+                  The name of the hosted cluster to collect the must-gather for.
+                  This field is required if mustGatherImage='acm_hcp'.
+                type: string
+              hostedClusterNamespace:
+                description: |-
+                  The namespace of the hosted cluster to collect the must-gather for.
+                  This field is required if mustGatherImage='acm_hcp'.
+                type: string
               internalUser:
                 default: true
                 description: |-
                   A flag to specify if the upload user provided in the caseManagementAccountSecret is a RH internal user.
                   See documentation for further information.
                 type: boolean
+              mustGatherImage:
+                default: default
+                description: |-
+                  The image to use for the must-gather pods.
+                  This can currently only be one of two values:
+                  'default' for most cases including OSD/ROSA, which will use quay.io/openshift/must-gather
+                  'acm_hcp' for HCP must gathers, which will use registry.redhat.io/multicluster-engine/must-gather-rhel9:v2.8
+                enum:
+                - default
+                - acm_hcp
+                type: string
               mustGatherTimeout:
                 description: |-
                   A time limit for gather command to complete a floating point number with a suffix:

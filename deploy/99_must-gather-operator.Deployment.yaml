@@ -43,7 +43,7 @@ spec:
             - name: DEFAULT_MUST_GATHER_IMAGE
               value: quay.io/openshift/origin-must-gather:latest
             - name: ACM_HCP_MUST_GATHER_IMAGE
-              value: quay.io/rokejungrh/must-gather:v2.13.0-33-linux
+              value: registry.redhat.io/multicluster-engine/must-gather-rhel9:v2.8
             - name: OPERATOR_IMAGE
               value: quay.io/openshift/origin-must-gather-operator:latest
             - name: OPERATOR_NAMESPACE
