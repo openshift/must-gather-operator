@@ -25,7 +25,7 @@ const (
 
 	gatherCommandBinaryAudit   = "gather_audit_logs"
 	gatherCommandBinaryNoAudit = "gather"
-	gatherCommand              = "timeout %v bash -x -c -- '/usr/bin/%v' 2>&1 | tee /must-gather/must-gather.log\n\nstatus=$?\nif [[ $status -eq 124 || $status -eq 137 ]]; then\n  echo \"Gather timed out.\"\n  exit 0\nfi | tee -a /must-gather/must-gather.log"
+	gatherCommand              = "timeout %v bash -x -c -- '/usr/bin/%v %v' 2>&1 | tee /must-gather/must-gather.log\n\nstatus=$?\nif [[ $status -eq 124 || $status -eq 137 ]]; then\n  echo \"Gather timed out.\"\n  exit 0\nfi | tee -a /must-gather/must-gather.log"
 	gatherContainerName        = "gather"
 
 	uploadContainerName       = "upload"
@@ -44,8 +44,12 @@ const (
 	sshDir         = "/tmp/must-gather-operator/.ssh"
 	knownHostsFile = "/tmp/must-gather-operator/.ssh/known_hosts"
 
-	// Environment variable specifying the must-gather image
+	// Environment variables specifying the must-gather images
 	defaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"
+	acmHcpMustGatherImageEnv  = "ACM_HCP_MUST_GATHER_IMAGE"
+
+	defaultMustGatherImage = "default"
+	acmHcpMustGatherImage  = "acm_hcp"
 )
 
 func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batchv1.Job {
@@ -79,7 +83,7 @@ func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batch
 
 	job.Spec.Template.Spec.Containers = append(
 		job.Spec.Template.Spec.Containers,
-		getGatherContainer(mustGather.Spec.Audit, mustGather.Spec.MustGatherTimeout.Duration),
+		getGatherContainer(mustGather.Spec.Audit, mustGather.Spec.MustGatherTimeout.Duration, mustGather.Spec.MustGatherImage, mustGather.Spec.HostedClusterNamespace, mustGather.Spec.HostedClusterName),
 		getUploadContainer(
 			operatorImage,
 			mustGather.Spec.CaseID,
@@ -145,7 +149,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 	}
 }
 
-func getGatherContainer(audit bool, timeout time.Duration) corev1.Container {
+func getGatherContainer(audit bool, timeout time.Duration, mustGatherImage, hostedClusterNamespace, hostedClusterName string) corev1.Container {
 	var commandBinary string
 	if audit {
 		commandBinary = gatherCommandBinaryAudit
@@ -153,13 +157,20 @@ func getGatherContainer(audit bool, timeout time.Duration) corev1.Container {
 		commandBinary = gatherCommandBinaryNoAudit
 	}
 
+	commandArgs := ""
+	containerImage := strings.TrimSpace(os.Getenv(defaultMustGatherImageEnv))
+	if mustGatherImage == acmHcpMustGatherImage {
+		containerImage = strings.TrimSpace(os.Getenv(acmHcpMustGatherImageEnv))
+		commandArgs = fmt.Sprintf("--hosted-cluster-namespace=%s --hosted-cluster-name=%s", hostedClusterNamespace, hostedClusterName)
+	}
+
 	return corev1.Container{
 		Command: []string{
 			"/bin/bash",
 			"-c",
-			fmt.Sprintf(gatherCommand, timeout, commandBinary),
+			fmt.Sprintf(gatherCommand, timeout, commandBinary, commandArgs),
 		},
-		Image: strings.TrimSpace(os.Getenv(defaultMustGatherImageEnv)),
+		Image: containerImage,
 		Name:  gatherContainerName,
 		VolumeMounts: []corev1.VolumeMount{
 			{

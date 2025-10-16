@@ -2,6 +2,7 @@ package mustgather
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
@@ -11,8 +12,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
 
 	//nolint:staticcheck -- code is tied to a specific controller-runtime version. See OSD-11458
 
@@ -64,6 +65,87 @@ func TestMustGatherController(t *testing.T) {
 	}
 }
 
+func TestIsValid(t *testing.T) {
+	// A mock Reconciler is needed to call IsValid
+	r := &MustGatherReconciler{}
+
+	testCases := []struct {
+		name          string
+		mustGather    *mustgatherv1alpha1.MustGather
+		expectedValid bool
+		expectedError error
+	}{
+		{
+			name: "Default image should be valid without hosted cluster info",
+			mustGather: &mustgatherv1alpha1.MustGather{
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					MustGatherImage: "default",
+				},
+			},
+			expectedValid: true,
+			expectedError: nil,
+		},
+		{
+			name: "ACM HCP image should be valid with all required info",
+			mustGather: &mustgatherv1alpha1.MustGather{
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					MustGatherImage:        "acm_hcp",
+					HostedClusterNamespace: "test-ns",
+					HostedClusterName:      "test-cluster",
+				},
+			},
+			expectedValid: true,
+			expectedError: nil,
+		},
+		{
+			name: "ACM HCP image should be invalid without hosted cluster name",
+			mustGather: &mustgatherv1alpha1.MustGather{
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					MustGatherImage:        "acm_hcp",
+					HostedClusterNamespace: "test-ns",
+				},
+			},
+			expectedValid: false,
+			expectedError: errors.New("hostedClusterNamespace and hostedClusterName must be set when using the acm_hcp must gather image"),
+		},
+		{
+			name: "ACM HCP image should be invalid without hosted cluster namespace",
+			mustGather: &mustgatherv1alpha1.MustGather{
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					MustGatherImage:   "acm_hcp",
+					HostedClusterName: "test-cluster",
+				},
+			},
+			expectedValid: false,
+			expectedError: errors.New("hostedClusterNamespace and hostedClusterName must be set when using the acm_hcp must gather image"),
+		},
+		{
+			name: "ACM HCP image should be invalid without any hosted cluster info",
+			mustGather: &mustgatherv1alpha1.MustGather{
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					MustGatherImage: "acm_hcp",
+				},
+			},
+			expectedValid: false,
+			expectedError: errors.New("hostedClusterNamespace and hostedClusterName must be set when using the acm_hcp must gather image"),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			valid, err := r.IsValid(tc.mustGather)
+
+			if valid != tc.expectedValid {
+				t.Errorf("Expected valid to be %v, but got %v", tc.expectedValid, valid)
+			}
+
+			if (err != nil && tc.expectedError == nil) || (err == nil && tc.expectedError != nil) || (err != nil && tc.expectedError != nil && err.Error() != tc.expectedError.Error()) {
+				t.Errorf("Expected error '%v', but got '%v'", tc.expectedError, err)
+			}
+		})
+	}
+}
+
 func createMustGatherObject() *mustgatherv1alpha1.MustGather {
 	return &mustgatherv1alpha1.MustGather{
 		TypeMeta: metav1.TypeMeta{
@@ -101,5 +183,3 @@ func createMustGatherSecretObject() *corev1.Secret {
 		},
 	}
 }
-
-

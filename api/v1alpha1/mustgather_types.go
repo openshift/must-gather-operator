@@ -17,8 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -59,6 +59,25 @@ type MustGatherSpec struct {
 	// See documentation for further information.
 	// +kubebuilder:default:=true
 	InternalUser bool `json:"internalUser,omitempty"`
+
+	// The image to use for the must-gather pods.
+	// This can currently only be one of two values:
+	// 'default' for most cases including OSD/ROSA, which will use quay.io/openshift/must-gather
+	// 'acm_hcp' for HCP must gathers, which will use quay.io/rokejungrh/must-gather
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Enum=default,acm_hcp
+	// +kubebuilder:default:=default
+	MustGatherImage string `json:"mustGatherImage,omitempty"`
+
+	// The namespace of the hosted cluster to collect the must-gather for.
+	// This field is required if mustGatherImage='acm_hcp'.
+	// +kubebuilder:validation:Optional
+	HostedClusterNamespace string `json:"hostedClusterNamespace,omitempty"`
+
+	// The name of the hosted cluster to collect the must-gather for.
+	// This field is required if mustGatherImage='acm_hcp'.
+	// +kubebuilder:validation:Optional
+	HostedClusterName string `json:"hostedClusterName,omitempty"`
 }
 
 // +k8s:openapi-gen=true

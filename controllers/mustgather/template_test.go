@@ -10,9 +10,9 @@ import (
 	"time"
 
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	v1 "k8s.io/api/core/v1"
 	batchv1 "k8s.io/api/batch/v1"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func Test_initializeJobTemplate(t *testing.T) {
@@ -43,32 +43,38 @@ func Test_initializeJobTemplate(t *testing.T) {
 }
 
 func Test_getGatherContainer(t *testing.T) {
+
+	defaultMustGatherImage := "quay.io/foo/bar/must-gather:latest"
+	acmHcpMustGatherImage := "quay.io/acm/hcp/must-gather:latest"
+
 	tests := []struct {
-		name             string
-		audit            bool
-		timeout          time.Duration
-		mustGatherImage  string
+		name                   string
+		audit                  bool
+		timeout                time.Duration
+		mustGatherImage        string
+		hostedClusterNamespace string
+		hostedClusterName      string
+		expectedImage          string
+		expectedArgs           string
 	}{
 		{
-			name:            "no audit",
-			timeout:         5 * time.Second,
-			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+			name:    "no audit",
+			timeout: 5 * time.Second,
 		},
 		{
-			name:            "audit",
-			audit:           true,
-			timeout:         0 * time.Second,
-			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+			name:    "audit",
+			audit:   true,
+			timeout: 0 * time.Second,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testFailed := false
 
-			t.Setenv(defaultMustGatherImageEnv, tt.mustGatherImage)
-			expectedImage := tt.mustGatherImage
+			t.Setenv(defaultMustGatherImageEnv, defaultMustGatherImage)
+			t.Setenv(acmHcpMustGatherImageEnv, acmHcpMustGatherImage)
 
-			container := getGatherContainer(tt.audit, tt.timeout)
+			container := getGatherContainer(tt.audit, tt.timeout, tt.mustGatherImage, tt.hostedClusterNamespace, tt.hostedClusterName)
 
 			containerCommand := container.Command[2]
 			if tt.audit && !strings.Contains(containerCommand, gatherCommandBinaryAudit) {
@@ -84,8 +90,8 @@ func Test_getGatherContainer(t *testing.T) {
 				testFailed = true
 			}
 
-			if container.Image != expectedImage {
-				t.Logf("expected container image %v but got %v", expectedImage, container.Image)
+			if container.Image != tt.expectedImage {
+				t.Logf("expected container image %v but got %v", tt.expectedImage, container.Image)
 				testFailed = true
 			}
 

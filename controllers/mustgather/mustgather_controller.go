@@ -106,6 +106,12 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		return reconcile.Result{}, nil
 	}
 
+	valid, err := r.IsValid(instance)
+	if !valid {
+		log.Error(err, "MustGather resource invalid", "instance", instance)
+		return r.ManageError(context.TODO(), instance, err)
+	}
+
 	// get operator namespace to manage resources in
 	operatorNs, err := k8sutil.GetOperatorNamespace()
 	if err != nil {
@@ -350,6 +356,22 @@ func (r *MustGatherReconciler) getJobFromInstance(instance *mustgatherv1alpha1.M
 	}
 
 	return getJobTemplate(operatorImage, *instance), nil
+}
+
+func (r *MustGatherReconciler) IsValid(instance *mustgatherv1alpha1.MustGather) (bool, error) {
+	if instance.Spec.MustGatherImage == acmHcpMustGatherImage {
+		// If MustGatherImage is set to acm_hcp, hosted cluster namespace and name must be set as well, as they are
+		// required arguments for the acm_hcp must gather image.
+		if instance.Spec.HostedClusterNamespace == "" || instance.Spec.HostedClusterName == "" {
+			return false, goerror.New("hostedClusterNamespace and hostedClusterName must be set when using the acm_hcp must gather image")
+		}
+
+		// If MustGatherImage is set to acm_hcp, we cannot collect audit logs.
+		if instance.Spec.Audit {
+			return false, goerror.New("Cannot collect audit logs when using the acm_hcp must gather image")
+		}
+	}
+	return true, nil
 }
 
 // contains is a helper function for finalizer
