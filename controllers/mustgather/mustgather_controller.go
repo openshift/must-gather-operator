@@ -217,8 +217,12 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 					Name:      secretName,
 				}, userSecret)
 				if err != nil {
-					log.Info(fmt.Sprintf("Error getting secret (%s)!", instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name))
-					return reconcile.Result{}, err
+					if errors.IsNotFound(err) {
+						log.Error(err, fmt.Sprintf("the secret %s was not found in namespace %s", secretName, instance.Namespace))
+						return reconcile.Result{}, nil
+					}
+					log.Error(err, fmt.Sprintf("Error getting secret (%s)", secretName))
+					return reconcile.Result{Requeue: true}, err
 				}
 
 				// copy secret to the operator namespace
