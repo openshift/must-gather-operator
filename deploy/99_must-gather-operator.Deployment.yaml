@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: must-gather-operator
-  namespace: must-gather-operator
+  namespace: support-log-gather
 spec:
   replicas: 1
   selector:

@@ -57,7 +57,7 @@ const (
 	// Flags that the operator is running locally
 	LocalRunMode = "local"
 	// Namespace for operator to watch
-	namespace = "must-gather-operator"
+	namespace = "support-log-gather"
 )
 
 var (

@@ -9,4 +9,4 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: must-gather-admin
-  namespace: must-gather-operator
+  namespace: support-log-gather

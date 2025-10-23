@@ -63,7 +63,7 @@ This is a way to prevent the accumulation of unwanted MustGather resources and t
 
 ## Deploying the Operator
 
-This is a cluster-level operator that you can deploy in any namespace; `must-gather-operator` is recommended.
+This is a cluster-level operator that you can deploy in any namespace; `support-log-gather` is recommended.
 
 ### Deploying directly with manifests
 
@@ -72,13 +72,13 @@ Here are the instructions to install the latest release creating the manifest di
 ```shell
 git clone git@github.com:openshift/must-gather-operator.git; cd must-gather-operator
 oc apply -f deploy/crds/operator.openshift.io_mustgathers_crd.yaml
-oc new-project must-gather-operator
-oc -n must-gather-operator apply -f deploy
+oc new-project support-log-gather
+oc -n support-log-gather apply -f deploy
 ```
 
 ### Meeting the operator requirements
 
-In order to run, the operator needs a secret to be created by the admin as follows (this assumes the operator is running in the `must-gather-operator` namespace).
+In order to run, the operator needs a secret to be created by the admin as follows (this assumes the operator is running in the `support-log-gather` namespace).
 
 ```shell
 oc create secret generic case-management-creds --from-literal=username=<username> --from-literal=password=<password>
@@ -103,7 +103,7 @@ Using the [operator-sdk](https://github.com/operator-framework/operator-sdk), ru
 
 ```shell
 oc apply -f deploy/crds/operator.openshift.io_mustgathers_crd.yaml
-oc new-project must-gather-operator
+oc new-project support-log-gather
 export DEFAULT_MUST_GATHER_IMAGE='quay.io/openshift/origin-must-gather:latest'
 OPERATOR_NAME=must-gather-operator operator-sdk run --verbose --local --namespace ''
 ```

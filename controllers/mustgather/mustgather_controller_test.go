@@ -142,7 +142,7 @@ func createMustGatherObject() *mustgatherv1alpha1.MustGather {
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-must-gather",
-			Namespace: "must-gather-operator",
+			Namespace: "support-log-gather",
 		},
 		Spec: mustgatherv1alpha1.MustGatherSpec{
 			ServiceAccountRef: corev1.LocalObjectReference{
@@ -182,7 +182,7 @@ func createMustGatherSecretObject() *corev1.Secret {
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "case-management-creds",
-			Namespace: "must-gather-operator",
+			Namespace: "support-log-gather",
 		},
 		Data: map[string][]byte{
 			"username": []byte("somefakeuser"),

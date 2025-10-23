@@ -22,7 +22,7 @@ import (
 var _ = ginkgo.Describe("must-gather-operator", ginkgo.Ordered, func() {
 	var (
 		oc                *openshift.Client
-		operator          = "must-gather-operator"
+		operator          = "support-log-gather"
 		namespace         = "openshift-" + operator
 		service           = operator
 		rolePrefix        = operator
