@@ -161,7 +161,7 @@ spec:
           - patch
           - update
         - apiGroups:
-          - managed.openshift.io
+          - operator.openshift.io
           resources:
           - mustgathers/finalizers
           verbs:
