@@ -56,8 +56,6 @@ const (
 	ForceRunModeEnv = "OSDK_FORCE_RUN_MODE"
 	// Flags that the operator is running locally
 	LocalRunMode = "local"
-	// Namespace for operator to watch
-	namespace = "must-gather-operator"
 )
 
 var (
@@ -117,7 +115,7 @@ func main() {
 
 		Cache: cache.Options{
 			DefaultNamespaces: map[string]cache.Config{
-				namespace: {},
+				config.GetOperatorNamespace(): {},
 			},
 		},
 	}
@@ -150,7 +148,7 @@ func main() {
 	}
 
 	// addMetrics
-	metricsServer := osdmetrics.NewBuilder(config.OperatorNamespace, config.OperatorName).
+	metricsServer := osdmetrics.NewBuilder(config.GetOperatorNamespace(), config.OperatorName).
 		WithPort(metricsPort).
 		WithPath(metricsPath).
 		WithCollectors(localmetrics.MetricsList).
