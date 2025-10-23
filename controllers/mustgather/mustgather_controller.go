@@ -123,19 +123,21 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			// that we can retry during the next reconciliation.
 
 			// delete secret in the operator namespace
-			tmpSecretName := instance.Spec.CaseManagementAccountSecretRef.Name
-			tmpSecret := &corev1.Secret{}
-			err = r.GetClient().Get(context.TODO(), types.NamespacedName{
-				Namespace: operatorNs,
-				Name:      tmpSecretName,
-			}, tmpSecret)
-			if err != nil {
-				reqLogger.Error(err, fmt.Sprintf("Failed to get %s secret", tmpSecretName))
-			} else {
-				err = r.GetClient().Delete(context.TODO(), tmpSecret)
+			if instance.Spec.UploadTarget != nil && instance.Spec.UploadTarget.SFTP != nil && instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name != "" {
+				tmpSecretName := instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name
+				tmpSecret := &corev1.Secret{}
+				err = r.GetClient().Get(context.TODO(), types.NamespacedName{
+					Namespace: operatorNs,
+					Name:      tmpSecretName,
+				}, tmpSecret)
 				if err != nil {
-					reqLogger.Error(err, fmt.Sprintf("Failed to delete %s secret", tmpSecretName))
-					return reconcile.Result{}, err
+					reqLogger.Error(err, fmt.Sprintf("Failed to get %s secret", tmpSecretName))
+				} else {
+					err = r.GetClient().Delete(context.TODO(), tmpSecret)
+					if err != nil {
+						reqLogger.Error(err, fmt.Sprintf("Failed to delete %s secret", tmpSecretName))
+						return reconcile.Result{}, err
+					}
 				}
 			}
 
@@ -207,24 +209,28 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// look up user secret and copy it to operator namespace
-			secretName := instance.Spec.CaseManagementAccountSecretRef.Name
-			userSecret := &corev1.Secret{}
-			err = r.GetClient().Get(context.TODO(), types.NamespacedName{
-				Namespace: instance.Namespace,
-				Name:      secretName,
-			}, userSecret)
-			if err != nil {
-				log.Info(fmt.Sprintf("Error getting secret (%s)!", instance.Spec.CaseManagementAccountSecretRef.Name))
-				return reconcile.Result{}, err
-			}
+			if instance.Spec.UploadTarget != nil && instance.Spec.UploadTarget.SFTP != nil && instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name != "" {
+				secretName := instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name
+				userSecret := &corev1.Secret{}
+				err = r.GetClient().Get(context.TODO(), types.NamespacedName{
+					Namespace: instance.Namespace,
+					Name:      secretName,
+				}, userSecret)
+				if err != nil {
+					if errors.IsNotFound(err) {
+						log.Error(err, fmt.Sprintf("the secret %s was not found in namespace %s", secretName, instance.Namespace))
+						return reconcile.Result{}, nil
+					}
+					log.Error(err, fmt.Sprintf("Error getting secret (%s)", secretName))
+					return reconcile.Result{Requeue: true}, err
+				}
 
-			// create secret in the operator namespace
-			newSecret := &corev1.Secret{}
-			err = r.GetClient().Get(context.TODO(), types.NamespacedName{
-				Namespace: operatorNs,
-				Name:      secretName,
-			}, newSecret)
-			if err != nil {
+				// copy secret to the operator namespace
+				newSecret := &corev1.Secret{}
+				err = r.GetClient().Get(context.TODO(), types.NamespacedName{
+					Namespace: operatorNs,
+					Name:      secretName,
+				}, newSecret)
 				if errors.IsNotFound(err) {
 					newSecret.Name = secretName
 					newSecret.Namespace = operatorNs
@@ -233,14 +239,14 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 					err = r.GetClient().Create(context.TODO(), newSecret)
 					if err != nil {
 						log.Error(err, fmt.Sprintf("Error creating new secret %s", secretName))
-						return reconcile.Result{}, err
+						return reconcile.Result{Requeue: true}, err
 					}
-				} else {
+				} else if err != nil {
 					log.Error(err, fmt.Sprintf("Error getting new secret %s", secretName))
 					return reconcile.Result{}, err
 				}
+				log.Info(fmt.Sprintf("Secret %s already exists in the %s namespace", secretName, operatorNs))
 			}
-			log.Info(fmt.Sprintf("Secret %s already exists in the %s namespace", secretName, operatorNs))
 
 			// job is not there, create it.
 			err = r.CreateResourceIfNotExists(context.TODO(), instance, operatorNs, job)
