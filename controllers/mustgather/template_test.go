@@ -20,25 +20,65 @@ func Test_initializeJobTemplate(t *testing.T) {
 	testName := "testName"
 	testNamespace := "testNamespace"
 	testServiceAccountRef := "testServiceAccountRef"
-	job := initializeJobTemplate(testName, testNamespace, testServiceAccountRef)
+	pvcClaimName := "test-pvc"
+	pvcSubPath := "test-path"
 
-	if got := job.Name; got != testName {
-		t.Logf("job name from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testName)
-		testFailed = true
+	tests := []struct {
+		name    string
+		storage *mustgatherv1alpha1.Storage
+	}{
+		{
+			name: "Without PVC",
+		},
+		{
+			name: "With PVC",
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{
+						Name: pvcClaimName,
+					},
+					SubPath: pvcSubPath,
+				},
+			},
+		},
 	}
 
-	if got := job.Namespace; got != testNamespace {
-		t.Logf("job namespace from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testNamespace)
-		testFailed = true
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			job := initializeJobTemplate(testName, testNamespace, testServiceAccountRef, tt.storage)
 
-	if got := job.Spec.Template.Spec.ServiceAccountName; got != testServiceAccountRef {
-		t.Logf("job service account name from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testServiceAccountRef)
-		testFailed = true
-	}
+			if got := job.Name; got != testName {
+				t.Logf("job name from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testName)
+				testFailed = true
+			}
 
-	if testFailed == true {
-		t.Error()
+			if got := job.Namespace; got != testNamespace {
+				t.Logf("job namespace from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testNamespace)
+				testFailed = true
+			}
+
+			if got := job.Spec.Template.Spec.ServiceAccountName; got != testServiceAccountRef {
+				t.Logf("job service account name from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testServiceAccountRef)
+				testFailed = true
+			}
+
+			if tt.storage != nil {
+				volume := job.Spec.Template.Spec.Volumes[0]
+				if volume.Name != outputVolumeName {
+					t.Logf("volume name from initializeJobTemplate() was not correctly set. got %v, wanted %v", volume.Name, outputVolumeName)
+					testFailed = true
+				}
+				if volume.VolumeSource.PersistentVolumeClaim.ClaimName != pvcClaimName {
+					t.Logf("pvc claim name from initializeJobTemplate() was not correctly set. got %v, wanted %v", volume.VolumeSource.PersistentVolumeClaim.ClaimName, pvcClaimName)
+					testFailed = true
+				}
+			}
+
+			if testFailed == true {
+				t.Error()
+			}
+		})
 	}
 }
 
@@ -48,6 +88,7 @@ func Test_getGatherContainer(t *testing.T) {
 		audit           bool
 		timeout         time.Duration
 		mustGatherImage string
+		storage         *mustgatherv1alpha1.Storage
 	}{
 		{
 			name:            "no audit",
@@ -60,6 +101,19 @@ func Test_getGatherContainer(t *testing.T) {
 			timeout:         0 * time.Second,
 			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
 		},
+		{
+			name:    "with PVC",
+			timeout: 5 * time.Second,
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{
+						Name: "test-pvc",
+					},
+					SubPath: "test-path",
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -68,7 +122,7 @@ func Test_getGatherContainer(t *testing.T) {
 			t.Setenv(defaultMustGatherImageEnv, tt.mustGatherImage)
 			expectedImage := tt.mustGatherImage
 
-			container := getGatherContainer(tt.audit, tt.timeout)
+			container := getGatherContainer(tt.audit, tt.timeout, tt.storage)
 
 			containerCommand := container.Command[2]
 			if tt.audit && !strings.Contains(containerCommand, gatherCommandBinaryAudit) {
@@ -87,6 +141,18 @@ func Test_getGatherContainer(t *testing.T) {
 			if container.Image != expectedImage {
 				t.Logf("expected container image %v but got %v", expectedImage, container.Image)
 				testFailed = true
+			}
+
+			if tt.storage != nil {
+				volumeMount := container.VolumeMounts[0]
+				if volumeMount.Name != outputVolumeName {
+					t.Logf("volume mount name was not correctly set. got %v, wanted %v", volumeMount.Name, outputVolumeName)
+					testFailed = true
+				}
+				if volumeMount.SubPath != tt.storage.PersistentVolume.SubPath {
+					t.Logf("volume mount subpath was not correctly set. got %v, wanted %v", volumeMount.SubPath, tt.storage.PersistentVolume.SubPath)
+					testFailed = true
+				}
 			}
 
 			if testFailed {

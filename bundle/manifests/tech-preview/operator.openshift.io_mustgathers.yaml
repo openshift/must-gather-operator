@@ -93,6 +93,36 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+              storage:
+                properties:
+                  persistentVolume:
+                    properties:
+                      claim:
+                        properties:
+                          name:
+                            maxLength: 253
+                            type: string
+                            x-kubernetes-validations:
+                            - message: a lowercase RFC 1123 subdomain must consist
+                                of lower case alphanumeric characters, '-' or '.',
+                                and must start and end with an alphanumeric character.
+                              rule: '!format.dns1123Subdomain().validate(self).hasValue()'
+                        required:
+                        - name
+                        type: object
+                      subPath:
+                        type: string
+                    required:
+                    - claim
+                    type: object
+                  type:
+                    enum:
+                    - PersistentVolume
+                    type: string
+                required:
+                - persistentVolume
+                - type
+                type: object
               uploadTarget:
                 description: |-
                   The target location for the must-gather bundle to be uploaded to.
