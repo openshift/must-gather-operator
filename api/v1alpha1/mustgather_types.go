@@ -17,8 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -26,14 +26,6 @@ import (
 
 // MustGatherSpec defines the desired state of MustGather
 type MustGatherSpec struct {
-	// The is of the case this must gather will be uploaded to
-	// +kubebuilder:validation:Required
-	CaseID string `json:"caseID"`
-
-	// the secret container a username and password field to be used to authenticate with red hat case management systems
-	// +kubebuilder:validation:Required
-	CaseManagementAccountSecretRef corev1.LocalObjectReference `json:"caseManagementAccountSecretRef"`
-
 	// the service account to use to run the must gather job pod, defaults to default
 	// +kubebuilder:validation:Optional
 	/* +kubebuilder:default:="{Name:default}" */
@@ -55,10 +47,59 @@ type MustGatherSpec struct {
 	// +kubebuilder:validation:Format=duration
 	MustGatherTimeout metav1.Duration `json:"mustGatherTimeout,omitempty"`
 
+	// The target location for the must-gather bundle to be uploaded to.
+	// If not specified, the bundle will not be uploaded.
+	// +kubebuilder:validation:Optional
+	UploadTarget *UploadTargetSpec `json:"uploadTarget,omitempty"`
+}
+
+// SFTPSpec defines the desired state of SFTPSpec
+// +kubebuilder:validation:XValidation:rule="size(self.caseID) > 0",message="caseID must not be empty"
+// +kubebuilder:validation:XValidation:rule="size(self.caseManagementAccountSecretRef.name) > 0",message="caseManagementAccountSecretRef.name must not be empty"
+type SFTPSpec struct {
+	// The ID of the case this must gather will be uploaded to
+	// +kubebuilder:validation:Required
+	CaseID string `json:"caseID"`
+
+	// the secret container a username and password field to be used to authenticate with red hat case management systems
+	// +kubebuilder:validation:Required
+	CaseManagementAccountSecretRef corev1.LocalObjectReference `json:"caseManagementAccountSecretRef"`
+
 	// A flag to specify if the upload user provided in the caseManagementAccountSecret is a RH internal user.
 	// See documentation for further information.
 	// +kubebuilder:default:=true
 	InternalUser bool `json:"internalUser,omitempty"`
+
+	// host specifies the SFTP server hostname.
+	// The host name of the SFTP server
+	// +kubebuilder:default:="sftp.access.redhat.com"
+	// +optional
+	Host string `json:"host,omitempty"`
+}
+
+// UploadType defines the type of upload target.
+type UploadType string
+
+const (
+	// UploadTypeSFTP corresponds to the SFTP upload type.
+	UploadTypeSFTP UploadType = "SFTP"
+)
+
+// UploadTargetSpec defines the desired state of UploadTargetSpec
+// +kubebuilder:validation:XValidation:rule="has(self.type) && self.type == 'SFTP' ? has(self.sftp) : !has(self.sftp)",message="sftp upload target config is required when upload type is SFTP, and forbidden otherwise"
+// +union
+type UploadTargetSpec struct {
+	// type defines the method used for uploading to a specific target.
+	// +unionDiscriminator
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=SFTP
+	// +required
+	Type UploadType `json:"type"`
+
+	// SFTP details for the upload.
+	// +unionMember
+	// +optional
+	SFTP *SFTPSpec `json:"sftp,omitempty"`
 }
 
 // +k8s:openapi-gen=true
