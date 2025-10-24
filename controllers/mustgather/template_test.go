@@ -69,8 +69,8 @@ func Test_initializeJobTemplate(t *testing.T) {
 					t.Logf("volume name from initializeJobTemplate() was not correctly set. got %v, wanted %v", volume.Name, outputVolumeName)
 					testFailed = true
 				}
-				if volume.VolumeSource.PersistentVolumeClaim.ClaimName != pvcClaimName {
-					t.Logf("pvc claim name from initializeJobTemplate() was not correctly set. got %v, wanted %v", volume.VolumeSource.PersistentVolumeClaim.ClaimName, pvcClaimName)
+				if volume.PersistentVolumeClaim.ClaimName != pvcClaimName {
+					t.Logf("pvc claim name from initializeJobTemplate() was not correctly set. got %v, wanted %v", volume.PersistentVolumeClaim.ClaimName, pvcClaimName)
 					testFailed = true
 				}
 			}
