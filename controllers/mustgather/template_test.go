@@ -43,32 +43,51 @@ func Test_initializeJobTemplate(t *testing.T) {
 }
 
 func Test_getGatherContainer(t *testing.T) {
+
+	testDefaultMustGatherImage := "quay.io/foo/bar/must-gather:latest"
+	testAcmHcpMustGatherImage := "quay.io/acm/hcp/must-gather:latest"
+
 	tests := []struct {
-		name            string
-		audit           bool
-		timeout         time.Duration
-		mustGatherImage string
+		name                   string
+		audit                  bool
+		timeout                time.Duration
+		mustGatherImage        string
+		hostedClusterNamespace string
+		hostedClusterName      string
+		expectedImage          string
+		expectedArgs           string
 	}{
 		{
 			name:            "no audit",
 			timeout:         5 * time.Second,
-			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+			mustGatherImage: defaultMustGatherImageEnv,
+			expectedImage:   testDefaultMustGatherImage,
 		},
 		{
 			name:            "audit",
 			audit:           true,
 			timeout:         0 * time.Second,
-			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+			mustGatherImage: defaultMustGatherImageEnv,
+			expectedImage:   testDefaultMustGatherImage,
+		},
+		{
+			name:                   "HCP default",
+			timeout:                5 * time.Second,
+			mustGatherImage:        acmHcpMustGatherImage,
+			hostedClusterName:      "foo",
+			hostedClusterNamespace: "bar",
+			expectedImage:          testAcmHcpMustGatherImage,
+			expectedArgs:           "--hosted-cluster-namespace=bar --hosted-cluster-name=foo",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testFailed := false
 
-			t.Setenv(defaultMustGatherImageEnv, tt.mustGatherImage)
-			expectedImage := tt.mustGatherImage
+			t.Setenv(defaultMustGatherImageEnv, testDefaultMustGatherImage)
+			t.Setenv(acmHcpMustGatherImageEnv, testAcmHcpMustGatherImage)
 
-			container := getGatherContainer(tt.audit, tt.timeout)
+			container := getGatherContainer(tt.audit, tt.timeout, tt.mustGatherImage, tt.hostedClusterNamespace, tt.hostedClusterName)
 
 			containerCommand := container.Command[2]
 			if tt.audit && !strings.Contains(containerCommand, gatherCommandBinaryAudit) {
@@ -79,13 +98,20 @@ func Test_getGatherContainer(t *testing.T) {
 				testFailed = true
 			}
 
+			if tt.expectedArgs != "" {
+				if !strings.Contains(containerCommand, tt.expectedArgs) {
+					t.Logf("command did not contain expected arguments: %v", tt.expectedArgs)
+					testFailed = true
+				}
+			}
+
 			if !strings.HasPrefix(containerCommand, fmt.Sprintf("timeout %v", tt.timeout)) {
 				t.Logf("the duration was not properly added to the container command, got %v but wanted %v", strings.Split(containerCommand, " ")[1], tt.timeout.String())
 				testFailed = true
 			}
 
-			if container.Image != expectedImage {
-				t.Logf("expected container image %v but got %v", expectedImage, container.Image)
+			if container.Image != tt.expectedImage {
+				t.Logf("expected container image %v but got %v", tt.expectedImage, container.Image)
 				testFailed = true
 			}
 
