@@ -51,7 +51,7 @@ const (
 )
 
 func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batchv1.Job {
-	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, mustGather.Spec.ServiceAccountRef.Name)
+	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, mustGather.Spec.ServiceAccountRef.Name, mustGather.Spec.Storage)
 
 	var httpProxy, httpsProxy, noProxy string
 
@@ -81,7 +81,7 @@ func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batch
 
 	job.Spec.Template.Spec.Containers = append(
 		job.Spec.Template.Spec.Containers,
-		getGatherContainer(mustGather.Spec.Audit, mustGather.Spec.MustGatherTimeout.Duration),
+		getGatherContainer(mustGather.Spec.Audit, mustGather.Spec.MustGatherTimeout.Duration, mustGather.Spec.Storage),
 	)
 
 	// Add the upload container only if the upload target is specified
@@ -107,7 +107,20 @@ func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batch
 	return job
 }
 
-func initializeJobTemplate(name string, namespace string, serviceAccountRef string) *batchv1.Job {
+func initializeJobTemplate(name string, namespace string, serviceAccountRef string, storage *v1alpha1.Storage) *batchv1.Job {
+	outputVolume := corev1.Volume{
+		Name:         outputVolumeName,
+		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+	}
+
+	if storage != nil && storage.Type == v1alpha1.StorageTypePersistentVolume {
+		outputVolume.VolumeSource = corev1.VolumeSource{
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+				ClaimName: storage.PersistentVolume.Claim.Name,
+			},
+		}
+	}
+
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -144,10 +157,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 					RestartPolicy:         corev1.RestartPolicyNever,
 					ShareProcessNamespace: ToPtr(true),
 					Volumes: []corev1.Volume{
-						{
-							Name:         outputVolumeName,
-							VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-						},
+						outputVolume,
 						{
 							Name:         uploadVolumeName,
 							VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
@@ -160,12 +170,21 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 	}
 }
 
-func getGatherContainer(audit bool, timeout time.Duration) corev1.Container {
+func getGatherContainer(audit bool, timeout time.Duration, storage *v1alpha1.Storage) corev1.Container {
 	var commandBinary string
 	if audit {
 		commandBinary = gatherCommandBinaryAudit
 	} else {
 		commandBinary = gatherCommandBinaryNoAudit
+	}
+
+	volumeMount := corev1.VolumeMount{
+		MountPath: volumeMountPath,
+		Name:      outputVolumeName,
+	}
+
+	if storage != nil && storage.Type == v1alpha1.StorageTypePersistentVolume && storage.PersistentVolume.SubPath != "" {
+		volumeMount.SubPath = storage.PersistentVolume.SubPath
 	}
 
 	return corev1.Container{
@@ -177,10 +196,7 @@ func getGatherContainer(audit bool, timeout time.Duration) corev1.Container {
 		Image: strings.TrimSpace(os.Getenv(defaultMustGatherImageEnv)),
 		Name:  gatherContainerName,
 		VolumeMounts: []corev1.VolumeMount{
-			{
-				MountPath: volumeMountPath,
-				Name:      outputVolumeName,
-			},
+			volumeMount,
 		},
 	}
 }

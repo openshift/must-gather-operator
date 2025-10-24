@@ -56,6 +56,9 @@ type MustGatherSpec struct {
 	// If set to true, resources will be retained. If false or not set, resources will be deleted (default behavior).
 	// +kubebuilder:default:=false
 	RetainResourcesOnCompletion bool `json:"retainResourcesOnCompletion,omitempty"`
+
+	// +optional
+	Storage *Storage `json:"storage,omitempty"`
 }
 
 // SFTPSpec defines the desired state of SFTPSpec
@@ -105,6 +108,34 @@ type UploadTargetSpec struct {
 	// +unionMember
 	// +optional
 	SFTP *SFTPSpec `json:"sftp,omitempty"`
+}
+
+// +kubebuilder:validation:Enum=PersistentVolume
+type StorageType string
+
+const (
+	StorageTypePersistentVolume StorageType = "PersistentVolume"
+)
+
+type Storage struct {
+	// +required
+	Type StorageType `json:"type"`
+	// +required
+	PersistentVolume PersistentVolumeConfig `json:"persistentVolume"`
+}
+
+type PersistentVolumeConfig struct {
+	// +required
+	Claim PersistentVolumeClaimReference `json:"claim"`
+	// +optional
+	SubPath string `json:"subPath,omitempty"`
+}
+
+type PersistentVolumeClaimReference struct {
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:XValidation:rule="!format.dns1123Subdomain().validate(self).hasValue()",message="a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character."
+	// +required
+	Name string `json:"name"`
 }
 
 // +k8s:openapi-gen=true
