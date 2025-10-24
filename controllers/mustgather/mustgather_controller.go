@@ -254,8 +254,12 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			}
 			return reconcile.Result{}, nil
 		}
-		if job1.Status.Failed > 0 {
-			reqLogger.Info("mustgather Job pods failed")
+		backoffLimit := int32(0)
+		if job1.Spec.BackoffLimit != nil {
+			backoffLimit = *job1.Spec.BackoffLimit
+		}
+		if job1.Status.Failed > backoffLimit {
+			reqLogger.Info("MustGather Job pods failed")
 			// Increment prometheus metrics for must gather errors
 			localmetrics.MetricMustGatherErrors.Inc()
 			// Update the MustGather CR status to indicate failure
