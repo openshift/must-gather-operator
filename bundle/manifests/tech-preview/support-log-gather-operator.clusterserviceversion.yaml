@@ -209,7 +209,7 @@ spec:
                 - name: DEFAULT_MUST_GATHER_IMAGE
                   value: quay.io/openshift/origin-must-gather:latest
                 - name: OPERATOR_IMAGE
-                  value: quay.io/rh-ee-smuley/mg-op-test:oct24
+                  value: quay.io/openshift/origin-support-log-gather-operator:latest
                 - name: OPERATOR_NAMESPACE
                   valueFrom:
                     fieldRef:
@@ -222,7 +222,7 @@ spec:
                   valueFrom:
                     fieldRef:
                       fieldPath: metadata.annotations['olm.targetNamespaces']
-                image: quay.io/rh-ee-smuley/mg-op-test:oct24
+                image: quay.io/openshift/origin-support-log-gather-operator:latest
                 imagePullPolicy: Always
                 name: must-gather-operator
                 resources:
