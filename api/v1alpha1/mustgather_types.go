@@ -51,6 +51,11 @@ type MustGatherSpec struct {
 	// If not specified, the bundle will not be uploaded.
 	// +kubebuilder:validation:Optional
 	UploadTarget *UploadTargetSpec `json:"uploadTarget,omitempty"`
+
+	// A flag to specify if resources (secret, job, pods) should be retained when the MustGather completes.
+	// If set to true, resources will be retained. If false or not set, resources will be deleted (default behavior).
+	// +kubebuilder:default:=false
+	RetainResourcesOnCompletion bool `json:"retainResourcesOnCompletion,omitempty"`
 }
 
 // SFTPSpec defines the desired state of SFTPSpec

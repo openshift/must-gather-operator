@@ -1,0 +1,11 @@
+apiVersion: managed.openshift.io/v1alpha1
+kind: MustGather
+metadata:
+  name: example-mustgather-retain-resources
+spec:
+  caseID: '02527285'
+  caseManagementAccountSecretRef:
+    name: case-management-creds
+  serviceAccountRef:
+    name: must-gather-admin
+  retainResourcesOnCompletion: true
