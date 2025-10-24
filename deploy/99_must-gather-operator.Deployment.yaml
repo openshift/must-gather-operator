@@ -29,7 +29,7 @@ spec:
       containers:
         - name: must-gather-operator
           # Replace this with the built image name
-          image: quay.io/openshift/origin-must-gather-operator:latest
+          image: quay.io/rh-ee-pravekum/must-gather-operator:test1
           command:
           - must-gather-operator
           imagePullPolicy: Always
@@ -43,7 +43,7 @@ spec:
             - name: DEFAULT_MUST_GATHER_IMAGE
               value: quay.io/openshift/origin-must-gather:latest
             - name: OPERATOR_IMAGE
-              value: quay.io/openshift/origin-must-gather-operator:latest
+              value: quay.io/rh-ee-pravekum/must-gather-operator:test1
             - name: OPERATOR_NAMESPACE
               valueFrom:
                 fieldRef:

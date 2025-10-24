@@ -9,6 +9,7 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
+	"github.com/openshift/must-gather-operator/pkg/helpers"
 	"github.com/redhat-cop/operator-utils/pkg/util"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -102,7 +103,7 @@ func TestCleanupMustGatherResources(t *testing.T) {
 		postTestChecks func(t *testing.T, cl client.Client)
 	}{
 		{
-			name: "cleanup_success_all_resources_deleted",
+			name: "cleanup_success_secret_in_same_namespace_not_deleted",
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs},
@@ -118,10 +119,39 @@ func TestCleanupMustGatherResources(t *testing.T) {
 			interceptors: func() interceptClient { return interceptClient{} },
 			expectError:  false,
 			postTestChecks: func(t *testing.T, cl client.Client) {
-				// Verify secret is deleted
+				// Verify secret is NOT deleted (same namespace as CR)
+				chkSecret := &corev1.Secret{}
+				if getErr := cl.Get(context.TODO(), types.NamespacedName{Namespace: operatorNs, Name: "case-management-creds"}, chkSecret); getErr != nil {
+					t.Fatalf("expected secret to remain (same namespace), got error: %v", getErr)
+				}
+				// Verify job is deleted
+				chkJob := &batchv1.Job{}
+				if getErr := cl.Get(context.TODO(), types.NamespacedName{Namespace: operatorNs, Name: "example-mustgather"}, chkJob); getErr == nil {
+					t.Fatalf("expected job to be deleted")
+				}
+			},
+		},
+		{
+			name: "cleanup_success_copied_secret_deleted",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "user-namespace"},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "case-management-creds"},
+					},
+				}
+				secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "case-management-creds", Namespace: operatorNs}}
+				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: operatorNs, UID: "user-123"}}
+				pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod1", Namespace: operatorNs, Labels: map[string]string{"controller-uid": string(job.UID)}}}
+				return []client.Object{mg, secret, job, pod}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				// Verify copied secret is deleted
 				chkSecret := &corev1.Secret{}
 				if getErr := cl.Get(context.TODO(), types.NamespacedName{Namespace: operatorNs, Name: "case-management-creds"}, chkSecret); getErr == nil {
-					t.Fatalf("expected secret to be deleted")
+					t.Fatalf("expected copied secret to be deleted")
 				}
 				// Verify job is deleted
 				chkJob := &batchv1.Job{}
@@ -362,7 +392,7 @@ func TestReconcile(t *testing.T) {
 			postTestChecks: func(t *testing.T, cl client.Client) {
 				out := &mustgatherv1alpha1.MustGather{}
 				_ = cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, out)
-				if contains(out.GetFinalizers(), mustGatherFinalizer) {
+				if helpers.Contains(out.GetFinalizers(), mustGatherFinalizer) {
 					t.Fatalf("expected finalizer removed")
 				}
 			},
@@ -375,7 +405,7 @@ func TestReconcile(t *testing.T) {
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: "example-mustgather", Namespace: operatorNs,
+						Name: "example-mustgather", Namespace: "user-ns",
 						Finalizers:        []string{mustGatherFinalizer},
 						DeletionTimestamp: &metav1.Time{Time: time.Now()},
 					},
@@ -468,10 +498,112 @@ func TestReconcile(t *testing.T) {
 			expectError:  false,
 			expectResult: reconcile.Result{},
 			postTestChecks: func(t *testing.T, cl client.Client) {
-				// Verify secret was created in operator namespace
+				// Verify secret was created in operator namespace without owner reference (retainResourcesOnCompletion=false)
 				operatorSecret := &corev1.Secret{}
 				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: defaultMustGatherNamespace, Name: "secret"}, operatorSecret); err != nil {
 					t.Fatalf("expected secret to be created in operator namespace, got error: %v", err)
+				}
+				if len(operatorSecret.OwnerReferences) > 0 {
+					t.Fatalf("expected no owner reference on copied secret (retainResourcesOnCompletion=false)")
+				}
+
+				// Verify job was created
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: defaultMustGatherNamespace, Name: "example-mustgather"}, job); err != nil {
+					t.Fatalf("expected job to be created, got error: %v", err)
+				}
+			},
+		},
+		{
+			name: "reconcile_job_not_found_creates_secret_with_owner_reference_when_retain_resources",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
+				os.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "example-mustgather",
+						Namespace:  "user-ns",
+						Finalizers: []string{mustGatherFinalizer},
+						UID:        "mg-uid-123",
+					},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
+						ServiceAccountRef:              corev1.LocalObjectReference{Name: "default"},
+						RetainResourcesOnCompletion:    true,
+					},
+				}
+				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: "user-ns"}}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status: configv1.ClusterVersionStatus{
+						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
+					},
+				}
+				return []client.Object{mg, userSecret, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				// Verify secret was created in operator namespace with owner reference
+				operatorSecret := &corev1.Secret{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: defaultMustGatherNamespace, Name: "secret"}, operatorSecret); err != nil {
+					t.Fatalf("expected secret to be created in operator namespace, got error: %v", err)
+				}
+				if len(operatorSecret.OwnerReferences) != 1 {
+					t.Fatalf("expected one owner reference on copied secret, got %d", len(operatorSecret.OwnerReferences))
+				}
+				if operatorSecret.OwnerReferences[0].UID != "mg-uid-123" {
+					t.Fatalf("expected owner reference UID to be mg-uid-123, got %s", operatorSecret.OwnerReferences[0].UID)
+				}
+
+				// Verify job was created
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: defaultMustGatherNamespace, Name: "example-mustgather"}, job); err != nil {
+					t.Fatalf("expected job to be created, got error: %v", err)
+				}
+			},
+		},
+		{
+			name: "reconcile_secret_in_same_namespace_no_copy_needed",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
+				os.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "example-mustgather",
+						Namespace:  defaultMustGatherNamespace,
+						Finalizers: []string{mustGatherFinalizer},
+					},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
+						ServiceAccountRef:              corev1.LocalObjectReference{Name: "default"},
+					},
+				}
+				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: defaultMustGatherNamespace}}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status: configv1.ClusterVersionStatus{
+						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
+					},
+				}
+				return []client.Object{mg, userSecret, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				// Verify secret exists and has no owner reference
+				secret := &corev1.Secret{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: defaultMustGatherNamespace, Name: "secret"}, secret); err != nil {
+					t.Fatalf("expected secret to exist, got error: %v", err)
+				}
+				if len(secret.OwnerReferences) > 0 {
+					t.Fatalf("expected no owner reference on secret in same namespace as CR")
 				}
 
 				// Verify job was created
@@ -580,22 +712,25 @@ func TestReconcile(t *testing.T) {
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
-					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "user-ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
 						CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "sec"},
 						ServiceAccountRef:              corev1.LocalObjectReference{Name: "default"},
 					},
 				}
-				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "sec", Namespace: operatorNs}}
-				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs}}
+				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "sec", Namespace: "user-ns"}}
+				operatorSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "sec", Namespace: defaultMustGatherNamespace}}
+				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "user-ns"}}
 				job.Status.Succeeded = 1
+				// Job also needs to be in operator namespace for cleanup to find it
+				operatorJob := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: defaultMustGatherNamespace, UID: "job-123"}}
 				cv := &configv1.ClusterVersion{
 					ObjectMeta: metav1.ObjectMeta{Name: "version"},
 					Status: configv1.ClusterVersionStatus{
 						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
 					},
 				}
-				return []client.Object{mg, userSecret, cv, job}
+				return []client.Object{mg, userSecret, operatorSecret, cv, job, operatorJob}
 			},
 			interceptors: func() interceptClient {
 				return interceptClient{
@@ -619,14 +754,15 @@ func TestReconcile(t *testing.T) {
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
-					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "user-ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
 						CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "sec"},
 						ServiceAccountRef:              corev1.LocalObjectReference{Name: "default"},
 					},
 				}
-				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "sec", Namespace: operatorNs}}
-				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs}}
+				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "sec", Namespace: "user-ns"}}
+				operatorSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "sec", Namespace: defaultMustGatherNamespace}}
+				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "user-ns"}}
 				job.Status.Failed = 1
 				cv := &configv1.ClusterVersion{
 					ObjectMeta: metav1.ObjectMeta{Name: "version"},
@@ -634,7 +770,7 @@ func TestReconcile(t *testing.T) {
 						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
 					},
 				}
-				return []client.Object{mg, userSecret, cv, job}
+				return []client.Object{mg, userSecret, operatorSecret, cv, job}
 			},
 			interceptors: func() interceptClient {
 				return interceptClient{
@@ -779,7 +915,7 @@ func TestReconcile(t *testing.T) {
 						if mgObj, ok := obj.(*mustgatherv1alpha1.MustGather); ok {
 							updateCount++
 							// Fail the update when removing finalizer (after cleanup is done)
-							if updateCount > 0 && !contains(mgObj.GetFinalizers(), mustGatherFinalizer) {
+							if updateCount > 0 && !helpers.Contains(mgObj.GetFinalizers(), mustGatherFinalizer) {
 								return errors.New("failed to remove finalizer")
 							}
 						}
@@ -808,7 +944,7 @@ func TestReconcile(t *testing.T) {
 					onUpdate: func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
 						if mgObj, ok := obj.(*mustgatherv1alpha1.MustGather); ok {
 							// Fail when trying to add the finalizer (when finalizer is present in the object)
-							if contains(mgObj.GetFinalizers(), mustGatherFinalizer) {
+							if helpers.Contains(mgObj.GetFinalizers(), mustGatherFinalizer) {
 								return errors.New("failed to add finalizer")
 							}
 						}
@@ -961,6 +1097,223 @@ func TestReconcile(t *testing.T) {
 						// Fail secret creation
 						if _, ok := obj.(*corev1.Secret); ok {
 							return errors.New("failed to create secret")
+						}
+						return nil
+					},
+				}
+			},
+			expectError:    true,
+			expectResult:   reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {},
+		},
+		{
+			name: "reconcile_existing_secret_adds_owner_reference_when_retain_resources_true",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
+				os.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "example-mustgather",
+						Namespace:  "user-ns",
+						Finalizers: []string{mustGatherFinalizer},
+						UID:        "mg-uid-456",
+					},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "existing-secret"},
+						ServiceAccountRef:              corev1.LocalObjectReference{Name: "default"},
+						RetainResourcesOnCompletion:    true,
+					},
+				}
+				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "existing-secret", Namespace: "user-ns"}}
+				// Secret already exists in operator namespace without owner reference
+				operatorSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "existing-secret", Namespace: defaultMustGatherNamespace}}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status: configv1.ClusterVersionStatus{
+						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
+					},
+				}
+				return []client.Object{mg, userSecret, operatorSecret, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				// Verify owner reference was added to existing secret
+				operatorSecret := &corev1.Secret{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: defaultMustGatherNamespace, Name: "existing-secret"}, operatorSecret); err != nil {
+					t.Fatalf("expected secret to exist in operator namespace, got error: %v", err)
+				}
+				if len(operatorSecret.OwnerReferences) != 1 {
+					t.Fatalf("expected one owner reference on existing secret, got %d", len(operatorSecret.OwnerReferences))
+				}
+				if operatorSecret.OwnerReferences[0].UID != "mg-uid-456" {
+					t.Fatalf("expected owner reference UID to be mg-uid-456, got %s", operatorSecret.OwnerReferences[0].UID)
+				}
+			},
+		},
+		{
+			name: "reconcile_existing_secret_skips_owner_reference_when_already_exists",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
+				os.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "example-mustgather",
+						Namespace:  "user-ns",
+						Finalizers: []string{mustGatherFinalizer},
+						UID:        "mg-uid-789",
+					},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "existing-secret"},
+						ServiceAccountRef:              corev1.LocalObjectReference{Name: "default"},
+						RetainResourcesOnCompletion:    true,
+					},
+				}
+				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "existing-secret", Namespace: "user-ns"}}
+				// Secret already exists with owner reference
+				operatorSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "existing-secret",
+						Namespace: defaultMustGatherNamespace,
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "managed.openshift.io/v1alpha1",
+								Kind:       "MustGather",
+								Name:       "example-mustgather",
+								UID:        "mg-uid-789",
+							},
+						},
+					},
+				}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status: configv1.ClusterVersionStatus{
+						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
+					},
+				}
+				return []client.Object{mg, userSecret, operatorSecret, cv}
+			},
+			interceptors: func() interceptClient {
+				return interceptClient{
+					onUpdate: func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+						// Fail if trying to update secret (should not happen)
+						if secret, ok := obj.(*corev1.Secret); ok && secret.Name == "existing-secret" {
+							return errors.New("unexpected update to secret that already has owner reference")
+						}
+						return nil
+					},
+				}
+			},
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				// Verify owner reference still exists (no duplicate added)
+				operatorSecret := &corev1.Secret{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: defaultMustGatherNamespace, Name: "existing-secret"}, operatorSecret); err != nil {
+					t.Fatalf("expected secret to exist in operator namespace, got error: %v", err)
+				}
+				if len(operatorSecret.OwnerReferences) != 1 {
+					t.Fatalf("expected exactly one owner reference, got %d", len(operatorSecret.OwnerReferences))
+				}
+			},
+		},
+		{
+			name: "reconcile_existing_secret_skips_owner_reference_when_retain_resources_false",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
+				os.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "example-mustgather",
+						Namespace:  "user-ns",
+						Finalizers: []string{mustGatherFinalizer},
+						UID:        "mg-uid-101",
+					},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "existing-secret"},
+						ServiceAccountRef:              corev1.LocalObjectReference{Name: "default"},
+						RetainResourcesOnCompletion:    false,
+					},
+				}
+				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "existing-secret", Namespace: "user-ns"}}
+				// Secret already exists without owner reference
+				operatorSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "existing-secret", Namespace: defaultMustGatherNamespace}}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status: configv1.ClusterVersionStatus{
+						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
+					},
+				}
+				return []client.Object{mg, userSecret, operatorSecret, cv}
+			},
+			interceptors: func() interceptClient {
+				return interceptClient{
+					onUpdate: func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+						// Fail if trying to update secret (should not happen when retainResourcesOnCompletion is false)
+						if secret, ok := obj.(*corev1.Secret); ok && secret.Name == "existing-secret" {
+							return errors.New("unexpected update to secret when retainResourcesOnCompletion is false")
+						}
+						return nil
+					},
+				}
+			},
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				// Verify no owner reference was added
+				operatorSecret := &corev1.Secret{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: defaultMustGatherNamespace, Name: "existing-secret"}, operatorSecret); err != nil {
+					t.Fatalf("expected secret to exist in operator namespace, got error: %v", err)
+				}
+				if len(operatorSecret.OwnerReferences) != 0 {
+					t.Fatalf("expected no owner references when retainResourcesOnCompletion is false, got %d", len(operatorSecret.OwnerReferences))
+				}
+			},
+		},
+		{
+			name: "reconcile_existing_secret_owner_reference_update_fails",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
+				os.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "example-mustgather",
+						Namespace:  "user-ns",
+						Finalizers: []string{mustGatherFinalizer},
+						UID:        "mg-uid-202",
+					},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "existing-secret"},
+						ServiceAccountRef:              corev1.LocalObjectReference{Name: "default"},
+						RetainResourcesOnCompletion:    true,
+					},
+				}
+				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "existing-secret", Namespace: "user-ns"}}
+				// Secret already exists without owner reference
+				operatorSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "existing-secret", Namespace: defaultMustGatherNamespace}}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status: configv1.ClusterVersionStatus{
+						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
+					},
+				}
+				return []client.Object{mg, userSecret, operatorSecret, cv}
+			},
+			interceptors: func() interceptClient {
+				return interceptClient{
+					onUpdate: func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+						// Fail when trying to update secret with owner reference
+						if secret, ok := obj.(*corev1.Secret); ok && secret.Name == "existing-secret" {
+							return errors.New("failed to update secret with owner reference")
 						}
 						return nil
 					},

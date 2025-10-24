@@ -1,7 +1,7 @@
-apiVersion: managed.openshift.io/v1alpha1
+apiVersion: operator.openshift.io/v1alpha1
 kind: MustGather
 metadata:
-  name: example-mustgather-retain-resources
+  name: example-mustgather-retain-resources-1
 spec:
   caseID: '02527285'
   caseManagementAccountSecretRef:

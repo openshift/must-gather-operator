@@ -26,6 +26,7 @@ import (
 	"github.com/go-logr/logr"
 	configv1 "github.com/openshift/api/config/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
+	"github.com/openshift/must-gather-operator/pkg/helpers"
 	"github.com/openshift/must-gather-operator/pkg/k8sutil"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
 	"github.com/redhat-cop/operator-utils/pkg/util"
@@ -119,7 +120,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	isMustGatherMarkedToBeDeleted := instance.GetDeletionTimestamp() != nil
 	if isMustGatherMarkedToBeDeleted {
 		reqLogger.Info("mustgather instance is marked for deletion")
-		if contains(instance.GetFinalizers(), mustGatherFinalizer) {
+		if helpers.Contains(instance.GetFinalizers(), mustGatherFinalizer) {
 			// Run finalization logic for mustGatherFinalizer. If the
 			// finalization logic fails, don't remove the finalizer so
 			// that we can retry during the next reconciliation.
@@ -136,7 +137,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 			// Remove mustGatherFinalizer. Once all finalizers have been
 			// removed, the object will be deleted.
-			instance.SetFinalizers(remove(instance.GetFinalizers(), mustGatherFinalizer))
+			instance.SetFinalizers(helpers.Remove(instance.GetFinalizers(), mustGatherFinalizer))
 			err := r.GetClient().Update(ctx, instance)
 			if err != nil {
 				return r.ManageError(ctx, instance, err)
@@ -146,13 +147,13 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	// Add finalizer for this CR
-	if !contains(instance.GetFinalizers(), mustGatherFinalizer) {
+	if !helpers.Contains(instance.GetFinalizers(), mustGatherFinalizer) {
 		if err := r.addFinalizer(ctx, reqLogger, instance); err != nil {
 			return reconcile.Result{}, err
 		}
 	}
 
-	job, err := r.getJobFromInstance(ctx, instance)
+	job, err := r.getJobFromInstance(instance)
 	if err != nil {
 		log.Error(err, "unable to get job from", "instance", instance)
 		return r.ManageError(ctx, instance, err)
@@ -174,40 +175,78 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			return r.ManageError(ctx, instance, err)
 		}
 
-		// look up user secret and copy it to operator namespace
+		// look up user secret and copy it to operator namespace if needed
 		secretName := instance.Spec.CaseManagementAccountSecretRef.Name
-		userSecret := &corev1.Secret{}
+		secretInInstanceNamespace := &corev1.Secret{}
 		err = r.GetClient().Get(ctx, types.NamespacedName{
 			Namespace: instance.Namespace,
 			Name:      secretName,
-		}, userSecret)
+		}, secretInInstanceNamespace)
 		if err != nil {
 			log.Info(fmt.Sprintf("Error getting secret (%s)!", instance.Spec.CaseManagementAccountSecretRef.Name))
 			return reconcile.Result{}, err
 		}
 
-		// create secret in the operator namespace
-		newSecret := &corev1.Secret{}
-		err = r.GetClient().Get(ctx, types.NamespacedName{
-			Namespace: operatorNs,
-			Name:      secretName,
-		}, newSecret)
-		if err != nil {
-			if !errors.IsNotFound(err) {
-				log.Error(err, fmt.Sprintf("Error getting new secret %s", secretName))
-				return reconcile.Result{}, err
-			}
-			newSecret.Name = secretName
-			newSecret.Namespace = operatorNs
-			newSecret.Data = userSecret.Data
-			newSecret.Type = userSecret.Type
-			err = r.GetClient().Create(ctx, newSecret)
+		// Check if we need to copy the secret (only if namespaces are different)
+		secretWasCopied := instance.Namespace != operatorNs
+
+		if secretWasCopied {
+			// create secret in the operator namespace
+			secretInOperatorNamespace := &corev1.Secret{}
+			err = r.GetClient().Get(ctx, types.NamespacedName{
+				Namespace: operatorNs,
+				Name:      secretName,
+			}, secretInOperatorNamespace)
 			if err != nil {
-				log.Error(err, fmt.Sprintf("Error creating new secret %s", secretName))
-				return reconcile.Result{}, err
+				if !errors.IsNotFound(err) {
+					log.Error(err, fmt.Sprintf("Error getting new secret %s", secretName))
+					return reconcile.Result{}, err
+				}
+				secretInOperatorNamespace.Name = secretName
+				secretInOperatorNamespace.Namespace = operatorNs
+				secretInOperatorNamespace.Data = secretInInstanceNamespace.Data
+				secretInOperatorNamespace.Type = secretInInstanceNamespace.Type
+
+				// Add owner reference if retainResourcesOnCompletion is true
+				if instance.Spec.RetainResourcesOnCompletion {
+					secretInOperatorNamespace.OwnerReferences = []metav1.OwnerReference{
+						{
+							APIVersion: instance.APIVersion,
+							Kind:       instance.Kind,
+							Name:       instance.Name,
+							UID:        instance.UID,
+						},
+					}
+					reqLogger.Info(fmt.Sprintf("Adding owner reference to copied secret %s", secretName))
+				}
+
+				err = r.GetClient().Create(ctx, secretInOperatorNamespace)
+				if err != nil {
+					log.Error(err, fmt.Sprintf("Error creating new secret %s", secretName))
+					return reconcile.Result{}, err
+				}
+				reqLogger.Info(fmt.Sprintf("Created secret %s in the %s namespace", secretName, operatorNs))
+			} else {
+				// Secret already exists, update owner reference if needed
+				if instance.Spec.RetainResourcesOnCompletion && !hasOwnerReference(secretInOperatorNamespace, instance) {
+					secretInOperatorNamespace.OwnerReferences = append(secretInOperatorNamespace.OwnerReferences, metav1.OwnerReference{
+						APIVersion: instance.APIVersion,
+						Kind:       instance.Kind,
+						Name:       instance.Name,
+						UID:        instance.UID,
+					})
+					err = r.GetClient().Update(ctx, secretInOperatorNamespace)
+					if err != nil {
+						log.Error(err, fmt.Sprintf("Error updating owner reference for secret %s", secretName))
+						return reconcile.Result{}, err
+					}
+					reqLogger.Info(fmt.Sprintf("Added owner reference to existing copied secret %s", secretName))
+				}
+				log.Info(fmt.Sprintf("Secret %s already exists in the %s namespace", secretName, operatorNs))
 			}
+		} else {
+			reqLogger.Info(fmt.Sprintf("Secret %s is in the same namespace as CR, no copy needed", secretName))
 		}
-		log.Info(fmt.Sprintf("Secret %s already exists in the %s namespace", secretName, operatorNs))
 
 		// job is not there, create it.
 		err = r.CreateResourceIfNotExists(ctx, instance, operatorNs, job)
@@ -304,6 +343,7 @@ func (r *MustGatherReconciler) IsInitialized(ctx context.Context, instance *must
 		initialized = false
 	}
 	if reflect.DeepEqual(instance.Spec.ProxyConfig, configv1.ProxySpec{}) {
+		log.Info("No proxy configuration found, using cluster proxy configuration")
 		platformProxy := &configv1.Proxy{}
 		err := r.GetClient().Get(ctx, types.NamespacedName{Name: "cluster"}, platformProxy)
 		if err != nil {
@@ -334,7 +374,7 @@ func (r *MustGatherReconciler) addFinalizer(ctx context.Context, reqLogger logr.
 	return nil
 }
 
-func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, instance *mustgatherv1alpha1.MustGather) (*batchv1.Job, error) {
+func (r *MustGatherReconciler) getJobFromInstance(instance *mustgatherv1alpha1.MustGather) (*batchv1.Job, error) {
 	// Inject the operator image URI from the pod's env variables
 	operatorImage, varPresent := os.LookupEnv("OPERATOR_IMAGE")
 	if !varPresent {
@@ -346,46 +386,42 @@ func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, instance 
 	return getJobTemplate(operatorImage, *instance), nil
 }
 
-// contains is a helper function for finalizer
-func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
+// hasOwnerReference checks if the secret has an owner reference to the given MustGather instance
+func hasOwnerReference(secret *corev1.Secret, instance *mustgatherv1alpha1.MustGather) bool {
+	for _, ownerRef := range secret.OwnerReferences {
+		if ownerRef.UID == instance.UID {
 			return true
 		}
 	}
 	return false
 }
 
-// remove is a helper function for finalizer
-func remove(list []string, s string) []string {
-	for i, v := range list {
-		if v == s {
-			list = append(list[:i], list[i+1:]...)
-		}
-	}
-	return list
-}
-
 // cleanupMustGatherResources cleans up the secret, job, and pods associated with a MustGather instance
 func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather, operatorNs string) error {
 	reqLogger.Info("cleaning up resources")
 
-	// delete secret in the operator namespace
-	tmpSecretName := instance.Spec.CaseManagementAccountSecretRef.Name
-	tmpSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      tmpSecretName,
-			Namespace: operatorNs,
-		},
-	}
+	var err error
 
-	err := r.DeleteResourceIfExists(ctx, tmpSecret)
+	// Only delete secret if it was copied from another namespace
+	secretwasCopied := instance.Namespace != operatorNs
+	if secretwasCopied {
+		tmpSecretName := instance.Spec.CaseManagementAccountSecretRef.Name
+		tmpSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tmpSecretName,
+				Namespace: operatorNs,
+			},
+		}
 
-	if err != nil {
-		reqLogger.Error(err, fmt.Sprintf("failed to delete %s secret", tmpSecretName))
-		return err
+		err = r.DeleteResourceIfExists(ctx, tmpSecret)
+		if err != nil {
+			reqLogger.Error(err, fmt.Sprintf("failed to delete %s secret", tmpSecretName))
+			return err
+		}
+		reqLogger.Info(fmt.Sprintf("successfully deleted copied secret %s", tmpSecretName))
+	} else {
+		reqLogger.Info("Secret was not copied (same namespace as CR), skipping deletion")
 	}
-	reqLogger.Info(fmt.Sprintf("successfully deleted secret %s", tmpSecretName))
 
 	// delete job from operator namespace
 	tmpJob := &batchv1.Job{}
