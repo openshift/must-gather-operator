@@ -28,6 +28,7 @@ const (
 	gatherCommand              = "timeout %v bash -x -c -- '/usr/bin/%v' 2>&1 | tee /must-gather/must-gather.log\n\nstatus=$?\nif [[ $status -eq 124 || $status -eq 137 ]]; then\n  echo \"Gather timed out.\"\n  exit 0\nfi | tee -a /must-gather/must-gather.log"
 	gatherContainerName        = "gather"
 
+	backoffLimit              = 3
 	uploadContainerName       = "upload"
 	uploadEnvUsername         = "username"
 	uploadEnvPassword         = "password"
@@ -113,6 +114,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 			Namespace: namespace,
 		},
 		Spec: batchv1.JobSpec{
+			BackoffLimit: ToPtr(int32(backoffLimit)),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Affinity: &corev1.Affinity{
@@ -139,7 +141,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 							Operator: corev1.TolerationOpExists,
 						},
 					},
-					RestartPolicy:         corev1.RestartPolicyOnFailure,
+					RestartPolicy:         corev1.RestartPolicyNever,
 					ShareProcessNamespace: ToPtr(true),
 					Volumes: []corev1.Volume{
 						{
