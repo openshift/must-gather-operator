@@ -489,13 +489,13 @@ func TestReconcile(t *testing.T) {
 			postTestChecks: func(t *testing.T, cl client.Client) {
 				// Verify secret was created in operator namespace
 				operatorSecret := &corev1.Secret{}
-				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: defaultMustGatherNamespace, Name: "secret"}, operatorSecret); err != nil {
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: DefaultMustGatherNamespace, Name: "secret"}, operatorSecret); err != nil {
 					t.Fatalf("expected secret to be created in operator namespace, got error: %v", err)
 				}
 
 				// Verify job was created
 				job := &batchv1.Job{}
-				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: defaultMustGatherNamespace, Name: "example-mustgather"}, job); err != nil {
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: DefaultMustGatherNamespace, Name: "example-mustgather"}, job); err != nil {
 					t.Fatalf("expected job to be created, got error: %v", err)
 				}
 			},
@@ -969,7 +969,7 @@ func TestReconcile(t *testing.T) {
 				return interceptClient{
 					onGet: func(ctx context.Context, key client.ObjectKey, obj client.Object) error {
 						// Return non-NotFound error when getting secret in operator namespace
-						if _, ok := obj.(*corev1.Secret); ok && key.Namespace == defaultMustGatherNamespace && key.Name == "secret" {
+						if _, ok := obj.(*corev1.Secret); ok && key.Namespace == DefaultMustGatherNamespace && key.Name == "secret" {
 							return errors.New("API server unavailable - failed to get operator secret")
 						}
 						return nil

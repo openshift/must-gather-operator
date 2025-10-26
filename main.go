@@ -32,7 +32,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -46,6 +45,7 @@ import (
 	v1 "github.com/openshift/api/config/v1"
 	managedv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 	"github.com/openshift/must-gather-operator/controllers/mustgather"
+	"github.com/openshift/must-gather-operator/pkg/k8sutil"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	//+kubebuilder:scaffold:imports
@@ -56,8 +56,6 @@ const (
 	ForceRunModeEnv = "OSDK_FORCE_RUN_MODE"
 	// Flags that the operator is running locally
 	LocalRunMode = "local"
-	// Namespace for operator to watch
-	namespace = "must-gather-operator"
 )
 
 var (
@@ -114,12 +112,6 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "b15e5fc1.openshift.io",
-
-		Cache: cache.Options{
-			DefaultNamespaces: map[string]cache.Config{
-				namespace: {},
-			},
-		},
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), options)
@@ -150,7 +142,18 @@ func main() {
 	}
 
 	// addMetrics
-	metricsServer := osdmetrics.NewBuilder(config.OperatorNamespace, config.OperatorName).
+	operatorNamespace, err := k8sutil.GetOperatorNamespace()
+	if err != nil {
+		if err != k8sutil.ErrRunLocal {
+			log.Error(err, "Failed to get operator namespace")
+			os.Exit(1)
+		}
+
+		// when OSDK_FORCE_RUN_MODE is local, metrics will use "default" namespace
+		operatorNamespace = mustgather.DefaultMustGatherNamespace
+	}
+
+	metricsServer := osdmetrics.NewBuilder(operatorNamespace, config.OperatorName).
 		WithPort(metricsPort).
 		WithPath(metricsPath).
 		WithCollectors(localmetrics.MetricsList).

@@ -44,7 +44,8 @@ import (
 const (
 	ControllerName = "mustgather-controller"
 
-	defaultMustGatherNamespace = "must-gather-operator"
+	// default namespace is always present
+	DefaultMustGatherNamespace = "default"
 )
 
 var log = logf.Log.WithName(ControllerName)
@@ -110,8 +111,14 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	// get operator namespace to manage resources in
 	operatorNs, err := k8sutil.GetOperatorNamespace()
 	if err != nil {
-		operatorNs = defaultMustGatherNamespace
-		log.Info(fmt.Sprintf("using default operator namespace: %s", defaultMustGatherNamespace))
+		if err != k8sutil.ErrRunLocal {
+			log.Error(err, "Failed to get operator namespace")
+			return reconcile.Result{}, err
+		}
+
+		// when OSDK_FORCE_RUN_MODE is local, use default namespace
+		operatorNs = DefaultMustGatherNamespace
+		log.Info(fmt.Sprintf("falling back to using operator namespace: %s", operatorNs))
 	}
 
 	// Check if the MustGather instance is marked to be deleted, which is
