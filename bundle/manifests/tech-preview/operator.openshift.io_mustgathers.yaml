@@ -94,12 +94,19 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               storage:
+                description: |-
+                  The storage configuration for the must-gather execution.
+                  If not specified, an ephemeral volume is used.
                 properties:
                   persistentVolume:
+                    description: persistentVolume defines the configuration for a
+                      PersistentVolume.
                     properties:
                       claim:
+                        description: claim defines the PersistentVolumeClaim to use.
                         properties:
                           name:
+                            description: name defines the name of the PersistentVolumeClaim.
                             maxLength: 253
                             type: string
                             x-kubernetes-validations:
@@ -111,11 +118,14 @@ spec:
                         - name
                         type: object
                       subPath:
+                        description: subPath defines the sub-path within the PersistentVolume
+                          to use.
                         type: string
                     required:
                     - claim
                     type: object
                   type:
+                    description: type defines the type of storage to use.
                     enum:
                     - PersistentVolume
                     type: string
