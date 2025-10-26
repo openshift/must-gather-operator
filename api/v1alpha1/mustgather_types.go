@@ -57,6 +57,8 @@ type MustGatherSpec struct {
 	// +kubebuilder:default:=false
 	RetainResourcesOnCompletion bool `json:"retainResourcesOnCompletion,omitempty"`
 
+	// The storage configuration for the must-gather execution.
+	// If not specified, an ephemeral volume is used.
 	// +optional
 	Storage *Storage `json:"storage,omitempty"`
 }
@@ -110,28 +112,38 @@ type UploadTargetSpec struct {
 	SFTP *SFTPSpec `json:"sftp,omitempty"`
 }
 
+// StorageType defines the type of storage to use for the must-gather execution.
 // +kubebuilder:validation:Enum=PersistentVolume
 type StorageType string
 
 const (
+	// StorageTypePersistentVolume corresponds to the PersistentVolume storage type.
 	StorageTypePersistentVolume StorageType = "PersistentVolume"
 )
 
+// Storage defines the desired state of Storage
 type Storage struct {
+	// type defines the type of storage to use.
 	// +required
 	Type StorageType `json:"type"`
+	// persistentVolume defines the configuration for a PersistentVolume.
 	// +required
 	PersistentVolume PersistentVolumeConfig `json:"persistentVolume"`
 }
 
+// PersistentVolumeConfig defines the configuration for a PersistentVolume.
 type PersistentVolumeConfig struct {
+	// claim defines the PersistentVolumeClaim to use.
 	// +required
 	Claim PersistentVolumeClaimReference `json:"claim"`
+	// subPath defines the sub-path within the PersistentVolume to use.
 	// +optional
 	SubPath string `json:"subPath,omitempty"`
 }
 
+// PersistentVolumeClaimReference defines the reference to a PersistentVolumeClaim.
 type PersistentVolumeClaimReference struct {
+	// name defines the name of the PersistentVolumeClaim.
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:XValidation:rule="!format.dns1123Subdomain().validate(self).hasValue()",message="a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character."
 	// +required
