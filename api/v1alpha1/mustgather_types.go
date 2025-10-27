@@ -72,7 +72,7 @@ type SFTPSpec struct {
 
 	// A flag to specify if the upload user provided in the caseManagementAccountSecret is a RH internal user.
 	// See documentation for further information.
-	// +kubebuilder:default:=true
+	// +kubebuilder:default:=false
 	InternalUser bool `json:"internalUser,omitempty"`
 
 	// host specifies the SFTP server hostname.
