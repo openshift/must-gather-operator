@@ -16,7 +16,6 @@ import (
 )
 
 func Test_initializeJobTemplate(t *testing.T) {
-	testFailed := false
 	testName := "testName"
 	testNamespace := "testNamespace"
 	testServiceAccountRef := "testServiceAccountRef"
@@ -49,34 +48,25 @@ func Test_initializeJobTemplate(t *testing.T) {
 			job := initializeJobTemplate(testName, testNamespace, testServiceAccountRef, tt.storage)
 
 			if got := job.Name; got != testName {
-				t.Logf("job name from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testName)
-				testFailed = true
+				t.Fatalf("job name from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testName)
 			}
 
 			if got := job.Namespace; got != testNamespace {
-				t.Logf("job namespace from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testNamespace)
-				testFailed = true
+				t.Fatalf("job namespace from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testNamespace)
 			}
 
 			if got := job.Spec.Template.Spec.ServiceAccountName; got != testServiceAccountRef {
-				t.Logf("job service account name from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testServiceAccountRef)
-				testFailed = true
+				t.Fatalf("job service account name from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testServiceAccountRef)
 			}
 
 			if tt.storage != nil {
 				volume := job.Spec.Template.Spec.Volumes[0]
 				if volume.Name != outputVolumeName {
-					t.Logf("volume name from initializeJobTemplate() was not correctly set. got %v, wanted %v", volume.Name, outputVolumeName)
-					testFailed = true
+					t.Fatalf("volume name from initializeJobTemplate() was not correctly set. got %v, wanted %v", volume.Name, outputVolumeName)
 				}
 				if volume.PersistentVolumeClaim.ClaimName != pvcClaimName {
-					t.Logf("pvc claim name from initializeJobTemplate() was not correctly set. got %v, wanted %v", volume.PersistentVolumeClaim.ClaimName, pvcClaimName)
-					testFailed = true
+					t.Fatalf("pvc claim name from initializeJobTemplate() was not correctly set. got %v, wanted %v", volume.PersistentVolumeClaim.ClaimName, pvcClaimName)
 				}
-			}
-
-			if testFailed == true {
-				t.Error()
 			}
 		})
 	}
@@ -117,8 +107,6 @@ func Test_getGatherContainer(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			testFailed := false
-
 			t.Setenv(defaultMustGatherImageEnv, tt.mustGatherImage)
 			expectedImage := tt.mustGatherImage
 
@@ -126,37 +114,30 @@ func Test_getGatherContainer(t *testing.T) {
 
 			containerCommand := container.Command[2]
 			if tt.audit && !strings.Contains(containerCommand, gatherCommandBinaryAudit) {
-				t.Logf("gather container command expected with binary %v but it wasn't present", gatherCommandBinaryAudit)
-				testFailed = true
+				t.Fatalf("gather container command expected with binary %v but it wasn't present", gatherCommandBinaryAudit)
 			} else if !tt.audit && !strings.Contains(containerCommand, gatherCommandBinaryNoAudit) {
-				t.Logf("gather container command expected with binary %v but it wasn't present", gatherCommandBinaryNoAudit)
-				testFailed = true
+				t.Fatalf("gather container command expected with binary %v but it wasn't present", gatherCommandBinaryNoAudit)
 			}
 
 			if !strings.HasPrefix(containerCommand, fmt.Sprintf("timeout %v", tt.timeout)) {
-				t.Logf("the duration was not properly added to the container command, got %v but wanted %v", strings.Split(containerCommand, " ")[1], tt.timeout.String())
-				testFailed = true
+				t.Fatalf("the duration was not properly added to the container command, got %v but wanted %v", strings.Split(containerCommand, " ")[1], tt.timeout.String())
 			}
 
 			if container.Image != expectedImage {
-				t.Logf("expected container image %v but got %v", expectedImage, container.Image)
-				testFailed = true
+				t.Fatalf("expected container image %v but got %v", expectedImage, container.Image)
 			}
 
 			if tt.storage != nil {
+				if len(container.VolumeMounts) == 0 {
+					t.Fatalf("expected at least one volume mount when storage is provided")
+				}
 				volumeMount := container.VolumeMounts[0]
 				if volumeMount.Name != outputVolumeName {
-					t.Logf("volume mount name was not correctly set. got %v, wanted %v", volumeMount.Name, outputVolumeName)
-					testFailed = true
+					t.Fatalf("volume mount name was not correctly set. got %v, wanted %v", volumeMount.Name, outputVolumeName)
 				}
 				if volumeMount.SubPath != tt.storage.PersistentVolume.SubPath {
-					t.Logf("volume mount subpath was not correctly set. got %v, wanted %v", volumeMount.SubPath, tt.storage.PersistentVolume.SubPath)
-					testFailed = true
+					t.Fatalf("volume mount subpath was not correctly set. got %v, wanted %v", volumeMount.SubPath, tt.storage.PersistentVolume.SubPath)
 				}
-			}
-
-			if testFailed {
-				t.Error()
 			}
 		})
 	}
@@ -225,45 +206,38 @@ func Test_getUploadContainer(t *testing.T) {
 			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.host, tt.internalUser, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName)
 
 			if container.Image != tt.operatorImage {
-				t.Logf("expected container image %v but got %v", tt.operatorImage, container.Image)
-				testFailed = true
+				t.Fatalf("expected container image %v but got %v", tt.operatorImage, container.Image)
 			}
 
 			for _, env := range container.Env {
 				switch env.Name {
 				case uploadEnvCaseId:
 					if env.Value != tt.caseId {
-						t.Logf("expected case ID envar %v but got %v", tt.caseId, env.Value)
-						testFailed = true
+						t.Fatalf("expected case ID envar %v but got %v", tt.caseId, env.Value)
 					}
 				case uploadEnvHost:
 					if env.Value != tt.host {
-						t.Logf("expected host envar %v but got %v", tt.host, env.Value)
-						testFailed = true
+						t.Fatalf("expected host envar %v but got %v", tt.host, env.Value)
 					}
 				case uploadEnvInternalUser:
 					if env.Value != strconv.FormatBool(tt.internalUser) {
-						t.Logf("expected internal user envar %v but got %v", tt.internalUser, env.Value)
-						testFailed = true
+						t.Fatalf("expected internal user envar %v but got %v", tt.internalUser, env.Value)
 					}
 				case uploadEnvHttpProxy:
 					if env.Value != tt.httpProxy {
-						t.Logf("expected httpproxy envar %v but got %v", tt.httpProxy, tt.httpProxy)
-						testFailed = true
+						t.Fatalf("expected httpproxy envar %v but got %v", tt.httpProxy, tt.httpProxy)
 					}
 				case uploadEnvHttpsProxy:
 					if env.Value != tt.httpsProxy {
-						t.Logf("expected httpsproxy envar %v but got %v", tt.httpsProxy, tt.httpsProxy)
-						testFailed = true
+						t.Fatalf("expected httpsproxy envar %v but got %v", tt.httpsProxy, tt.httpsProxy)
 					}
 				case uploadEnvNoProxy:
 					if env.Value != tt.noProxy {
-						t.Logf("expected noproxy envar %v but got %v", tt.noProxy, tt.noProxy)
+						t.Fatalf("expected noproxy envar %v but got %v", tt.noProxy, tt.noProxy)
 					}
 				case uploadEnvUsername, uploadEnvPassword:
 					if !reflect.DeepEqual(env.ValueFrom.SecretKeyRef.LocalObjectReference, tt.secretKeyRefName) {
-						t.Logf("expected %v envar to have secret key ref name %v but got %v", env.Name, tt.secretKeyRefName.Name, env.ValueFrom.SecretKeyRef.Name)
-						testFailed = true
+						t.Fatalf("expected %v envar to have secret key ref name %v but got %v", env.Name, tt.secretKeyRefName.Name, env.ValueFrom.SecretKeyRef.Name)
 					}
 				}
 
