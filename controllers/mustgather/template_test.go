@@ -225,15 +225,15 @@ func Test_getUploadContainer(t *testing.T) {
 					}
 				case uploadEnvHttpProxy:
 					if env.Value != tt.httpProxy {
-						t.Fatalf("expected httpproxy envar %v but got %v", tt.httpProxy, tt.httpProxy)
+						t.Fatalf("expected httpproxy envar %v but got %v", tt.httpProxy, env.Value)
 					}
 				case uploadEnvHttpsProxy:
 					if env.Value != tt.httpsProxy {
-						t.Fatalf("expected httpsproxy envar %v but got %v", tt.httpsProxy, tt.httpsProxy)
+						t.Fatalf("expected httpsproxy envar %v but got %v", tt.httpsProxy, env.Value)
 					}
 				case uploadEnvNoProxy:
 					if env.Value != tt.noProxy {
-						t.Fatalf("expected noproxy envar %v but got %v", tt.noProxy, tt.noProxy)
+						t.Fatalf("expected noproxy envar %v but got %v", tt.noProxy, env.Value)
 					}
 				case uploadEnvUsername, uploadEnvPassword:
 					if !reflect.DeepEqual(env.ValueFrom.SecretKeyRef.LocalObjectReference, tt.secretKeyRefName) {
