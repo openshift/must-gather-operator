@@ -60,6 +60,9 @@ func Test_initializeJobTemplate(t *testing.T) {
 			}
 
 			if tt.storage != nil {
+				if len(job.Spec.Template.Spec.Volumes) == 0 {
+					t.Fatalf("expected at least one volume to be present")
+				}
 				volume := job.Spec.Template.Spec.Volumes[0]
 				if volume.Name != outputVolumeName {
 					t.Fatalf("volume name from initializeJobTemplate() was not correctly set. got %v, wanted %v", volume.Name, outputVolumeName)

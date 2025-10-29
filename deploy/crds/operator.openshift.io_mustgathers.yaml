@@ -95,8 +95,9 @@ spec:
                 x-kubernetes-map-type: atomic
               storage:
                 description: |-
-                  The storage configuration for the must-gather execution.
-                  If not specified, an ephemeral volume is used.
+                  The storage configuration for persisting the collected must-gather tar archive.
+                  If not specified, an ephemeral volume is used which will not persist
+                  the tar archive on the cluster.
                 properties:
                   persistentVolume:
                     description: persistentVolume defines the configuration for a
@@ -106,7 +107,8 @@ spec:
                         description: claim defines the PersistentVolumeClaim to use.
                         properties:
                           name:
-                            description: name defines the name of the PersistentVolumeClaim.
+                            description: name defines the PersistentVolumeClaim to
+                              use,.
                             maxLength: 253
                             type: string
                             x-kubernetes-validations:
@@ -118,8 +120,8 @@ spec:
                         - name
                         type: object
                       subPath:
-                        description: subPath defines the sub-path within the PersistentVolume
-                          to use.
+                        description: subPath defines the path to a sub directory within
+                          the PersistentVolume to use.
                         type: string
                     required:
                     - claim
