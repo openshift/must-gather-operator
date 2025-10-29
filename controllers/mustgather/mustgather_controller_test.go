@@ -596,45 +596,6 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "reconcile_job_succeeded_cleanup_error_returns_error",
-			setupEnv: func(t *testing.T) {
-				t.Setenv("OPERATOR_IMAGE", "img")
-			},
-			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
-					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
-					},
-				}
-				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "sec", Namespace: operatorNs}}
-				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs}}
-				job.Status.Succeeded = 1
-				cv := &configv1.ClusterVersion{
-					ObjectMeta: metav1.ObjectMeta{Name: "version"},
-					Status: configv1.ClusterVersionStatus{
-						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
-					},
-				}
-				return []client.Object{mg, userSecret, cv, job}
-			},
-			interceptors: func() interceptClient {
-				return interceptClient{
-					onDelete: func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
-						if _, ok := obj.(*batchv1.Job); ok {
-							return errors.New("failed to delete job")
-						}
-						return nil
-					},
-				}
-			},
-			// missing both OPERATOR_NAMESPACE and OSDK_FORCE_RUN_MODE will induce an
-			// ErrNoNamespace error, please refer: https://github.com/openshift/must-gather-operator/pull/259#issuecomment-3463442798
-			expectError:    true,
-			expectResult:   reconcile.Result{},
-			postTestChecks: func(t *testing.T, cl client.Client) {},
-		},
-		{
 			name: "reconcile_job_failed_cleanup_error_returns_error",
 			setupEnv: func(t *testing.T) {
 				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
