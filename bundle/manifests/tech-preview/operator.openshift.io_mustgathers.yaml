@@ -107,8 +107,9 @@ spec:
                         description: claim defines the PersistentVolumeClaim to use.
                         properties:
                           name:
-                            description: name defines the PersistentVolumeClaim to
-                              use,.
+                            description: |-
+                              name defines the PersistentVolumeClaim to use,
+                              should be already present in the same namespace.
                             maxLength: 253
                             type: string
                             x-kubernetes-validations:
@@ -127,7 +128,9 @@ spec:
                     - claim
                     type: object
                   type:
-                    description: type defines the type of storage to use.
+                    description: |-
+                      type defines the type of storage to use.
+                      Available storage types are PersistentVolume only.
                     enum:
                     - PersistentVolume
                     type: string

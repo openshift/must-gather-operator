@@ -125,6 +125,7 @@ const (
 // Storage defines the desired state of Storage
 type Storage struct {
 	// type defines the type of storage to use.
+	// Available storage types are PersistentVolume only.
 	// +required
 	Type StorageType `json:"type"`
 	// persistentVolume defines the configuration for a PersistentVolume.
@@ -144,7 +145,8 @@ type PersistentVolumeConfig struct {
 
 // PersistentVolumeClaimReference defines the reference to a PersistentVolumeClaim.
 type PersistentVolumeClaimReference struct {
-	// name defines the PersistentVolumeClaim to use,.
+	// name defines the PersistentVolumeClaim to use,
+	// should be already present in the same namespace.
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:XValidation:rule="!format.dns1123Subdomain().validate(self).hasValue()",message="a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character."
 	// +required
