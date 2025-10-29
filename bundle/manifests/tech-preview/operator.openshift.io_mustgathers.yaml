@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.18.0
+    controller-gen.kubebuilder.io/version: v0.18.1-0.20250818134112-b624019bbe8d
   name: mustgathers.operator.openshift.io
 spec:
   group: operator.openshift.io
@@ -93,6 +93,51 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+              storage:
+                description: |-
+                  The storage configuration for persisting the collected must-gather tar archive.
+                  If not specified, an ephemeral volume is used which will not persist
+                  the tar archive on the cluster.
+                properties:
+                  persistentVolume:
+                    description: persistentVolume defines the configuration for a
+                      PersistentVolume.
+                    properties:
+                      claim:
+                        description: claim defines the PersistentVolumeClaim to use.
+                        properties:
+                          name:
+                            description: |-
+                              name defines the PersistentVolumeClaim to use,
+                              should be already present in the same namespace.
+                            maxLength: 253
+                            type: string
+                            x-kubernetes-validations:
+                            - message: a lowercase RFC 1123 subdomain must consist
+                                of lower case alphanumeric characters, '-' or '.',
+                                and must start and end with an alphanumeric character.
+                              rule: '!format.dns1123Subdomain().validate(self).hasValue()'
+                        required:
+                        - name
+                        type: object
+                      subPath:
+                        description: subPath defines the path to a sub directory within
+                          the PersistentVolume to use.
+                        type: string
+                    required:
+                    - claim
+                    type: object
+                  type:
+                    description: |-
+                      type defines the type of storage to use.
+                      Available storage types are PersistentVolume only.
+                    enum:
+                    - PersistentVolume
+                    type: string
+                required:
+                - persistentVolume
+                - type
+                type: object
               uploadTarget:
                 description: |-
                   The target location for the must-gather bundle to be uploaded to.

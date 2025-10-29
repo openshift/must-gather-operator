@@ -56,6 +56,12 @@ type MustGatherSpec struct {
 	// If set to true, resources will be retained. If false or not set, resources will be deleted (default behavior).
 	// +kubebuilder:default:=false
 	RetainResourcesOnCompletion bool `json:"retainResourcesOnCompletion,omitempty"`
+
+	// The storage configuration for persisting the collected must-gather tar archive.
+	// If not specified, an ephemeral volume is used which will not persist
+	// the tar archive on the cluster.
+	// +optional
+	Storage *Storage `json:"storage,omitempty"`
 }
 
 // SFTPSpec defines the desired state of SFTPSpec
@@ -105,6 +111,46 @@ type UploadTargetSpec struct {
 	// +unionMember
 	// +optional
 	SFTP *SFTPSpec `json:"sftp,omitempty"`
+}
+
+// StorageType defines the type of storage to use for the must-gather collection.
+// +kubebuilder:validation:Enum=PersistentVolume
+type StorageType string
+
+const (
+	// StorageTypePersistentVolume corresponds to the PersistentVolume storage type.
+	StorageTypePersistentVolume StorageType = "PersistentVolume"
+)
+
+// Storage defines the desired state of Storage
+type Storage struct {
+	// type defines the type of storage to use.
+	// Available storage types are PersistentVolume only.
+	// +required
+	Type StorageType `json:"type"`
+	// persistentVolume defines the configuration for a PersistentVolume.
+	// +required
+	PersistentVolume PersistentVolumeConfig `json:"persistentVolume"`
+}
+
+// PersistentVolumeConfig defines the configuration for a PersistentVolume.
+type PersistentVolumeConfig struct {
+	// claim defines the PersistentVolumeClaim to use.
+	// +required
+	Claim PersistentVolumeClaimReference `json:"claim"`
+	// subPath defines the path to a sub directory within the PersistentVolume to use.
+	// +optional
+	SubPath string `json:"subPath,omitempty"`
+}
+
+// PersistentVolumeClaimReference defines the reference to a PersistentVolumeClaim.
+type PersistentVolumeClaimReference struct {
+	// name defines the PersistentVolumeClaim to use,
+	// should be already present in the same namespace.
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:XValidation:rule="!format.dns1123Subdomain().validate(self).hasValue()",message="a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character."
+	// +required
+	Name string `json:"name"`
 }
 
 // +k8s:openapi-gen=true
