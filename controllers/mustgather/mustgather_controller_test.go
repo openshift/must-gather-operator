@@ -117,7 +117,16 @@ func TestCleanupMustGatherResources(t *testing.T) {
 						},
 					},
 				}
-				secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "case-management-creds", Namespace: operatorNs}}
+				// Secret with annotation marking it as copied by operator
+				secret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "case-management-creds",
+						Namespace: operatorNs,
+						Annotations: map[string]string{
+							copiedSecretAnnotation: "true",
+						},
+					},
+				}
 				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: operatorNs, UID: "user-123"}}
 				pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod1", Namespace: operatorNs, Labels: map[string]string{"controller-uid": string(job.UID)}}}
 				return []client.Object{mg, secret, job, pod}
@@ -129,6 +138,46 @@ func TestCleanupMustGatherResources(t *testing.T) {
 				chkSecret := &corev1.Secret{}
 				if getErr := cl.Get(context.TODO(), types.NamespacedName{Namespace: operatorNs, Name: "case-management-creds"}, chkSecret); getErr == nil {
 					t.Fatalf("expected secret to be deleted")
+				}
+				// Verify job is deleted
+				chkJob := &batchv1.Job{}
+				if getErr := cl.Get(context.TODO(), types.NamespacedName{Namespace: operatorNs, Name: "example-mustgather"}, chkJob); getErr == nil {
+					t.Fatalf("expected job to be deleted")
+				}
+			},
+		},
+		{
+			name: "cleanup_secret_without_annotation_not_deleted",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+							Type: mustgatherv1alpha1.UploadTypeSFTP,
+							SFTP: &mustgatherv1alpha1.SFTPSpec{
+								CaseID:                         "12345678",
+								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "user-secret"},
+							},
+						},
+					},
+				}
+				// Secret without annotation - should not be deleted
+				secret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "user-secret",
+						Namespace: operatorNs,
+					},
+				}
+				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: operatorNs, UID: "user-123"}}
+				return []client.Object{mg, secret, job}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				// Verify secret is NOT deleted (it didn't have the annotation)
+				chkSecret := &corev1.Secret{}
+				if getErr := cl.Get(context.TODO(), types.NamespacedName{Namespace: operatorNs, Name: "user-secret"}, chkSecret); getErr != nil {
+					t.Fatalf("expected secret to remain, got error: %v", getErr)
 				}
 				// Verify job is deleted
 				chkJob := &batchv1.Job{}
@@ -343,7 +392,15 @@ func TestReconcile(t *testing.T) {
 			name:     "reconcile_deletion_cleanup_and_finalizer_removal_success",
 			setupEnv: func(t *testing.T) {},
 			setupObjects: func() []client.Object {
-				secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: operatorNs}}
+				secret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "s",
+						Namespace: operatorNs,
+						Annotations: map[string]string{
+							copiedSecretAnnotation: "true",
+						},
+					},
+				}
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "example-mustgather", Namespace: operatorNs,
@@ -397,7 +454,15 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: operatorNs}}
+				secret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "s",
+						Namespace: operatorNs,
+						Annotations: map[string]string{
+							copiedSecretAnnotation: "true",
+						},
+					},
+				}
 				return []client.Object{mg, secret}
 			},
 			interceptors: func() interceptClient {
@@ -493,10 +558,503 @@ func TestReconcile(t *testing.T) {
 					t.Fatalf("expected secret to be created in operator namespace, got error: %v", err)
 				}
 
+				// Verify secret has the copied annotation
+				if operatorSecret.Annotations == nil || operatorSecret.Annotations[copiedSecretAnnotation] != "true" {
+					t.Fatalf("expected secret to have copied annotation set to true")
+				}
+
+				// Verify secret does NOT have ownerReference (retainResourcesOnCompletion is false)
+				if len(operatorSecret.OwnerReferences) > 0 {
+					t.Fatalf("expected secret to have no ownerReference when retainResourcesOnCompletion is false")
+				}
+
 				// Verify job was created
 				job := &batchv1.Job{}
 				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: defaultMustGatherNamespace, Name: "example-mustgather"}, job); err != nil {
 					t.Fatalf("expected job to be created, got error: %v", err)
+				}
+			},
+		},
+		{
+			name: "reconcile_secret_copied_with_ownerref_when_retain_true",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
+				os.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "example-mustgather",
+						Namespace:  "ns",
+						Finalizers: []string{mustGatherFinalizer},
+						UID:        "test-uid-123",
+					},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountRef:           corev1.LocalObjectReference{Name: "default"},
+						RetainResourcesOnCompletion: true,
+						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+							Type: mustgatherv1alpha1.UploadTypeSFTP,
+							SFTP: &mustgatherv1alpha1.SFTPSpec{
+								CaseID:                         "12345678",
+								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
+							},
+						},
+					},
+				}
+				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: "ns"}}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status: configv1.ClusterVersionStatus{
+						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
+					},
+				}
+				return []client.Object{mg, userSecret, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				// Verify secret was created in operator namespace
+				operatorSecret := &corev1.Secret{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: defaultMustGatherNamespace, Name: "secret"}, operatorSecret); err != nil {
+					t.Fatalf("expected secret to be created in operator namespace, got error: %v", err)
+				}
+
+				// Verify secret has the copied annotation
+				if operatorSecret.Annotations == nil || operatorSecret.Annotations[copiedSecretAnnotation] != "true" {
+					t.Fatalf("expected secret to have copied annotation set to true")
+				}
+
+				// Verify secret has ownerReference when retainResourcesOnCompletion is true
+				if len(operatorSecret.OwnerReferences) == 0 {
+					t.Fatalf("expected secret to have ownerReference when retainResourcesOnCompletion is true")
+				}
+
+				// Verify ownerReference points to the MustGather CR
+				hasCorrectOwner := false
+				for _, ref := range operatorSecret.OwnerReferences {
+					if ref.UID == "test-uid-123" {
+						hasCorrectOwner = true
+						break
+					}
+				}
+				if !hasCorrectOwner {
+					t.Fatalf("expected secret to have ownerReference pointing to MustGather CR")
+				}
+			},
+		},
+		{
+			name: "reconcile_secret_in_same_namespace_not_copied",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
+				os.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "example-mustgather",
+						Namespace:  operatorNs,
+						Finalizers: []string{mustGatherFinalizer},
+					},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
+						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+							Type: mustgatherv1alpha1.UploadTypeSFTP,
+							SFTP: &mustgatherv1alpha1.SFTPSpec{
+								CaseID:                         "12345678",
+								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
+							},
+						},
+					},
+				}
+				// Secret already in operator namespace
+				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: operatorNs}}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status: configv1.ClusterVersionStatus{
+						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
+					},
+				}
+				return []client.Object{mg, userSecret, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				// Verify secret still exists in operator namespace
+				operatorSecret := &corev1.Secret{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: operatorNs, Name: "secret"}, operatorSecret); err != nil {
+					t.Fatalf("expected secret to exist in operator namespace, got error: %v", err)
+				}
+
+				// Verify secret does NOT have the copied annotation (it wasn't copied)
+				if operatorSecret.Annotations != nil && operatorSecret.Annotations[copiedSecretAnnotation] == "true" {
+					t.Fatalf("expected secret to NOT have copied annotation when in same namespace")
+				}
+
+				// Verify secret does NOT have ownerReference (it wasn't copied)
+				if len(operatorSecret.OwnerReferences) > 0 {
+					t.Fatalf("expected secret to have no ownerReference when in same namespace as CR")
+				}
+
+				// Verify job was created
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: operatorNs, Name: "example-mustgather"}, job); err != nil {
+					t.Fatalf("expected job to be created, got error: %v", err)
+				}
+			},
+		},
+		{
+			name: "reconcile_secret_manually_created_in_operator_ns_not_modified",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
+				os.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "example-mustgather",
+						Namespace:  "user-ns",
+						Finalizers: []string{mustGatherFinalizer},
+						UID:        "test-uid-456",
+					},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
+						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+							Type: mustgatherv1alpha1.UploadTypeSFTP,
+							SFTP: &mustgatherv1alpha1.SFTPSpec{
+								CaseID:                         "12345678",
+								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "manual-secret"},
+							},
+						},
+					},
+				}
+				// Secret in user namespace
+				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "manual-secret", Namespace: "user-ns"}}
+				// Secret manually created in operator namespace (no annotation)
+				operatorSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "manual-secret",
+						Namespace: operatorNs,
+						// No copied annotation - indicates manual creation
+					},
+					Data: map[string][]byte{"key": []byte("manual-value")},
+				}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status: configv1.ClusterVersionStatus{
+						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
+					},
+				}
+				return []client.Object{mg, userSecret, operatorSecret, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				// Verify secret still exists
+				operatorSecret := &corev1.Secret{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: operatorNs, Name: "manual-secret"}, operatorSecret); err != nil {
+					t.Fatalf("expected secret to exist in operator namespace, got error: %v", err)
+				}
+
+				// Verify secret does NOT have copied annotation (manually created)
+				if operatorSecret.Annotations != nil && operatorSecret.Annotations[copiedSecretAnnotation] == "true" {
+					t.Fatalf("expected manually created secret to NOT have copied annotation")
+				}
+
+				// Verify secret does NOT have ownerReference added
+				if len(operatorSecret.OwnerReferences) > 0 {
+					t.Fatalf("expected manually created secret to have no ownerReference")
+				}
+
+				// Verify original data is preserved
+				if string(operatorSecret.Data["key"]) != "manual-value" {
+					t.Fatalf("expected manually created secret data to be preserved")
+				}
+			},
+		},
+		{
+			name: "reconcile_existing_copied_secret_adds_ownerref_when_retain_true",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
+				os.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "example-mustgather",
+						Namespace:  "user-ns",
+						Finalizers: []string{mustGatherFinalizer},
+						UID:        "test-uid-789",
+					},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountRef:           corev1.LocalObjectReference{Name: "default"},
+						RetainResourcesOnCompletion: true,
+						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+							Type: mustgatherv1alpha1.UploadTypeSFTP,
+							SFTP: &mustgatherv1alpha1.SFTPSpec{
+								CaseID:                         "12345678",
+								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "copied-secret"},
+							},
+						},
+					},
+				}
+				// Secret in user namespace
+				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "copied-secret", Namespace: "user-ns"}}
+				// Secret previously copied by operator (has annotation, but no ownerRef yet)
+				operatorSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "copied-secret",
+						Namespace: operatorNs,
+						Annotations: map[string]string{
+							copiedSecretAnnotation: "true",
+						},
+						// No ownerReferences yet
+					},
+					Data: map[string][]byte{"key": []byte("copied-value")},
+				}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status: configv1.ClusterVersionStatus{
+						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
+					},
+				}
+				return []client.Object{mg, userSecret, operatorSecret, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				// Verify secret still exists
+				operatorSecret := &corev1.Secret{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: operatorNs, Name: "copied-secret"}, operatorSecret); err != nil {
+					t.Fatalf("expected secret to exist in operator namespace, got error: %v", err)
+				}
+
+				// Verify secret has copied annotation
+				if operatorSecret.Annotations == nil || operatorSecret.Annotations[copiedSecretAnnotation] != "true" {
+					t.Fatalf("expected copied secret to have copied annotation")
+				}
+
+				// Verify ownerReference was added
+				if len(operatorSecret.OwnerReferences) == 0 {
+					t.Fatalf("expected copied secret to have ownerReference added when retainResourcesOnCompletion is true")
+				}
+
+				// Verify ownerReference points to correct MustGather CR
+				hasCorrectOwner := false
+				for _, ref := range operatorSecret.OwnerReferences {
+					if ref.UID == "test-uid-789" {
+						hasCorrectOwner = true
+						break
+					}
+				}
+				if !hasCorrectOwner {
+					t.Fatalf("expected ownerReference to point to MustGather CR with UID test-uid-789")
+				}
+			},
+		},
+		{
+			name: "reconcile_existing_copied_secret_with_ownerref_not_updated",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
+				os.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mgUID := types.UID("test-uid-999")
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "example-mustgather",
+						Namespace:  "user-ns",
+						Finalizers: []string{mustGatherFinalizer},
+						UID:        mgUID,
+					},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountRef:           corev1.LocalObjectReference{Name: "default"},
+						RetainResourcesOnCompletion: true,
+						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+							Type: mustgatherv1alpha1.UploadTypeSFTP,
+							SFTP: &mustgatherv1alpha1.SFTPSpec{
+								CaseID:                         "12345678",
+								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "copied-secret"},
+							},
+						},
+					},
+				}
+				// Secret in user namespace
+				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "copied-secret", Namespace: "user-ns"}}
+				// Secret already has annotation and ownerReference
+				trueVal := true
+				operatorSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "copied-secret",
+						Namespace: operatorNs,
+						Annotations: map[string]string{
+							copiedSecretAnnotation: "true",
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "operator.openshift.io/v1alpha1",
+								Kind:       "MustGather",
+								Name:       "example-mustgather",
+								UID:        mgUID,
+								Controller: &trueVal,
+							},
+						},
+					},
+					Data: map[string][]byte{"key": []byte("existing-value")},
+				}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status: configv1.ClusterVersionStatus{
+						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
+					},
+				}
+				return []client.Object{mg, userSecret, operatorSecret, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				// Verify secret still exists
+				operatorSecret := &corev1.Secret{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: operatorNs, Name: "copied-secret"}, operatorSecret); err != nil {
+					t.Fatalf("expected secret to exist in operator namespace, got error: %v", err)
+				}
+
+				// Verify only one ownerReference exists (not duplicated)
+				if len(operatorSecret.OwnerReferences) != 1 {
+					t.Fatalf("expected exactly one ownerReference, got %d", len(operatorSecret.OwnerReferences))
+				}
+			},
+		},
+		{
+			name: "reconcile_existing_copied_secret_no_ownerref_when_retain_false",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
+				os.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "example-mustgather",
+						Namespace:  "user-ns",
+						Finalizers: []string{mustGatherFinalizer},
+						UID:        "test-uid-111",
+					},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountRef:           corev1.LocalObjectReference{Name: "default"},
+						RetainResourcesOnCompletion: false, // retain is false
+						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+							Type: mustgatherv1alpha1.UploadTypeSFTP,
+							SFTP: &mustgatherv1alpha1.SFTPSpec{
+								CaseID:                         "12345678",
+								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "copied-secret"},
+							},
+						},
+					},
+				}
+				// Secret in user namespace
+				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "copied-secret", Namespace: "user-ns"}}
+				// Secret previously copied (has annotation, but no ownerRef)
+				operatorSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "copied-secret",
+						Namespace: operatorNs,
+						Annotations: map[string]string{
+							copiedSecretAnnotation: "true",
+						},
+					},
+					Data: map[string][]byte{"key": []byte("copied-value")},
+				}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status: configv1.ClusterVersionStatus{
+						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
+					},
+				}
+				return []client.Object{mg, userSecret, operatorSecret, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				// Verify secret still exists
+				operatorSecret := &corev1.Secret{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: operatorNs, Name: "copied-secret"}, operatorSecret); err != nil {
+					t.Fatalf("expected secret to exist in operator namespace, got error: %v", err)
+				}
+
+				// Verify NO ownerReference was added when retainResourcesOnCompletion is false
+				if len(operatorSecret.OwnerReferences) > 0 {
+					t.Fatalf("expected no ownerReference when retainResourcesOnCompletion is false, got %d", len(operatorSecret.OwnerReferences))
+				}
+			},
+		},
+		{
+			name: "reconcile_manually_created_secret_no_ownerref_when_retain_true",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
+				os.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "example-mustgather",
+						Namespace:  "user-ns",
+						Finalizers: []string{mustGatherFinalizer},
+						UID:        "test-uid-222",
+					},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountRef:           corev1.LocalObjectReference{Name: "default"},
+						RetainResourcesOnCompletion: true, // retain is true
+						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+							Type: mustgatherv1alpha1.UploadTypeSFTP,
+							SFTP: &mustgatherv1alpha1.SFTPSpec{
+								CaseID:                         "12345678",
+								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "manual-secret"},
+							},
+						},
+					},
+				}
+				// Secret in user namespace
+				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "manual-secret", Namespace: "user-ns"}}
+				// Manually created secret in operator namespace (NO annotation)
+				operatorSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "manual-secret",
+						Namespace: operatorNs,
+						// No copied annotation - manually created
+					},
+					Data: map[string][]byte{"key": []byte("manual-value")},
+				}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status: configv1.ClusterVersionStatus{
+						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
+					},
+				}
+				return []client.Object{mg, userSecret, operatorSecret, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				// Verify secret still exists
+				operatorSecret := &corev1.Secret{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: operatorNs, Name: "manual-secret"}, operatorSecret); err != nil {
+					t.Fatalf("expected secret to exist in operator namespace, got error: %v", err)
+				}
+
+				// Verify NO ownerReference added to manually created secret
+				if len(operatorSecret.OwnerReferences) > 0 {
+					t.Fatalf("expected no ownerReference for manually created secret even when retainResourcesOnCompletion is true")
+				}
+
+				// Verify NO annotation added
+				if operatorSecret.Annotations != nil && operatorSecret.Annotations[copiedSecretAnnotation] == "true" {
+					t.Fatalf("expected manually created secret to not have copied annotation added")
 				}
 			},
 		},
@@ -652,7 +1210,15 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "sec", Namespace: operatorNs}}
+				userSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "sec",
+						Namespace: operatorNs,
+						Annotations: map[string]string{
+							copiedSecretAnnotation: "true",
+						},
+					},
+				}
 				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs}}
 				job.Status.Failed = 1
 				cv := &configv1.ClusterVersion{
@@ -782,7 +1348,15 @@ func TestReconcile(t *testing.T) {
 			setupEnv: func(t *testing.T) {},
 			setupObjects: func() []client.Object {
 				operatorNs := "must-gather-operator"
-				secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: operatorNs}}
+				secret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "secret",
+						Namespace: operatorNs,
+						Annotations: map[string]string{
+							copiedSecretAnnotation: "true",
+						},
+					},
+				}
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "must-gather", Namespace: operatorNs,
