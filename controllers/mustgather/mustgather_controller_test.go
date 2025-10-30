@@ -92,7 +92,7 @@ func (w failingStatusWriter) Update(ctx context.Context, obj client.Object, opts
 }
 
 func TestCleanupMustGatherResources(t *testing.T) {
-	operatorNs := "must-gather-operator"
+	targetNamespace := "foo-bar"
 
 	tests := []struct {
 		name           string
@@ -105,7 +105,7 @@ func TestCleanupMustGatherResources(t *testing.T) {
 			name: "cleanup_success_all_resources_deleted",
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
-					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs},
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: targetNamespace},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
@@ -116,22 +116,17 @@ func TestCleanupMustGatherResources(t *testing.T) {
 						},
 					},
 				}
-				secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "case-management-creds", Namespace: operatorNs}}
-				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: operatorNs, UID: "user-123"}}
-				pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod1", Namespace: operatorNs, Labels: map[string]string{"controller-uid": string(job.UID)}}}
+				secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "case-management-creds", Namespace: targetNamespace}}
+				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: targetNamespace, UID: "user-123"}}
+				pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod1", Namespace: targetNamespace, Labels: map[string]string{"controller-uid": string(job.UID)}}}
 				return []client.Object{mg, secret, job, pod}
 			},
 			interceptors: func() interceptClient { return interceptClient{} },
 			expectError:  false,
 			postTestChecks: func(t *testing.T, cl client.Client) {
-				// Verify secret is deleted
-				chkSecret := &corev1.Secret{}
-				if getErr := cl.Get(context.TODO(), types.NamespacedName{Namespace: operatorNs, Name: "case-management-creds"}, chkSecret); getErr == nil {
-					t.Fatalf("expected secret to be deleted")
-				}
 				// Verify job is deleted
 				chkJob := &batchv1.Job{}
-				if getErr := cl.Get(context.TODO(), types.NamespacedName{Namespace: operatorNs, Name: "example-mustgather"}, chkJob); getErr == nil {
+				if getErr := cl.Get(context.TODO(), types.NamespacedName{Namespace: targetNamespace, Name: "example-mustgather"}, chkJob); getErr == nil {
 					t.Fatalf("expected job to be deleted")
 				}
 			},
@@ -140,7 +135,7 @@ func TestCleanupMustGatherResources(t *testing.T) {
 			name: "cleanup_job_get_error_continues_successfully",
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
-					ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: operatorNs},
+					ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: targetNamespace},
 					Spec:       mustgatherv1alpha1.MustGatherSpec{},
 				}
 				return []client.Object{mg}
@@ -162,10 +157,10 @@ func TestCleanupMustGatherResources(t *testing.T) {
 			name: "cleanup_pod_list_error_leaves_job_intact",
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
-					ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: operatorNs},
+					ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: targetNamespace},
 					Spec:       mustgatherv1alpha1.MustGatherSpec{},
 				}
-				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: operatorNs, UID: "u"}}
+				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: targetNamespace, UID: "u"}}
 				return []client.Object{mg, job}
 			},
 			interceptors: func() interceptClient {
@@ -182,7 +177,7 @@ func TestCleanupMustGatherResources(t *testing.T) {
 			postTestChecks: func(t *testing.T, cl client.Client) {
 				// Since cleanup failed due to pod list error, job should still exist
 				chk := &batchv1.Job{}
-				if e := cl.Get(context.TODO(), types.NamespacedName{Namespace: operatorNs, Name: "mg"}, chk); e != nil {
+				if e := cl.Get(context.TODO(), types.NamespacedName{Namespace: targetNamespace, Name: "mg"}, chk); e != nil {
 					t.Fatalf("expected job to remain after failed cleanup, get err: %v", e)
 				}
 			},
@@ -191,11 +186,11 @@ func TestCleanupMustGatherResources(t *testing.T) {
 			name: "cleanup_pod_delete_error_returns_error",
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
-					ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: operatorNs},
+					ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: targetNamespace},
 					Spec:       mustgatherv1alpha1.MustGatherSpec{},
 				}
-				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: operatorNs, UID: "u"}}
-				pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: operatorNs, Labels: map[string]string{"controller-uid": string(job.UID)}}}
+				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: targetNamespace, UID: "u"}}
+				pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: targetNamespace, Labels: map[string]string{"controller-uid": string(job.UID)}}}
 				return []client.Object{mg, job, pod}
 			},
 			interceptors: func() interceptClient {
@@ -246,7 +241,7 @@ func TestCleanupMustGatherResources(t *testing.T) {
 			}
 
 			// Execute
-			err := r.cleanupMustGatherResources(context.TODO(), logf.Log, mg, operatorNs)
+			err := r.cleanupMustGatherResources(context.TODO(), logf.Log, mg)
 
 			// Assert error expectation
 			if tt.expectError && err == nil {
@@ -341,7 +336,6 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_deletion_cleanup_and_finalizer_removal_success",
 			setupEnv: func(t *testing.T) {
-				t.Setenv("OPERATOR_NAMESPACE", "foo")
 			},
 			setupObjects: func() []client.Object {
 				secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: operatorNs}}
@@ -378,7 +372,6 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_deletion_cleanup_resources_returns_error",
 			setupEnv: func(t *testing.T) {
-				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
@@ -398,14 +391,14 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: operatorNs}}
-				return []client.Object{mg, secret}
+				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: operatorNs, UID: "user-123"}}
+				return []client.Object{mg, job}
 			},
 			interceptors: func() interceptClient {
 				return interceptClient{
 					onDelete: func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
-						if _, ok := obj.(*corev1.Secret); ok {
-							return errors.New("failed to delete secret")
+						if _, ok := obj.(*batchv1.Job); ok {
+							return errors.New("failed to delete job")
 						}
 						return nil
 					},
@@ -435,7 +428,6 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_not_found_no_upload_target_creates_job_successfully",
 			setupEnv: func(t *testing.T) {
-				t.Setenv("OPERATOR_NAMESPACE", "bar")
 				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
@@ -455,7 +447,6 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_not_found_creates_job_successfully",
 			setupEnv: func(t *testing.T) {
-				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
 				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
@@ -485,15 +476,9 @@ func TestReconcile(t *testing.T) {
 			expectError:  false,
 			expectResult: reconcile.Result{},
 			postTestChecks: func(t *testing.T, cl client.Client) {
-				// Verify secret was created in operator namespace
-				operatorSecret := &corev1.Secret{}
-				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: DefaultMustGatherNamespace, Name: "secret"}, operatorSecret); err != nil {
-					t.Fatalf("expected secret to be created in operator namespace, got error: %v", err)
-				}
-
 				// Verify job was created
 				job := &batchv1.Job{}
-				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: DefaultMustGatherNamespace, Name: "example-mustgather"}, job); err != nil {
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err != nil {
 					t.Fatalf("expected job to be created, got error: %v", err)
 				}
 			},
@@ -501,7 +486,6 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_not_found_user_secret_missing_no_requeue",
 			setupEnv: func(t *testing.T) {
-				t.Setenv("OPERATOR_NAMESPACE", "must-gather-operator")
 				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
@@ -534,7 +518,6 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_active_updates_status_running",
 			setupEnv: func(t *testing.T) {
-				t.Setenv("OPERATOR_NAMESPACE", "default")
 				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
@@ -563,7 +546,6 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_succeeded_retain_resources_no_cleanup",
 			setupEnv: func(t *testing.T) {
-				t.Setenv("OPERATOR_NAMESPACE", "foo")
 				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
@@ -598,7 +580,6 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_failed_cleanup_error_returns_error",
 			setupEnv: func(t *testing.T) {
-				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
 				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
@@ -629,8 +610,8 @@ func TestReconcile(t *testing.T) {
 			interceptors: func() interceptClient {
 				return interceptClient{
 					onDelete: func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
-						if _, ok := obj.(*corev1.Secret); ok {
-							return errors.New("failed to delete secret")
+						if _, ok := obj.(*batchv1.Job); ok {
+							return errors.New("failed to delete job")
 						}
 						return nil
 					},
@@ -901,9 +882,8 @@ func TestReconcile(t *testing.T) {
 			postTestChecks: func(t *testing.T, cl client.Client) {},
 		},
 		{
-			name: "reconcile_job_not_found_get_secret_returns_non_not_found_error_in_operator_ns",
+			name: "reconcile_job_not_found_get_secret_returns_non_not_found_error",
 			setupEnv: func(t *testing.T) {
-				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
 				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
@@ -932,8 +912,8 @@ func TestReconcile(t *testing.T) {
 			interceptors: func() interceptClient {
 				return interceptClient{
 					onGet: func(ctx context.Context, key client.ObjectKey, obj client.Object) error {
-						// Return non-NotFound error when getting secret in operator namespace
-						if _, ok := obj.(*corev1.Secret); ok && key.Namespace == DefaultMustGatherNamespace && key.Name == "secret" {
+						// Return non-NotFound error when getting secret
+						if _, ok := obj.(*corev1.Secret); ok && key.Namespace == "ns" && key.Name == "secret" {
 							return errors.New("API server unavailable - failed to get operator secret")
 						}
 						return nil
@@ -941,51 +921,7 @@ func TestReconcile(t *testing.T) {
 				}
 			},
 			expectError:    true,
-			expectResult:   reconcile.Result{},
-			postTestChecks: func(t *testing.T, cl client.Client) {},
-		},
-		{
-			name: "reconcile_job_not_found_operator_secret_create_fails",
-			setupEnv: func(t *testing.T) {
-				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
-				t.Setenv("OPERATOR_IMAGE", "img")
-			},
-			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
-					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
-						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-							Type: mustgatherv1alpha1.UploadTypeSFTP,
-							SFTP: &mustgatherv1alpha1.SFTPSpec{
-								CaseID:                         "12345678",
-								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
-							},
-						},
-					},
-				}
-				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: "ns"}}
-				cv := &configv1.ClusterVersion{
-					ObjectMeta: metav1.ObjectMeta{Name: "version"},
-					Status: configv1.ClusterVersionStatus{
-						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
-					},
-				}
-				return []client.Object{mg, userSecret, cv}
-			},
-			interceptors: func() interceptClient {
-				return interceptClient{
-					onCreate: func(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
-						// Fail secret creation
-						if _, ok := obj.(*corev1.Secret); ok {
-							return errors.New("failed to create secret")
-						}
-						return nil
-					},
-				}
-			},
-			expectError:    true,
-			expectResult:   reconcile.Result{},
+			expectResult:   reconcile.Result{Requeue: true},
 			postTestChecks: func(t *testing.T, cl client.Client) {},
 		},
 	}
