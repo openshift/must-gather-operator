@@ -45,6 +45,9 @@ const (
 	ControllerName = "mustgather-controller"
 
 	defaultMustGatherNamespace = "must-gather-operator"
+
+	// Annotation to mark secrets that were copied by the operator
+	copiedSecretAnnotation = "mustgather.operator.openshift.io/copied-by-operator"
 )
 
 var log = logf.Log.WithName(ControllerName)
@@ -191,28 +194,70 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 				return reconcile.Result{Requeue: true}, err
 			}
 
-			// copy secret in the operator namespace
-			newSecret := &corev1.Secret{}
-			err = r.GetClient().Get(ctx, types.NamespacedName{
-				Namespace: operatorNs,
-				Name:      secretName,
-			}, newSecret)
-			if err != nil {
-				if !errors.IsNotFound(err) {
-					log.Error(err, fmt.Sprintf("Error getting new secret %s", secretName))
-					return reconcile.Result{}, err
-				}
-				newSecret.Name = secretName
-				newSecret.Namespace = operatorNs
-				newSecret.Data = userSecret.Data
-				newSecret.Type = userSecret.Type
-				err = r.GetClient().Create(ctx, newSecret)
+			// Only copy/manage secret if it's from a different namespace than the operator
+			if instance.Namespace != operatorNs {
+				// copy secret in the operator namespace
+				newSecret := &corev1.Secret{}
+				err = r.GetClient().Get(ctx, types.NamespacedName{
+					Namespace: operatorNs,
+					Name:      secretName,
+				}, newSecret)
 				if err != nil {
-					log.Error(err, fmt.Sprintf("Error creating new secret %s", secretName))
-					return reconcile.Result{}, err
+					if !errors.IsNotFound(err) {
+						log.Error(err, fmt.Sprintf("Error getting new secret %s", secretName))
+						return reconcile.Result{}, err
+					}
+					// Secret doesn't exist - create new secret with annotation to mark it as copied by operator
+					newSecret.Name = secretName
+					newSecret.Namespace = operatorNs
+					newSecret.Data = userSecret.Data
+					newSecret.Type = userSecret.Type
+					if newSecret.Annotations == nil {
+						newSecret.Annotations = make(map[string]string)
+					}
+					newSecret.Annotations[copiedSecretAnnotation] = "true"
+
+					// Add ownerReference if retainResourcesOnCompletion is true
+					if instance.Spec.RetainResourcesOnCompletion {
+						newSecret.OwnerReferences = []metav1.OwnerReference{
+							*metav1.NewControllerRef(instance, instance.GroupVersionKind()),
+						}
+					}
+
+					err = r.GetClient().Create(ctx, newSecret)
+					if err != nil {
+						log.Error(err, fmt.Sprintf("Error creating new secret %s", secretName))
+						return reconcile.Result{}, err
+					}
+					log.Info(fmt.Sprintf("Copied secret %s from namespace %s to %s", secretName, instance.Namespace, operatorNs))
+				} else {
+					// Secret already exists in operator namespace - it may have been manually created
+					// Only manage ownerReference if the secret was previously copied by us AND retainResourcesOnCompletion is true
+					if newSecret.Annotations != nil && newSecret.Annotations[copiedSecretAnnotation] == "true" && instance.Spec.RetainResourcesOnCompletion {
+						// Add ownerReference if not already set
+						hasOwnerRef := false
+						for _, ref := range newSecret.OwnerReferences {
+							if ref.UID == instance.UID {
+								hasOwnerRef = true
+								break
+							}
+						}
+						if !hasOwnerRef {
+							newSecret.OwnerReferences = append(newSecret.OwnerReferences, *metav1.NewControllerRef(instance, instance.GroupVersionKind()))
+							err = r.GetClient().Update(ctx, newSecret)
+							if err != nil {
+								log.Error(err, fmt.Sprintf("Error updating secret %s", secretName))
+								return reconcile.Result{}, err
+							}
+						}
+					}
+					log.Info(fmt.Sprintf("Secret %s already exists in the %s namespace", secretName, operatorNs))
 				}
+			} else {
+				// Secret and CR are in the same namespace (operator namespace)
+				// Don't copy or manage the secret's lifecycle
+				log.Info(fmt.Sprintf("Secret %s is in the same namespace as the operator, no copy needed", secretName))
 			}
-			log.Info(fmt.Sprintf("Secret %s already exists in the %s namespace", secretName, operatorNs))
 		}
 
 		// job is not there, create it.
@@ -381,23 +426,35 @@ func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, r
 	reqLogger.Info("cleaning up resources")
 	var err error
 
-	// delete secret in the operator namespace
+	// delete secret in the operator namespace only if it was copied by the operator
 	if instance.Spec.UploadTarget != nil && instance.Spec.UploadTarget.SFTP != nil && instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name != "" {
 		tmpSecretName := instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name
-		tmpSecret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      tmpSecretName,
-				Namespace: operatorNs,
-			},
-		}
-
-		err = r.DeleteResourceIfExists(ctx, tmpSecret)
+		tmpSecret := &corev1.Secret{}
+		err = r.GetClient().Get(ctx, types.NamespacedName{
+			Namespace: operatorNs,
+			Name:      tmpSecretName,
+		}, tmpSecret)
 
 		if err != nil {
-			reqLogger.Error(err, fmt.Sprintf("failed to delete %s secret", tmpSecretName))
-			return err
+			if errors.IsNotFound(err) {
+				reqLogger.Info(fmt.Sprintf("secret %s not found, skipping deletion", tmpSecretName))
+			} else {
+				reqLogger.Error(err, fmt.Sprintf("failed to get secret %s", tmpSecretName))
+				return err
+			}
+		} else {
+			// Only delete the secret if it was copied by the operator
+			if tmpSecret.Annotations != nil && tmpSecret.Annotations[copiedSecretAnnotation] == "true" {
+				err = r.DeleteResourceIfExists(ctx, tmpSecret)
+				if err != nil {
+					reqLogger.Error(err, fmt.Sprintf("failed to delete %s secret", tmpSecretName))
+					return err
+				}
+				reqLogger.Info(fmt.Sprintf("successfully deleted copied secret %s", tmpSecretName))
+			} else {
+				reqLogger.Info(fmt.Sprintf("secret %s was not copied by operator, skipping deletion", tmpSecretName))
+			}
 		}
-		reqLogger.Info(fmt.Sprintf("successfully deleted secret %s", tmpSecretName))
 	}
 
 	// delete job from operator namespace
