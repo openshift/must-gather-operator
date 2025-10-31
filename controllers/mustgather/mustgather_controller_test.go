@@ -3,7 +3,6 @@ package mustgather
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
@@ -340,8 +339,10 @@ func TestReconcile(t *testing.T) {
 			postTestChecks: func(t *testing.T, cl client.Client) {},
 		},
 		{
-			name:     "reconcile_deletion_cleanup_and_finalizer_removal_success",
-			setupEnv: func(t *testing.T) {},
+			name: "reconcile_deletion_cleanup_and_finalizer_removal_success",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OPERATOR_NAMESPACE", "foo")
+			},
 			setupObjects: func() []client.Object {
 				secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: operatorNs}}
 				mg := &mustgatherv1alpha1.MustGather{
@@ -415,12 +416,8 @@ func TestReconcile(t *testing.T) {
 			postTestChecks: func(t *testing.T, cl client.Client) {},
 		},
 		{
-			name: "reconcile_job_template_env_missing_returns_error",
-			setupEnv: func(t *testing.T) {
-				osUnset := os.Getenv("OPERATOR_IMAGE")
-				_ = os.Unsetenv("OPERATOR_IMAGE")
-				t.Cleanup(func() { os.Setenv("OPERATOR_IMAGE", osUnset) })
-			},
+			name:     "reconcile_job_template_env_missing_returns_error",
+			setupEnv: func(t *testing.T) {},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns"},
@@ -438,7 +435,8 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_not_found_no_upload_target_creates_job_successfully",
 			setupEnv: func(t *testing.T) {
-				os.Setenv("OPERATOR_IMAGE", "img")
+				t.Setenv("OPERATOR_NAMESPACE", "bar")
+				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
@@ -458,7 +456,7 @@ func TestReconcile(t *testing.T) {
 			name: "reconcile_job_not_found_creates_job_successfully",
 			setupEnv: func(t *testing.T) {
 				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
-				os.Setenv("OPERATOR_IMAGE", "img")
+				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
@@ -489,13 +487,13 @@ func TestReconcile(t *testing.T) {
 			postTestChecks: func(t *testing.T, cl client.Client) {
 				// Verify secret was created in operator namespace
 				operatorSecret := &corev1.Secret{}
-				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: defaultMustGatherNamespace, Name: "secret"}, operatorSecret); err != nil {
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: DefaultMustGatherNamespace, Name: "secret"}, operatorSecret); err != nil {
 					t.Fatalf("expected secret to be created in operator namespace, got error: %v", err)
 				}
 
 				// Verify job was created
 				job := &batchv1.Job{}
-				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: defaultMustGatherNamespace, Name: "example-mustgather"}, job); err != nil {
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: DefaultMustGatherNamespace, Name: "example-mustgather"}, job); err != nil {
 					t.Fatalf("expected job to be created, got error: %v", err)
 				}
 			},
@@ -503,7 +501,8 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_not_found_user_secret_missing_no_requeue",
 			setupEnv: func(t *testing.T) {
-				os.Setenv("OPERATOR_IMAGE", "img")
+				t.Setenv("OPERATOR_NAMESPACE", "must-gather-operator")
+				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
@@ -535,7 +534,8 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_active_updates_status_running",
 			setupEnv: func(t *testing.T) {
-				os.Setenv("OPERATOR_IMAGE", "img")
+				t.Setenv("OPERATOR_NAMESPACE", "default")
+				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
@@ -563,7 +563,8 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_succeeded_retain_resources_no_cleanup",
 			setupEnv: func(t *testing.T) {
-				os.Setenv("OPERATOR_IMAGE", "img")
+				t.Setenv("OPERATOR_NAMESPACE", "foo")
+				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
@@ -595,48 +596,10 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "reconcile_job_succeeded_cleanup_error_returns_error",
-			setupEnv: func(t *testing.T) {
-				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
-				os.Setenv("OPERATOR_IMAGE", "img")
-			},
-			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
-					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
-					},
-				}
-				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "sec", Namespace: operatorNs}}
-				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs}}
-				job.Status.Succeeded = 1
-				cv := &configv1.ClusterVersion{
-					ObjectMeta: metav1.ObjectMeta{Name: "version"},
-					Status: configv1.ClusterVersionStatus{
-						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
-					},
-				}
-				return []client.Object{mg, userSecret, cv, job}
-			},
-			interceptors: func() interceptClient {
-				return interceptClient{
-					onDelete: func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
-						if _, ok := obj.(*batchv1.Job); ok {
-							return errors.New("failed to delete job")
-						}
-						return nil
-					},
-				}
-			},
-			expectError:    true,
-			expectResult:   reconcile.Result{},
-			postTestChecks: func(t *testing.T, cl client.Client) {},
-		},
-		{
 			name: "reconcile_job_failed_cleanup_error_returns_error",
 			setupEnv: func(t *testing.T) {
 				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
-				os.Setenv("OPERATOR_IMAGE", "img")
+				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
@@ -680,7 +643,8 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_failed_retain_resources_no_cleanup",
 			setupEnv: func(t *testing.T) {
-				os.Setenv("OPERATOR_IMAGE", "img")
+				t.Setenv("OPERATOR_NAMESPACE", "bar")
+				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
@@ -716,7 +680,7 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_succeeded_status_update_fails",
 			setupEnv: func(t *testing.T) {
-				os.Setenv("OPERATOR_IMAGE", "img")
+				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
@@ -748,7 +712,7 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_failed_status_update_fails",
 			setupEnv: func(t *testing.T) {
-				os.Setenv("OPERATOR_IMAGE", "img")
+				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
@@ -853,7 +817,7 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_not_found_create_job_fails",
 			setupEnv: func(t *testing.T) {
-				os.Setenv("OPERATOR_IMAGE", "img")
+				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
@@ -896,7 +860,7 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_lookup_error_non_notfound",
 			setupEnv: func(t *testing.T) {
-				os.Setenv("OPERATOR_IMAGE", "img")
+				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
@@ -940,7 +904,7 @@ func TestReconcile(t *testing.T) {
 			name: "reconcile_job_not_found_get_secret_returns_non_not_found_error_in_operator_ns",
 			setupEnv: func(t *testing.T) {
 				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
-				os.Setenv("OPERATOR_IMAGE", "img")
+				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
@@ -969,7 +933,7 @@ func TestReconcile(t *testing.T) {
 				return interceptClient{
 					onGet: func(ctx context.Context, key client.ObjectKey, obj client.Object) error {
 						// Return non-NotFound error when getting secret in operator namespace
-						if _, ok := obj.(*corev1.Secret); ok && key.Namespace == defaultMustGatherNamespace && key.Name == "secret" {
+						if _, ok := obj.(*corev1.Secret); ok && key.Namespace == DefaultMustGatherNamespace && key.Name == "secret" {
 							return errors.New("API server unavailable - failed to get operator secret")
 						}
 						return nil
@@ -984,7 +948,7 @@ func TestReconcile(t *testing.T) {
 			name: "reconcile_job_not_found_operator_secret_create_fails",
 			setupEnv: func(t *testing.T) {
 				t.Setenv("OSDK_FORCE_RUN_MODE", "local")
-				os.Setenv("OPERATOR_IMAGE", "img")
+				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{

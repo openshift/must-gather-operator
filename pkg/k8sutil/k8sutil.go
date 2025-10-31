@@ -23,6 +23,10 @@ const (
 	// OperatorNameEnvVar is the constant for env variable OPERATOR_NAME
 	// which is the name of the current operator
 	OperatorNameEnvVar = "OPERATOR_NAME"
+
+	// OperatorNamespaceEnvVar is the constant for env variable
+	// OPERATOR_NAMESPACE, which indicates the namespace of the operator
+	OperatorNamespaceEnvVar = "OPERATOR_NAMESPACE"
 )
 
 // ErrNoNamespace indicates that a namespace could not be found for the current
@@ -39,6 +43,12 @@ func isRunModeLocal() bool {
 
 // GetOperatorNamespace returns the namespace the operator should be running in.
 func GetOperatorNamespace() (string, error) {
+	// OPERATOR_NAMESPACE has highest priority
+	operatorNamespace, found := os.LookupEnv(OperatorNamespaceEnvVar)
+	if found {
+		return operatorNamespace, nil
+	}
+
 	if isRunModeLocal() {
 		return "", ErrRunLocal
 	}
