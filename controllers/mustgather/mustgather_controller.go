@@ -26,13 +26,11 @@ import (
 	"github.com/go-logr/logr"
 	configv1 "github.com/openshift/api/config/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
-	"github.com/openshift/must-gather-operator/pkg/k8sutil"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
 	"github.com/redhat-cop/operator-utils/pkg/util"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -108,19 +106,6 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		return reconcile.Result{}, nil
 	}
 
-	// get operator namespace to manage resources in
-	operatorNs, err := k8sutil.GetOperatorNamespace()
-	if err != nil {
-		if err != k8sutil.ErrRunLocal {
-			log.Error(err, "Failed to get operator namespace")
-			return reconcile.Result{}, err
-		}
-
-		// when OSDK_FORCE_RUN_MODE is local, use default namespace
-		operatorNs = DefaultMustGatherNamespace
-		log.Info(fmt.Sprintf("falling back to using operator namespace: %s", operatorNs))
-	}
-
 	// Check if the MustGather instance is marked to be deleted, which is
 	// indicated by the deletion timestamp being set.
 	isMustGatherMarkedToBeDeleted := instance.GetDeletionTimestamp() != nil
@@ -134,7 +119,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			// Clean up resources if RetainResourcesOnCompletion is false (default behavior)
 			if !instance.Spec.RetainResourcesOnCompletion {
 				reqLogger.V(4).Info("running finalization logic for mustGatherFinalizer")
-				err := r.cleanupMustGatherResources(ctx, reqLogger, instance, operatorNs)
+				err := r.cleanupMustGatherResources(ctx, reqLogger, instance)
 				if err != nil {
 					reqLogger.Error(err, "failed to cleanup MustGather resources during deletion")
 					return reconcile.Result{}, err
@@ -181,7 +166,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			return r.ManageError(ctx, instance, err)
 		}
 
-		// look up user secret and copy it to operator namespace
+		// look up user secret
 		if instance.Spec.UploadTarget != nil && instance.Spec.UploadTarget.SFTP != nil && instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name != "" {
 			secretName := instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name
 			userSecret := &corev1.Secret{}
@@ -197,33 +182,10 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 				log.Error(err, fmt.Sprintf("Error getting secret (%s)", secretName))
 				return reconcile.Result{Requeue: true}, err
 			}
-
-			// copy secret in the operator namespace
-			newSecret := &corev1.Secret{}
-			err = r.GetClient().Get(ctx, types.NamespacedName{
-				Namespace: operatorNs,
-				Name:      secretName,
-			}, newSecret)
-			if err != nil {
-				if !errors.IsNotFound(err) {
-					log.Error(err, fmt.Sprintf("Error getting new secret %s", secretName))
-					return reconcile.Result{}, err
-				}
-				newSecret.Name = secretName
-				newSecret.Namespace = operatorNs
-				newSecret.Data = userSecret.Data
-				newSecret.Type = userSecret.Type
-				err = r.GetClient().Create(ctx, newSecret)
-				if err != nil {
-					log.Error(err, fmt.Sprintf("Error creating new secret %s", secretName))
-					return reconcile.Result{}, err
-				}
-			}
-			log.Info(fmt.Sprintf("Secret %s already exists in the %s namespace", secretName, operatorNs))
 		}
 
 		// job is not there, create it.
-		err = r.CreateResourceIfNotExists(ctx, instance, operatorNs, job)
+		err = r.CreateResourceIfNotExists(ctx, instance, instance.Namespace, job)
 		if err != nil {
 			log.Error(err, "unable to create", "job", job)
 			return r.ManageError(ctx, instance, err)
@@ -253,7 +215,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 			// Clean up resources if RetainResourcesOnCompletion is false (default behavior)
 			if !instance.Spec.RetainResourcesOnCompletion {
-				err := r.cleanupMustGatherResources(ctx, reqLogger, instance, operatorNs)
+				err := r.cleanupMustGatherResources(ctx, reqLogger, instance)
 				if err != nil {
 					reqLogger.Error(err, "failed to cleanup MustGather resources")
 					return r.ManageError(ctx, instance, err)
@@ -281,7 +243,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 			// Clean up resources if RetainResourcesOnCompletion is false (default behavior)
 			if !instance.Spec.RetainResourcesOnCompletion {
-				err := r.cleanupMustGatherResources(ctx, reqLogger, instance, operatorNs)
+				err := r.cleanupMustGatherResources(ctx, reqLogger, instance)
 				if err != nil {
 					reqLogger.Error(err, "failed to cleanup MustGather resources")
 					return r.ManageError(ctx, instance, err)
@@ -384,33 +346,14 @@ func remove(list []string, s string) []string {
 }
 
 // cleanupMustGatherResources cleans up the secret, job, and pods associated with a MustGather instance
-func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather, operatorNs string) error {
+func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather) error {
 	reqLogger.Info("cleaning up resources")
 	var err error
 
-	// delete secret in the operator namespace
-	if instance.Spec.UploadTarget != nil && instance.Spec.UploadTarget.SFTP != nil && instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name != "" {
-		tmpSecretName := instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name
-		tmpSecret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      tmpSecretName,
-				Namespace: operatorNs,
-			},
-		}
-
-		err = r.DeleteResourceIfExists(ctx, tmpSecret)
-
-		if err != nil {
-			reqLogger.Error(err, fmt.Sprintf("failed to delete %s secret", tmpSecretName))
-			return err
-		}
-		reqLogger.Info(fmt.Sprintf("successfully deleted secret %s", tmpSecretName))
-	}
-
-	// delete job from operator namespace
+	// delete job from instance namespace
 	tmpJob := &batchv1.Job{}
 	err = r.GetClient().Get(ctx, types.NamespacedName{
-		Namespace: operatorNs,
+		Namespace: instance.Namespace,
 		Name:      instance.Name,
 	}, tmpJob)
 
@@ -427,12 +370,12 @@ func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, r
 	// delete pods owned by job
 	podList := &corev1.PodList{}
 	listOpts := []client.ListOption{
-		client.InNamespace(operatorNs),
+		client.InNamespace(instance.Namespace),
 		client.MatchingLabels{"controller-uid": string(tmpJob.UID)},
 	}
 
 	if err = r.GetClient().List(ctx, podList, listOpts...); err != nil {
-		reqLogger.Error(err, "failed to list pods", "Namespace", operatorNs, "UID", tmpJob.UID)
+		reqLogger.Error(err, "failed to list pods", "Namespace", instance.Namespace, "UID", tmpJob.UID)
 		return err
 	}
 
