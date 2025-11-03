@@ -293,7 +293,7 @@ func Test_getJobTemplate_FallbackWhenOnlyNoProxyProvidedInCR(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
 		Spec: mustgatherv1alpha1.MustGatherSpec{
 			ServiceAccountRef: v1.LocalObjectReference{Name: "sa"},
-			ProxyConfig: mustgatherv1alpha1.ProxySpec{
+			ProxyConfig: &mustgatherv1alpha1.ProxySpec{
 				NoProxy: "cr-no-proxy",
 			},
 			UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
@@ -335,7 +335,7 @@ func Test_getJobTemplate_NoFallbackWhenHttpAndHttpsProvidedInCR(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
 		Spec: mustgatherv1alpha1.MustGatherSpec{
 			ServiceAccountRef: v1.LocalObjectReference{Name: "sa"},
-			ProxyConfig: mustgatherv1alpha1.ProxySpec{
+			ProxyConfig: &mustgatherv1alpha1.ProxySpec{
 				HTTPProxy:  "http://cr-http:8080",
 				HTTPSProxy: "https://cr-https:8443",
 				// NoProxy intentionally empty
@@ -379,7 +379,7 @@ func Test_getJobTemplate_NoFallbackIfHttpsProvidedButHttpMissing(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
 		Spec: mustgatherv1alpha1.MustGatherSpec{
 			ServiceAccountRef: v1.LocalObjectReference{Name: "sa"},
-			ProxyConfig: mustgatherv1alpha1.ProxySpec{
+			ProxyConfig: &mustgatherv1alpha1.ProxySpec{
 				HTTPSProxy: "https://cr-https:8443",
 				// HTTPProxy empty to ensure fallback condition is false
 			},

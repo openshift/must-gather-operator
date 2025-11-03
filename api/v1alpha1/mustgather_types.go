@@ -38,14 +38,14 @@ type MustGatherSpec struct {
 
 	// This represents the proxy configuration to be used. If left empty it will default to the cluster-level proxy configuration.
 	// +kubebuilder:validation:Optional
-	ProxyConfig ProxySpec `json:"proxyConfig,omitempty"`
+	ProxyConfig *ProxySpec `json:"proxyConfig,omitempty"`
 
 	// A time limit for gather command to complete a floating point number with a suffix:
 	// "s" for seconds, "m" for minutes, "h" for hours, or "d" for days.
 	// Will default to no time limit.
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:validation:Format=duration
-	MustGatherTimeout metav1.Duration `json:"mustGatherTimeout,omitempty"`
+	MustGatherTimeout *metav1.Duration `json:"mustGatherTimeout,omitempty"`
 
 	// The target location for the must-gather bundle to be uploaded to.
 	// If not specified, the bundle will not be uploaded.
