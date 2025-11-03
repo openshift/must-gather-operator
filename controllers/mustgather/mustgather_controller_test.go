@@ -301,8 +301,10 @@ func TestReconcile(t *testing.T) {
 			postTestChecks: func(t *testing.T, cl client.Client) {},
 		},
 		{
-			name:     "reconcile_initialize_mustgather_update_succeeds",
-			setupEnv: func(t *testing.T) {},
+			name: "reconcile_initialize_mustgather_update_succeeds",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OPERATOR_IMAGE", "img")
+			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns"}}
 				return []client.Object{mg}
@@ -1157,9 +1159,7 @@ func createMustGatherObject() *mustgatherv1alpha1.MustGather {
 			Namespace: "openshift-must-gather-operator",
 		},
 		Spec: mustgatherv1alpha1.MustGatherSpec{
-			ServiceAccountRef: corev1.LocalObjectReference{
-				Name: "",
-			},
+			ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
 		},
 	}
 }
@@ -1201,7 +1201,6 @@ func createMustGatherSecretObject() *corev1.Secret {
 func generateFakeClient(objs ...runtime.Object) (client.Client, *runtime.Scheme) {
 	s := scheme.Scheme
 	s.AddKnownTypes(mustgatherv1alpha1.GroupVersion, &mustgatherv1alpha1.MustGather{})
-	s.AddKnownTypes(configv1.GroupVersion, &configv1.ClusterVersion{})
-	cl := fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(objs...).Build()
+	cl := fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(objs...).WithStatusSubresource(&mustgatherv1alpha1.MustGather{}).Build()
 	return cl, s
 }

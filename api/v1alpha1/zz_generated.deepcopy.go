@@ -72,8 +72,16 @@ func (in *MustGatherList) DeepCopyObject() runtime.Object {
 func (in *MustGatherSpec) DeepCopyInto(out *MustGatherSpec) {
 	*out = *in
 	out.ServiceAccountRef = in.ServiceAccountRef
-	out.ProxyConfig = in.ProxyConfig
-	out.MustGatherTimeout = in.MustGatherTimeout
+	if in.ProxyConfig != nil {
+		in, out := &in.ProxyConfig, &out.ProxyConfig
+		*out = new(ProxySpec)
+		**out = **in
+	}
+	if in.MustGatherTimeout != nil {
+		in, out := &in.MustGatherTimeout, &out.MustGatherTimeout
+		*out = new(v1.Duration)
+		**out = **in
+	}
 	if in.UploadTarget != nil {
 		in, out := &in.UploadTarget, &out.UploadTarget
 		*out = new(UploadTargetSpec)

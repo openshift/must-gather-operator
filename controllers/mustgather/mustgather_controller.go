@@ -21,10 +21,8 @@ import (
 	goerror "errors"
 	"fmt"
 	"os"
-	"reflect"
 
 	"github.com/go-logr/logr"
-	configv1 "github.com/openshift/api/config/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
 	"github.com/redhat-cop/operator-utils/pkg/util"
@@ -95,15 +93,6 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		}
 		// Error reading the object - requeue the request.
 		return reconcile.Result{}, err
-	}
-
-	if !r.IsInitialized(ctx, instance) {
-		err := r.GetClient().Update(ctx, instance)
-		if err != nil {
-			log.Error(err, "unable to update instance", "instance", instance)
-			return r.ManageError(ctx, instance, err)
-		}
-		return reconcile.Result{}, nil
 	}
 
 	// Check if the MustGather instance is marked to be deleted, which is
@@ -273,30 +262,6 @@ func (r *MustGatherReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&mustgatherv1alpha1.MustGather{}, builder.WithPredicates(resourceGenerationOrFinalizerChangedPredicate())).
 		Owns(&batchv1.Job{}, builder.WithPredicates(isStateUpdated())).
 		Complete(r)
-}
-
-func (r *MustGatherReconciler) IsInitialized(ctx context.Context, instance *mustgatherv1alpha1.MustGather) bool {
-	initialized := true
-
-	if instance.Spec.ServiceAccountRef.Name == "" {
-		instance.Spec.ServiceAccountRef.Name = "default"
-		initialized = false
-	}
-	if reflect.DeepEqual(instance.Spec.ProxyConfig, configv1.ProxySpec{}) {
-		platformProxy := &configv1.Proxy{}
-		err := r.GetClient().Get(ctx, types.NamespacedName{Name: "cluster"}, platformProxy)
-		if err != nil {
-			log.Error(err, "unable to find cluster proxy configuration")
-		} else {
-			instance.Spec.ProxyConfig = mustgatherv1alpha1.ProxySpec{
-				HTTPProxy:  platformProxy.Spec.HTTPProxy,
-				HTTPSProxy: platformProxy.Spec.HTTPSProxy,
-				NoProxy:    platformProxy.Spec.NoProxy,
-			}
-			initialized = false
-		}
-	}
-	return initialized
 }
 
 // addFinalizer is a function that adds a finalizer for the MustGather CR
