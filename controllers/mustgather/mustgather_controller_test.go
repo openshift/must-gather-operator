@@ -528,7 +528,7 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_not_found_user_secret_get_error_returns_requeue",
 			setupEnv: func(t *testing.T) {
-				os.Setenv("OPERATOR_IMAGE", "img")
+				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
