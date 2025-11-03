@@ -274,6 +274,9 @@ spec:
             - completed
             type: object
         type: object
+        x-kubernetes-validations:
+        - message: must-gather spec is immutable
+          rule: '!has(oldSelf.spec) || self.spec == oldSelf.spec'
     served: true
     storage: true
     subresources:
