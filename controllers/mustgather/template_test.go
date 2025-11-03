@@ -107,6 +107,11 @@ func Test_getGatherContainer(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:            "robust timeout",
+			timeout:         6*time.Hour + 5*time.Minute + 3*time.Second, // 6h5m3s
+			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
