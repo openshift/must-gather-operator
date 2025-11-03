@@ -2,6 +2,7 @@ package mustgather
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -191,7 +192,7 @@ func getGatherContainer(audit bool, timeout time.Duration, storage *v1alpha1.Sto
 		Command: []string{
 			"/bin/bash",
 			"-c",
-			fmt.Sprintf(gatherCommand, timeout, commandBinary),
+			fmt.Sprintf(gatherCommand, math.Ceil(timeout.Seconds()), commandBinary),
 		},
 		Image: strings.TrimSpace(os.Getenv(defaultMustGatherImageEnv)),
 		Name:  gatherContainerName,
