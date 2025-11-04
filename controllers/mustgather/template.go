@@ -52,16 +52,18 @@ const (
 )
 
 func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batchv1.Job {
-	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, mustGather.Spec.ServiceAccountRef.Name, mustGather.Spec.Storage)
+	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, mustGather.Spec.ServiceAccountName, mustGather.Spec.Storage)
 
 	var httpProxy, httpsProxy, noProxy string
 
 	// Check if proxy configuration is provided in the CR
-	if mustGather.Spec.ProxyConfig.HTTPProxy != "" || mustGather.Spec.ProxyConfig.HTTPSProxy != "" || mustGather.Spec.ProxyConfig.NoProxy != "" {
-		// Use proxy configuration from CR
-		httpProxy = mustGather.Spec.ProxyConfig.HTTPProxy
-		httpsProxy = mustGather.Spec.ProxyConfig.HTTPSProxy
-		noProxy = mustGather.Spec.ProxyConfig.NoProxy
+	if mustGather.Spec.ProxyConfig != nil {
+		if mustGather.Spec.ProxyConfig.HTTPProxy != "" || mustGather.Spec.ProxyConfig.HTTPSProxy != "" || mustGather.Spec.ProxyConfig.NoProxy != "" {
+			// Use proxy configuration from CR
+			httpProxy = mustGather.Spec.ProxyConfig.HTTPProxy
+			httpsProxy = mustGather.Spec.ProxyConfig.HTTPSProxy
+			noProxy = mustGather.Spec.ProxyConfig.NoProxy
+		}
 	}
 
 	// Fallback to operator's environment proxy variables only if not provided in the CR
@@ -80,9 +82,19 @@ func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batch
 		}
 	}
 
+	audit := false
+	if mustGather.Spec.Audit != nil {
+		audit = *mustGather.Spec.Audit
+	}
+
+	timeout := time.Duration(0)
+	if mustGather.Spec.MustGatherTimeout != nil {
+		timeout = mustGather.Spec.MustGatherTimeout.Duration
+	}
+
 	job.Spec.Template.Spec.Containers = append(
 		job.Spec.Template.Spec.Containers,
-		getGatherContainer(mustGather.Spec.Audit, mustGather.Spec.MustGatherTimeout.Duration, mustGather.Spec.Storage),
+		getGatherContainer(audit, timeout, mustGather.Spec.Storage),
 	)
 
 	// Add the upload container only if the upload target is specified
