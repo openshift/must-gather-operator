@@ -106,7 +106,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			// that we can retry during the next reconciliation.
 
 			// Clean up resources if RetainResourcesOnCompletion is false (default behavior)
-			if !instance.Spec.RetainResourcesOnCompletion {
+			if instance.Spec.RetainResourcesOnCompletion == nil || !*instance.Spec.RetainResourcesOnCompletion {
 				reqLogger.V(4).Info("running finalization logic for mustGatherFinalizer")
 				err := r.cleanupMustGatherResources(ctx, reqLogger, instance)
 				if err != nil {
@@ -203,7 +203,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			}
 
 			// Clean up resources if RetainResourcesOnCompletion is false (default behavior)
-			if !instance.Spec.RetainResourcesOnCompletion {
+			if instance.Spec.RetainResourcesOnCompletion == nil || !*instance.Spec.RetainResourcesOnCompletion {
 				err := r.cleanupMustGatherResources(ctx, reqLogger, instance)
 				if err != nil {
 					reqLogger.Error(err, "failed to cleanup MustGather resources")
@@ -231,7 +231,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			}
 
 			// Clean up resources if RetainResourcesOnCompletion is false (default behavior)
-			if !instance.Spec.RetainResourcesOnCompletion {
+			if instance.Spec.RetainResourcesOnCompletion == nil || !*instance.Spec.RetainResourcesOnCompletion {
 				err := r.cleanupMustGatherResources(ctx, reqLogger, instance)
 				if err != nil {
 					reqLogger.Error(err, "failed to cleanup MustGather resources")

@@ -28,20 +28,20 @@ import (
 type MustGatherSpec struct {
 	// the service account to use to run the must gather job pod, defaults to default
 	// +kubebuilder:validation:Optional
-	/* +kubebuilder:default:="{Name:default}" */
-	ServiceAccountRef corev1.LocalObjectReference `json:"serviceAccountRef,omitempty"`
+	// +kubebuilder:default:="default"
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 
 	// A flag to specify if audit logs must be collected
 	// See documentation for further information.
 	// +kubebuilder:default:=false
-	Audit bool `json:"audit,omitempty"`
+	Audit *bool `json:"audit,omitempty"`
 
 	// This represents the proxy configuration to be used. If left empty it will default to the cluster-level proxy configuration.
 	// +kubebuilder:validation:Optional
 	ProxyConfig *ProxySpec `json:"proxyConfig,omitempty"`
 
 	// A time limit for gather command to complete a floating point number with a suffix:
-	// "s" for seconds, "m" for minutes, "h" for hours, or "d" for days.
+	// "s" for seconds, "m" for minutes, "h" for hours.
 	// Will default to no time limit.
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:validation:Format=duration
@@ -55,7 +55,7 @@ type MustGatherSpec struct {
 	// A flag to specify if resources (secret, job, pods) should be retained when the MustGather completes.
 	// If set to true, resources will be retained. If false or not set, resources will be deleted (default behavior).
 	// +kubebuilder:default:=false
-	RetainResourcesOnCompletion bool `json:"retainResourcesOnCompletion,omitempty"`
+	RetainResourcesOnCompletion *bool `json:"retainResourcesOnCompletion,omitempty"`
 
 	// The storage configuration for persisting the collected must-gather tar archive.
 	// If not specified, an ephemeral volume is used which will not persist
@@ -189,7 +189,7 @@ func (m *MustGather) SetConditions(conditions []metav1.Condition) {
 //+kubebuilder:subresource:status
 
 // MustGather is the Schema for the mustgathers API
-// +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec) || self.spec == oldSelf.spec",message="must-gather spec is immutable"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec) || self.spec == oldSelf.spec",message="spec values are immutable once set"
 type MustGather struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

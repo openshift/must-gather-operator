@@ -52,7 +52,7 @@ const (
 )
 
 func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batchv1.Job {
-	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, mustGather.Spec.ServiceAccountRef.Name, mustGather.Spec.Storage)
+	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, mustGather.Spec.ServiceAccountName, mustGather.Spec.Storage)
 
 	var httpProxy, httpsProxy, noProxy string
 
@@ -82,6 +82,11 @@ func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batch
 		}
 	}
 
+	audit := false
+	if mustGather.Spec.Audit != nil {
+		audit = *mustGather.Spec.Audit
+	}
+
 	timeout := time.Duration(0)
 	if mustGather.Spec.MustGatherTimeout != nil {
 		timeout = mustGather.Spec.MustGatherTimeout.Duration
@@ -89,7 +94,7 @@ func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batch
 
 	job.Spec.Template.Spec.Containers = append(
 		job.Spec.Template.Spec.Containers,
-		getGatherContainer(mustGather.Spec.Audit, timeout, mustGather.Spec.Storage),
+		getGatherContainer(audit, timeout, mustGather.Spec.Storage),
 	)
 
 	// Add the upload container only if the upload target is specified

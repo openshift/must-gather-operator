@@ -348,7 +348,7 @@ func TestReconcile(t *testing.T) {
 						DeletionTimestamp: &metav1.Time{Time: time.Now()},
 					},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
+						ServiceAccountName: "default",
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -383,7 +383,7 @@ func TestReconcile(t *testing.T) {
 						DeletionTimestamp: &metav1.Time{Time: time.Now()},
 					},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
+						ServiceAccountName: "default",
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -417,7 +417,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns"},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
+						ServiceAccountName: "default",
 					},
 				}
 				return []client.Object{mg}
@@ -436,7 +436,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
+						ServiceAccountName: "default",
 					},
 				}
 				return []client.Object{mg}
@@ -455,7 +455,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
+						ServiceAccountName: "default",
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -494,7 +494,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
+						ServiceAccountName: "default",
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -536,7 +536,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
+						ServiceAccountName: "default",
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -584,7 +584,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
+						ServiceAccountName: "default",
 					},
 				}
 				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "sec", Namespace: "ns"}}
@@ -612,8 +612,8 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef:           corev1.LocalObjectReference{Name: "default"},
-						RetainResourcesOnCompletion: true,
+						ServiceAccountName:          "default",
+						RetainResourcesOnCompletion: ToPtr(true),
 					},
 				}
 				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "sec", Namespace: operatorNs}}
@@ -646,7 +646,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
+						ServiceAccountName: "default",
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -691,8 +691,8 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef:           corev1.LocalObjectReference{Name: "default"},
-						RetainResourcesOnCompletion: true,
+						ServiceAccountName:          "default",
+						RetainResourcesOnCompletion: ToPtr(true),
 					},
 				}
 				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns"}}
@@ -727,7 +727,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
+						ServiceAccountName: "default",
 					},
 				}
 				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "sec", Namespace: operatorNs}}
@@ -759,7 +759,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
+						ServiceAccountName: "default",
 					},
 				}
 				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "sec", Namespace: operatorNs}}
@@ -795,7 +795,7 @@ func TestReconcile(t *testing.T) {
 						DeletionTimestamp: &metav1.Time{Time: time.Now()},
 					},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
+						ServiceAccountName: "default",
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -833,7 +833,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns"},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"}, // Pre-initialized to skip IsInitialized update
+						ServiceAccountName: "default", // Pre-initialized to skip IsInitialized update
 					},
 				}
 				return []client.Object{mg}
@@ -864,7 +864,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
+						ServiceAccountName: "default",
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -907,7 +907,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
+						ServiceAccountName: "default",
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -950,7 +950,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
+						ServiceAccountName: "default",
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -1158,9 +1158,7 @@ func createMustGatherObject() *mustgatherv1alpha1.MustGather {
 			Name:      "example-mustgather",
 			Namespace: "openshift-must-gather-operator",
 		},
-		Spec: mustgatherv1alpha1.MustGatherSpec{
-			ServiceAccountRef: corev1.LocalObjectReference{Name: "default"},
-		},
+		Spec: mustgatherv1alpha1.MustGatherSpec{},
 	}
 }
 

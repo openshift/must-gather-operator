@@ -48,7 +48,7 @@ spec:
               mustGatherTimeout:
                 description: |-
                   A time limit for gather command to complete a floating point number with a suffix:
-                  "s" for seconds, "m" for minutes, "h" for hours, or "d" for days.
+                  "s" for seconds, "m" for minutes, "h" for hours.
                   Will default to no time limit.
                 format: duration
                 type: string
@@ -77,22 +77,11 @@ spec:
                   A flag to specify if resources (secret, job, pods) should be retained when the MustGather completes.
                   If set to true, resources will be retained. If false or not set, resources will be deleted (default behavior).
                 type: boolean
-              serviceAccountRef:
-                description: |-
-                  the service account to use to run the must gather job pod, defaults to default
-                  +kubebuilder:default:="{Name:default}"
-                properties:
-                  name:
-                    default: ""
-                    description: |-
-                      Name of the referent.
-                      This field is effectively required, but due to backwards compatibility is
-                      allowed to be empty. Instances of this type with an empty value here are
-                      almost certainly wrong.
-                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                    type: string
-                type: object
-                x-kubernetes-map-type: atomic
+              serviceAccountName:
+                default: default
+                description: the service account to use to run the must gather job
+                  pod, defaults to default
+                type: string
               storage:
                 description: |-
                   The storage configuration for persisting the collected must-gather tar archive.
@@ -275,7 +264,7 @@ spec:
             type: object
         type: object
         x-kubernetes-validations:
-        - message: must-gather spec is immutable
+        - message: spec values are immutable once set
           rule: '!has(oldSelf.spec) || self.spec == oldSelf.spec'
     served: true
     storage: true
