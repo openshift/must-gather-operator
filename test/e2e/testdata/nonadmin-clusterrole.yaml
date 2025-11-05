@@ -1,0 +1,26 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: must-gather-nonadmin-clusterrole
+  labels:
+    test: non-admin-must-gather-e2e
+rules:
+  - apiGroups: ["operator.openshift.io"]
+    resources: ["mustgathers"]
+    verbs: ["*"]
+  - apiGroups: ["operator.openshift.io"]
+    resources: ["mustgathers/status"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list"]
+
