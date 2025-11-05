@@ -25,6 +25,9 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // MustGatherSpec defines the desired state of MustGather
+// +kubebuilder:validation:XValidation:rule="self.mustGatherImage != 'acm_hcp' || (has(self.hostedClusterOptions.hostedClusterNamespace) && has(self.hostedClusterOptions.hostedClusterName))",message="hostedClusterNamespace and hostedClusterName are required when mustGatherImage is 'acm_hcp'"
+// +kubebuilder:validation:XValidation:rule="self.mustGatherImage != 'acm_hcp' || !self.audit",message="audit must be false when mustGatherImage is 'acm_hcp'"
+// +kubebuilder:validation:XValidation:rule="self.mustGatherImage == 'acm_hcp' || (!has(self.hostedClusterOptions.hostedClusterNamespace) && !has(self.hostedClusterOptions.hostedClusterName))",message="hosted cluster fields are only valid when mustGatherImage is 'acm_hcp'"
 type MustGatherSpec struct {
 	// the service account to use to run the must gather job pod, defaults to default
 	// +kubebuilder:validation:Optional
@@ -62,6 +65,30 @@ type MustGatherSpec struct {
 	// the tar archive on the cluster.
 	// +optional
 	Storage *Storage `json:"storage,omitempty"`
+	// The image to use for the must-gather pods.
+	// This can currently only be one of two values:
+	// 'default' for most cases including OCP and Managed OpenShift, which will use quay.io/openshift/must-gather
+	// 'acm_hcp' for HCP must gathers, which will use registry.redhat.io/multicluster-engine/must-gather-rhel9:v2.8
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Enum={"default","acm_hcp"}
+	// +kubebuilder:default:=default
+	MustGatherImage string `json:"mustGatherImage,omitempty"`
+
+	// The options for running must-gather on a hosted cluster.
+	// +kubebuilder:validation:Optional
+	HostedClusterOptions *HostedClusterOptions `json:"hostedClusterOptions,omitempty"`
+}
+
+type HostedClusterOptions struct {
+	// The namespace of the hosted cluster to collect the must-gather for.
+	// This field is required if mustGatherImage='acm_hcp'.
+	// +kubebuilder:validation:Required
+	HostedClusterNamespace string `json:"hostedClusterNamespace"`
+
+	// The name of the hosted cluster to collect the must-gather for.
+	// This field is required if mustGatherImage='acm_hcp'.
+	// +kubebuilder:validation:Required
+	HostedClusterName string `json:"hostedClusterName"`
 }
 
 // SFTPSpec defines the desired state of SFTPSpec
