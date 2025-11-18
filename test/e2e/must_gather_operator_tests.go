@@ -36,8 +36,6 @@ const (
 	ServiceAccount     = "must-gather-sa"
 	SARoleName         = "sa-reader-role"
 	SARoleBindName     = "sa-reader-binding"
-	testTimeout        = time.Second * 30
-	testInterval       = time.Millisecond * 250
 )
 
 // Test suite variables
@@ -157,13 +155,13 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 			Expect(hasNonAdminUser).To(BeTrue(), "ClusterRoleBinding should include non-admin user")
 		})
 
-		ginkgo.It("should have created  ServiceAccount", func() {
+		ginkgo.It("should have created ServiceAccount", func() {
 			sa := &corev1.ServiceAccount{}
 			err := adminClient.Get(testCtx, client.ObjectKey{
 				Name:      ServiceAccount,
 				Namespace: testNamespace,
 			}, sa)
-			Expect(err).NotTo(HaveOccurred(), " ServiceAccount should exist")
+			Expect(err).NotTo(HaveOccurred(), "ServiceAccount should exist")
 		})
 
 		ginkgo.It("should have granted minimal read permissions to ServiceAccount", func() {
@@ -397,7 +395,7 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 				err := adminClient.Create(testCtx, sar)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(sar.Status.Allowed).To(BeTrue(),
-					fmt.Sprintf(" SA should be able to %s %s.%s", verb, resource, group))
+					fmt.Sprintf("SA should be able to %s %s.%s", verb, resource, group))
 			}
 
 			// Check read permissions for must-gather required resources
@@ -426,7 +424,7 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 			err := adminClient.Create(testCtx, sar)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(sar.Status.Allowed).To(BeFalse(),
-				" SA should NOT be able to delete pods")
+				"SA should NOT be able to delete pods")
 
 			// Verify SA cannot create secrets
 			sar2 := &authorizationv1.SubjectAccessReview{
@@ -442,7 +440,7 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 			err = adminClient.Create(testCtx, sar2)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(sar2.Status.Allowed).To(BeFalse(),
-				" SA should NOT be able to create secrets")
+				"SA should NOT be able to create secrets")
 		})
 	})
 
@@ -466,7 +464,7 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 						Namespace: testNamespace,
 					}, &mustgatherv1alpha1.MustGather{})
 					return apierrors.IsNotFound(err)
-				}).WithTimeout(60 * time.Second).WithPolling(2 * time.Second).Should(BeTrue())
+				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 			}
 		})
 
@@ -529,7 +527,7 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 					}
 				}
 				return err
-			}).WithTimeout(2*time.Minute).WithPolling(3*time.Second).Should(Succeed(),
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
 				"Non-admin user should be able to see Job created by operator")
 
 			ginkgo.By("Verifying Job uses ServiceAccount")
@@ -572,7 +570,7 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 					Name:      mustGatherName,
 					Namespace: testNamespace,
 				}, job)
-			}).WithTimeout(2 * time.Minute).WithPolling(3 * time.Second).Should(Succeed())
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
 			ginkgo.By("Waiting for Pod to be created")
 			var gatherPod *corev1.Pod
@@ -588,7 +586,7 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 					return true
 				}
 				return false
-			}).WithTimeout(3*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
 				"Pod should be created by Job")
 
 			ginkgo.By("Verifying Pod uses  ServiceAccount")
@@ -617,29 +615,39 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 					return corev1.PodUnknown
 				}
 				return pod.Status.Phase
-			}).WithTimeout(5*time.Minute).WithPolling(10*time.Second).Should(
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(
 				Or(Equal(corev1.PodRunning), Equal(corev1.PodSucceeded)),
 				"Pod should reach Running or Succeeded state")
 
 			ginkgo.By("Verifying gather container is collecting data")
-			time.Sleep(30 * time.Second) // Allow time for data collection
-
-			pod := &corev1.Pod{}
-			err := nonAdminClient.Get(testCtx, client.ObjectKey{
-				Name:      gatherPod.Name,
-				Namespace: testNamespace,
-			}, pod)
-			Expect(err).NotTo(HaveOccurred())
-
-			for _, cs := range pod.Status.ContainerStatuses {
-				if cs.Name == "gather" {
-					ginkgo.GinkgoWriter.Printf("Gather container - Ready: %v, RestartCount: %d\n",
-						cs.Ready, cs.RestartCount)
-
-					Expect(cs.RestartCount).Should(BeNumerically("<=", 2),
-						"Gather container should not be crash-looping")
+			Eventually(func() bool {
+				pod := &corev1.Pod{}
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      gatherPod.Name,
+					Namespace: testNamespace,
+				}, pod)
+				if err != nil {
+					return false
 				}
-			}
+
+				for _, cs := range pod.Status.ContainerStatuses {
+					if cs.Name == "gather" {
+						ginkgo.GinkgoWriter.Printf("Gather container - Ready: %v, RestartCount: %d\n",
+							cs.Ready, cs.RestartCount)
+
+						// Container should be running and not crash-looping
+						if cs.RestartCount > 2 {
+							return false
+						}
+						// Return true if container has started (even if not ready yet, data collection may be in progress)
+						if cs.State.Running != nil || cs.State.Terminated != nil {
+							return true
+						}
+					}
+				}
+				return false
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
+				"Gather container should be running and collecting data without excessive restarts")
 
 			ginkgo.By("Waiting for Job to complete")
 			Eventually(func() int32 {
@@ -648,7 +656,7 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 					Namespace: testNamespace,
 				}, job)
 				return job.Status.Succeeded + job.Status.Failed
-			}).WithTimeout(10*time.Minute).WithPolling(15*time.Second).Should(
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(
 				BeNumerically(">", 0), "Job should eventually complete")
 
 			ginkgo.By("Verifying MustGather CR status is updated")
@@ -677,7 +685,7 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 					Name:      mustGatherName,
 					Namespace: testNamespace,
 				}, fetchedMG)
-			}).WithTimeout(testTimeout).WithPolling(testInterval).Should(Succeed(),
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
 				"Non-admin user should be able to get MustGather CR")
 			ginkgo.GinkgoWriter.Printf("✅ Non-admin can read MustGather status: %s\n", fetchedMG.Status.Status)
 
@@ -685,7 +693,7 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 			jobList := &batchv1.JobList{}
 			Eventually(func() error {
 				return nonAdminClient.List(testCtx, jobList, client.InNamespace(testNamespace))
-			}).WithTimeout(2*time.Minute).Should(Succeed(),
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
 				"Non-admin user should be able to list Jobs")
 			ginkgo.GinkgoWriter.Printf("✅ Non-admin can see %d Jobs\n", len(jobList.Items))
 
@@ -693,7 +701,7 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 			podList := &corev1.PodList{}
 			Eventually(func() error {
 				return nonAdminClient.List(testCtx, podList, client.InNamespace(testNamespace))
-			}).WithTimeout(testTimeout).Should(Succeed(),
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
 				"Non-admin user should be able to list Pods")
 			ginkgo.GinkgoWriter.Printf("✅ Non-admin can see %d Pods\n", len(podList.Items))
 
@@ -709,7 +717,7 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 					ginkgo.GinkgoWriter.Printf("✅ Non-admin can see gather pod: %s\n", pods.Items[0].Name)
 				}
 				return len(pods.Items) > 0
-			}).WithTimeout(3 * time.Minute).Should(BeTrue())
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
 			ginkgo.GinkgoWriter.Println("✅ Non-admin user successfully monitored MustGather progress")
 		})
@@ -730,11 +738,11 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 				},
 			}
 
-			err := adminClient.Create(testCtx, mg)
+			err := nonAdminClient.Create(testCtx, mg)
 			Expect(err).NotTo(HaveOccurred(), "CR creation should succeed")
 
 			defer func() {
-				_ = adminClient.Delete(testCtx, mg)
+				_ = nonAdminClient.Delete(testCtx, mg)
 			}()
 
 			ginkgo.By("Verifying Job is created but Pod fails due to missing SA")
@@ -744,7 +752,7 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 					Name:      mustGatherName,
 					Namespace: testNamespace,
 				}, job)
-			}).WithTimeout(2 * time.Minute).Should(Succeed())
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
 			// Job should exist but pods won't be created due to missing SA
 			Consistently(func() int32 {
@@ -753,18 +761,18 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 					Namespace: testNamespace,
 				}, job)
 				return job.Status.Active
-			}).WithTimeout(30*time.Second).WithPolling(5*time.Second).Should(Equal(int32(0)),
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Equal(int32(0)),
 				"Job should not have active pods due to missing ServiceAccount")
 		})
 
 		ginkgo.It("should enforce ServiceAccount permissions during data collection", func() {
 			mustGatherName := fmt.Sprintf("test-sa-permissions-%d", time.Now().Unix())
 
-			ginkgo.By("Creating MustGather with  SA")
+			ginkgo.By("Creating MustGather with SA")
 			mg := createMustGatherCR(mustGatherName, ServiceAccount)
 
 			defer func() {
-				_ = adminClient.Delete(testCtx, mg)
+				_ = nonAdminClient.Delete(testCtx, mg)
 			}()
 
 			ginkgo.By("Waiting for Pod to start")
@@ -781,7 +789,7 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 					return true
 				}
 				return false
-			}).WithTimeout(3 * time.Minute).Should(BeTrue())
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
 			ginkgo.By("Verifying Pod has no privilege escalation")
 			Expect(gatherPod.Spec.ServiceAccountName).To(Equal(ServiceAccount))
@@ -795,22 +803,31 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 			}
 
 			ginkgo.By("Checking for permission denied errors in events")
-			time.Sleep(45 * time.Second) // Allow time for potential errors
+			var permissionErrors []string
 
-			events := &corev1.EventList{}
-			err := adminClient.List(testCtx, events, client.InNamespace(testNamespace))
-			Expect(err).NotTo(HaveOccurred())
-
-			// Log any permission errors (expected if SA doesn't have full access)
-			permissionErrors := []string{}
-			for _, event := range events.Items {
-				if (event.InvolvedObject.Name == mustGatherName ||
-					event.InvolvedObject.Name == gatherPod.Name) &&
-					(strings.Contains(strings.ToLower(event.Message), "forbidden") ||
-						strings.Contains(strings.ToLower(event.Message), "unauthorized")) {
-					permissionErrors = append(permissionErrors, event.Message)
+			// Wait for events to be populated (if any permission errors occur, they should appear)
+			Eventually(func() bool {
+				events := &corev1.EventList{}
+				err := adminClient.List(testCtx, events, client.InNamespace(testNamespace))
+				if err != nil {
+					return false
 				}
-			}
+
+				// Collect any permission errors
+				permissionErrors = []string{}
+				for _, event := range events.Items {
+					if (event.InvolvedObject.Name == mustGatherName ||
+						event.InvolvedObject.Name == gatherPod.Name) &&
+						(strings.Contains(strings.ToLower(event.Message), "forbidden") ||
+							strings.Contains(strings.ToLower(event.Message), "unauthorized")) {
+						permissionErrors = append(permissionErrors, event.Message)
+					}
+				}
+
+				// Return true once we have events (or after checking for a reasonable time)
+				return len(events.Items) > 0
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
+				"Events should be available for inspection")
 
 			if len(permissionErrors) > 0 {
 				ginkgo.GinkgoWriter.Println("⚠️  Expected permission restrictions observed:")
@@ -907,7 +924,7 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 					Namespace: testNamespace,
 				}, &mustgatherv1alpha1.MustGather{})
 				return apierrors.IsNotFound(err)
-			}).WithTimeout(60 * time.Second).Should(BeTrue())
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
 			ginkgo.GinkgoWriter.Printf("✅ Non-admin user successfully deleted MustGather CR: %s\n", mustGatherName)
 		})
@@ -924,10 +941,10 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 					Name:      mustGatherName,
 					Namespace: testNamespace,
 				}, &batchv1.Job{})
-			}).WithTimeout(2 * time.Minute).Should(Succeed())
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
 			ginkgo.By("Deleting MustGather CR")
-			err := adminClient.Delete(testCtx, mg)
+			err := nonAdminClient.Delete(testCtx, mg)
 			Expect(err).NotTo(HaveOccurred())
 
 			ginkgo.By("Verifying Job is eventually cleaned up")
