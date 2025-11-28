@@ -54,6 +54,8 @@ type MustGatherReconciler struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
 	util.ReconcilerBase
+	// TrustedCAConfigMap is the name of the ConfigMap containing the trusted CA certificate bundle
+	TrustedCAConfigMap string
 }
 
 const mustGatherFinalizer = "finalizer.mustgathers.operator.openshift.io"
@@ -287,7 +289,7 @@ func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, instance 
 		return nil, err
 	}
 
-	return getJobTemplate(operatorImage, *instance), nil
+	return getJobTemplate(operatorImage, *instance, r.TrustedCAConfigMap), nil
 }
 
 // contains is a helper function for finalizer

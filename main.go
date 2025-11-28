@@ -89,11 +89,14 @@ func main() {
 	// var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
+	var trustedCAConfigMapName string
 	// flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.StringVar(&trustedCAConfigMapName, "trusted-ca-configmap", os.Getenv("TRUSTED_CA_CONFIGMAP_NAME"),
+		"Name of the ConfigMap containing the trusted CA certificate bundle")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -135,7 +138,8 @@ func main() {
 	}
 
 	if err = (&mustgather.MustGatherReconciler{
-		ReconcilerBase: util.NewReconcilerBase(mgr.GetClient(), mgr.GetScheme(), mgr.GetConfig(), mgr.GetEventRecorderFor("must-gather-controller"), mgr.GetAPIReader()),
+		ReconcilerBase:     util.NewReconcilerBase(mgr.GetClient(), mgr.GetScheme(), mgr.GetConfig(), mgr.GetEventRecorderFor("must-gather-controller"), mgr.GetAPIReader()),
+		TrustedCAConfigMap: trustedCAConfigMapName,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MustGather")
 		os.Exit(1)
