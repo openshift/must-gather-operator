@@ -45,7 +45,7 @@ func Test_initializeJobTemplate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			job := initializeJobTemplate(testName, testNamespace, testServiceAccountRef, tt.storage)
+			job := initializeJobTemplate(testName, testNamespace, testServiceAccountRef, tt.storage, "")
 
 			if got := job.Name; got != testName {
 				t.Fatalf("job name from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testName)
@@ -118,7 +118,7 @@ func Test_getGatherContainer(t *testing.T) {
 			t.Setenv(defaultMustGatherImageEnv, tt.mustGatherImage)
 			expectedImage := tt.mustGatherImage
 
-			container := getGatherContainer(tt.audit, tt.timeout, tt.storage)
+			container := getGatherContainer(tt.audit, tt.timeout, tt.storage, "")
 
 			containerCommand := container.Command[2]
 			if tt.audit && !strings.Contains(containerCommand, gatherCommandBinaryAudit) {
@@ -212,7 +212,7 @@ func Test_getUploadContainer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testFailed := false
-			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.host, tt.internalUser, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName)
+			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.host, tt.internalUser, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName, "")
 
 			if container.Image != tt.operatorImage {
 				t.Fatalf("expected container image %v but got %v", tt.operatorImage, container.Image)
@@ -307,7 +307,7 @@ func Test_getJobTemplate_FallbackWhenOnlyNoProxyProvidedInCR(t *testing.T) {
 		},
 	}
 
-	job := getJobTemplate("img", mg)
+	job := getJobTemplate("img", mg, "")
 	upload := findUploadContainerInJob(t, job)
 	got := envValues(upload)
 
@@ -352,7 +352,7 @@ func Test_getJobTemplate_NoFallbackWhenHttpAndHttpsProvidedInCR(t *testing.T) {
 		},
 	}
 
-	job := getJobTemplate("img", mg)
+	job := getJobTemplate("img", mg, "")
 	upload := findUploadContainerInJob(t, job)
 	got := envValues(upload)
 
@@ -396,7 +396,7 @@ func Test_getJobTemplate_NoFallbackIfHttpsProvidedButHttpMissing(t *testing.T) {
 		},
 	}
 
-	job := getJobTemplate("img", mg)
+	job := getJobTemplate("img", mg, "")
 	upload := findUploadContainerInJob(t, job)
 	got := envValues(upload)
 
