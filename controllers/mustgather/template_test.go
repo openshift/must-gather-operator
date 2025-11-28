@@ -12,6 +12,14 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
+const (
+	// well-known dir for ca certificates to be mounted in a container,
+	// canonical to `trustedCAMountPath`, de-coupled for test.
+	wellKnownCADirForTest = "/etc/pki/tls/certs"
+	// canonical to `outputVolumeName`, de-coupled for test.
+	knownStorageVolumeMountNameForTest = "must-gather-output"
+)
+
 func Test_initializeJobTemplate(t *testing.T) {
 	testName := "testName"
 	testNamespace := "testNamespace"
@@ -20,8 +28,9 @@ func Test_initializeJobTemplate(t *testing.T) {
 	pvcSubPath := "test-path"
 
 	tests := []struct {
-		name    string
-		storage *mustgatherv1alpha1.Storage
+		name        string
+		storage     *mustgatherv1alpha1.Storage
+		caConfigMap string
 	}{
 		{
 			name: "Without PVC",
@@ -38,11 +47,15 @@ func Test_initializeJobTemplate(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:        "With CA config map",
+			caConfigMap: "trusted-ca-cert-001",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			job := initializeJobTemplate(testName, testNamespace, testServiceAccountRef, tt.storage)
+			job := initializeJobTemplate(testName, testNamespace, testServiceAccountRef, tt.storage, tt.caConfigMap)
 
 			if got := job.Name; got != testName {
 				t.Fatalf("job name from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testName)
@@ -56,17 +69,36 @@ func Test_initializeJobTemplate(t *testing.T) {
 				t.Fatalf("job service account name from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testServiceAccountRef)
 			}
 
-			if tt.storage != nil {
-				if len(job.Spec.Template.Spec.Volumes) == 0 {
-					t.Fatalf("expected at least one volume to be present")
+			if (tt.storage != nil || tt.caConfigMap != "") && len(job.Spec.Template.Spec.Volumes) == 0 {
+				t.Fatalf("expected at least one volume to be present")
+			}
+
+			foundStorageVolume := false
+			foundCAVolume := false
+			for _, v := range job.Spec.Template.Spec.Volumes {
+				if v.Name == knownStorageVolumeMountNameForTest {
+					foundStorageVolume = true
+
+					if tt.storage != nil && v.PersistentVolumeClaim.ClaimName != tt.storage.PersistentVolume.Claim.Name {
+						t.Fatalf("pvc claim name from initializeJobTemplate() was not correctly set. got %v, wanted %v", v.PersistentVolumeClaim.ClaimName, tt.storage.PersistentVolume.Claim.Name)
+					}
 				}
-				volume := job.Spec.Template.Spec.Volumes[0]
-				if volume.Name != outputVolumeName {
-					t.Fatalf("volume name from initializeJobTemplate() was not correctly set. got %v, wanted %v", volume.Name, outputVolumeName)
+
+				if v.ConfigMap != nil && v.ConfigMap.Name == tt.caConfigMap {
+					foundCAVolume = true
+
+					if v.ConfigMap.Name != tt.caConfigMap {
+						t.Fatalf("config map CA from initializeJobTemplate() was not correctly set. got %v, wanted %v", v.ConfigMap.Name, tt.caConfigMap)
+					}
 				}
-				if volume.PersistentVolumeClaim.ClaimName != pvcClaimName {
-					t.Fatalf("pvc claim name from initializeJobTemplate() was not correctly set. got %v, wanted %v", volume.PersistentVolumeClaim.ClaimName, pvcClaimName)
-				}
+			}
+
+			if tt.storage != nil && !foundStorageVolume {
+				t.Fatalf("expected volumeMount for storage was not found got %v", job.Spec.Template.Spec.Volumes)
+			}
+
+			if tt.caConfigMap != "" && !foundCAVolume {
+				t.Fatalf("expected volumeMount for CA was not found got %v", job.Spec.Template.Spec.Volumes)
 			}
 		})
 	}
@@ -115,7 +147,7 @@ func Test_getGatherContainer(t *testing.T) {
 			t.Setenv(defaultMustGatherImageEnv, tt.mustGatherImage)
 			expectedImage := tt.mustGatherImage
 
-			container := getGatherContainer(tt.audit, tt.timeout, tt.storage)
+			container := getGatherContainer(tt.audit, tt.timeout, tt.storage, "")
 
 			containerCommand := container.Command[2]
 			if tt.audit && !strings.Contains(containerCommand, gatherCommandBinaryAudit) {
@@ -159,6 +191,7 @@ func Test_getUploadContainer(t *testing.T) {
 		httpProxy        string
 		httpsProxy       string
 		noProxy          string
+		mountCAConfigMap bool
 		secretKeyRefName v1.LocalObjectReference
 	}{
 		{
@@ -205,14 +238,36 @@ func Test_getUploadContainer(t *testing.T) {
 			httpsProxy:       "testHttpsProxy",
 			secretKeyRefName: v1.LocalObjectReference{Name: "testSecretKeyRefName"},
 		},
+		{
+			name:             "With trusted CA config map",
+			operatorImage:    "testImage",
+			caseId:           "1234",
+			httpProxy:        "testHttpProxy",
+			httpsProxy:       "testHttpsProxy",
+			secretKeyRefName: v1.LocalObjectReference{Name: "testSecretKeyRefName"},
+			mountCAConfigMap: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testFailed := false
-			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.host, tt.internalUser, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName)
+			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.host, tt.internalUser, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName, tt.mountCAConfigMap)
 
 			if container.Image != tt.operatorImage {
 				t.Fatalf("expected container image %v but got %v", tt.operatorImage, container.Image)
+			}
+
+			if tt.mountCAConfigMap {
+				mountedCAExists := false
+				for _, vm := range container.VolumeMounts {
+					if vm.MountPath == wellKnownCADirForTest {
+						mountedCAExists = true
+					}
+				}
+
+				if !mountedCAExists {
+					t.Fatalf("expected a CA cert volumeMount in upload container")
+				}
 			}
 
 			for _, env := range container.Env {
