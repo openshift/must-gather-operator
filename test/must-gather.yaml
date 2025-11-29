@@ -4,8 +4,7 @@ metadata:
   name: example-mustgather
 spec:
   # Add fields here
-  serviceAccountRef:
-    name: must-gather-admin
+  serviceAccountName: must-gather-admin
   uploadTarget:
     type: SFTP
     sftp:

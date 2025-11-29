@@ -18,7 +18,7 @@ import (
 func Test_initializeJobTemplate(t *testing.T) {
 	testName := "testName"
 	testNamespace := "testNamespace"
-	testServiceAccountRef := "testServiceAccountRef"
+	testServiceAccountName := "testServiceAccountName"
 	pvcClaimName := "test-pvc"
 	pvcSubPath := "test-path"
 
@@ -45,7 +45,7 @@ func Test_initializeJobTemplate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			job := initializeJobTemplate(testName, testNamespace, testServiceAccountRef, tt.storage)
+			job := initializeJobTemplate(testName, testNamespace, testServiceAccountName, tt.storage)
 
 			if got := job.Name; got != testName {
 				t.Fatalf("job name from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testName)
@@ -55,8 +55,8 @@ func Test_initializeJobTemplate(t *testing.T) {
 				t.Fatalf("job namespace from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testNamespace)
 			}
 
-			if got := job.Spec.Template.Spec.ServiceAccountName; got != testServiceAccountRef {
-				t.Fatalf("job service account name from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testServiceAccountRef)
+			if got := job.Spec.Template.Spec.ServiceAccountName; got != testServiceAccountName {
+				t.Fatalf("job service account name from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testServiceAccountName)
 			}
 
 			if tt.storage != nil {

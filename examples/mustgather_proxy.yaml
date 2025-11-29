@@ -3,8 +3,7 @@ kind: MustGather
 metadata:
   name: example-mustgather-proxy
 spec:
-  serviceAccountRef:
-    name: must-gather-admin
+  serviceAccountName: must-gather-admin
   uploadTarget:
     type: SFTP
     sftp:
