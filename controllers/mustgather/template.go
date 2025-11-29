@@ -120,7 +120,7 @@ func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batch
 	return job
 }
 
-func initializeJobTemplate(name string, namespace string, serviceAccountRef string, storage *v1alpha1.Storage) *batchv1.Job {
+func initializeJobTemplate(name string, namespace string, serviceAccountName string, storage *v1alpha1.Storage) *batchv1.Job {
 	outputVolume := corev1.Volume{
 		Name:         outputVolumeName,
 		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
@@ -176,7 +176,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 							VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 						},
 					},
-					ServiceAccountName: serviceAccountRef,
+					ServiceAccountName: serviceAccountName,
 				},
 			},
 		},

@@ -9,11 +9,13 @@ kind: MustGather
 metadata:
   name: example-mustgather-basic
 spec:
-  caseID: '02527285'
-  caseManagementAccountSecretRef:
-    name: case-management-creds
-  serviceAccountRef:
-    name: must-gather-admin
+  serviceAccountName: must-gather-admin
+  uploadTarget:
+    type: SFTP
+    sftp:
+      caseID: '02527285'
+      caseManagementAccountSecretRef:
+        name: case-management-creds
 ```
 
 This request will collect the standard must-gather info and upload it to case `#02527285` using the credentials found in the `caseManagementCreds` secret.
@@ -27,11 +29,13 @@ kind: MustGather
 metadata:
   name: example-mustgather-full
 spec:
-  caseID: '02527285'
-  caseManagementAccountSecretRef:
-    name: case-management-creds
-  serviceAccountRef:
-    name: must-gather-admin
+  serviceAccountName: must-gather-admin
+  uploadTarget:
+    type: SFTP
+    sftp:
+      caseID: '02527285'
+      caseManagementAccountSecretRef:
+        name: case-management-creds
   audit: true
 ```
 
@@ -45,11 +49,13 @@ kind: MustGather
 metadata:
   name: example-mustgather-proxy
 spec:
-  caseID: '02527285'
-  caseManagementAccountSecretRef:
-    name: case-management-creds
-  serviceAccountRef:
-    name: must-gather-admin
+  serviceAccountName: must-gather-admin
+  uploadTarget:
+    type: SFTP
+    sftp:
+      caseID: '02527285'
+      caseManagementAccountSecretRef:
+        name: case-management-creds
   proxyConfig:
     httpProxy: http://myproxy
     httpsProxy: https://my_http_proxy
