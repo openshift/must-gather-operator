@@ -12,16 +12,25 @@ import (
 )
 
 const (
-	testResultsDirectory = "./test-run-results"
-	jUnitOutputFilename  = "junit-must-gather-operator.xml"
+	jUnitOutputFilename = "junit-must-gather-operator.xml"
 )
+
+func getTestDir() string {
+	// test is running in an OpenShift CI Prow job
+	if os.Getenv("OPENSHIFT_CI") == "true" {
+		return os.Getenv("ARTIFACT_DIR")
+	}
+	// not running in a CI job
+	return "/tmp"
+}
 
 // TestMustGatherOperator is the test entrypoint for e2e tests.
 func TestMustGatherOperator(t *testing.T) {
 	RegisterFailHandler(Fail)
+	testDir := getTestDir()
 	suiteConfig, reporterConfig := GinkgoConfiguration()
 	if _, ok := os.LookupEnv("DISABLE_JUNIT_REPORT"); !ok {
-		reporterConfig.JUnitReport = filepath.Join(testResultsDirectory, jUnitOutputFilename)
+		reporterConfig.JUnitReport = filepath.Join(testDir, jUnitOutputFilename)
 	}
 	RunSpecs(t, "Must Gather Operator", suiteConfig, reporterConfig)
 }

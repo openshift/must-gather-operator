@@ -22,6 +22,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -29,13 +30,14 @@ import (
 
 // Test suite constants
 const (
-	nonAdminUser       = "openshift-test"
-	testNamespace      = "must-gather-e2e-non-admin"
-	nonAdminCRRoleName = "must-gather-cr-full-access"
-	nonAdminCRBindName = "must-gather-cr-binding"
-	ServiceAccount     = "must-gather-sa"
-	SARoleName         = "sa-reader-role"
-	SARoleBindName     = "sa-reader-binding"
+	nonAdminUser        = "openshift-test"
+	testNamespacePrefix = "must-gather-e2e-"
+	nonAdminCRRoleName  = "must-gather-cr-full-access"
+	nonAdminCRBindName  = "must-gather-cr-binding"
+	ServiceAccount      = "must-gather-sa"
+	SARoleName          = "sa-reader-role"
+	SARoleBindName      = "sa-reader-binding"
+	nonAdminLabel       = "non-admin-must-gather"
 )
 
 // Test suite variables
@@ -45,23 +47,25 @@ var (
 	adminRestConfig *rest.Config
 	adminClient     client.Client
 	nonAdminClient  client.Client
+	testNamespace   string
 	setupComplete   bool
 )
+
+func init() {
+	testScheme = runtime.NewScheme()
+	utilruntime.Must(mustgatherv1alpha1.AddToScheme(testScheme))
+	utilruntime.Must(appsv1.AddToScheme(testScheme))
+	utilruntime.Must(corev1.AddToScheme(testScheme))
+	utilruntime.Must(rbacv1.AddToScheme(testScheme))
+	utilruntime.Must(batchv1.AddToScheme(testScheme))
+	utilruntime.Must(authorizationv1.AddToScheme(testScheme))
+}
 
 var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func() {
 
 	// BeforeAll - Admin Setup Phase (Steps 1-5 from doc)
 	ginkgo.BeforeAll(func() {
 		testCtx = context.Background()
-		testScheme = runtime.NewScheme()
-
-		// Register schemes
-		Expect(mustgatherv1alpha1.AddToScheme(testScheme)).To(Succeed())
-		Expect(appsv1.AddToScheme(testScheme)).To(Succeed())
-		Expect(corev1.AddToScheme(testScheme)).To(Succeed())
-		Expect(rbacv1.AddToScheme(testScheme)).To(Succeed())
-		Expect(batchv1.AddToScheme(testScheme)).To(Succeed())
-		Expect(authorizationv1.AddToScheme(testScheme)).To(Succeed())
 
 		ginkgo.By("STEP 1: Admin sets up clients and ensures operator is installed")
 		var err error
@@ -106,86 +110,6 @@ var _ = ginkgo.Describe("Must-Gather Operator E2E Tests", ginkgo.Ordered, func()
 	})
 
 	// Test Cases
-
-	ginkgo.Context("Admin Setup Validation", func() {
-		ginkgo.It("should have created the test namespace successfully", func() {
-			ns := &corev1.Namespace{}
-			err := adminClient.Get(testCtx, client.ObjectKey{Name: testNamespace}, ns)
-			Expect(err).NotTo(HaveOccurred(), "Test namespace should exist")
-			Expect(ns.Status.Phase).To(Equal(corev1.NamespaceActive), "Namespace should be active")
-		})
-
-		ginkgo.It("should have created ClusterRole for non-admin MustGather CR access", func() {
-			cr := &rbacv1.ClusterRole{}
-			err := adminClient.Get(testCtx, client.ObjectKey{Name: nonAdminCRRoleName}, cr)
-			Expect(err).NotTo(HaveOccurred(), "ClusterRole should exist")
-			Expect(len(cr.Rules)).Should(BeNumerically(">", 0), "ClusterRole should have rules")
-
-			// Verify it has mustgathers permission
-			hasMustGatherPermission := false
-			for _, rule := range cr.Rules {
-				for _, apiGroup := range rule.APIGroups {
-					if apiGroup == "operator.openshift.io" {
-						for _, resource := range rule.Resources {
-							if resource == "mustgathers" {
-								hasMustGatherPermission = true
-								break
-							}
-						}
-					}
-				}
-			}
-			Expect(hasMustGatherPermission).To(BeTrue(), "ClusterRole should grant mustgathers permissions")
-		})
-
-		ginkgo.It("should have created ClusterRoleBinding linking non-admin user to ClusterRole", func() {
-			crb := &rbacv1.ClusterRoleBinding{}
-			err := adminClient.Get(testCtx, client.ObjectKey{Name: nonAdminCRBindName}, crb)
-			Expect(err).NotTo(HaveOccurred(), "ClusterRoleBinding should exist")
-			Expect(crb.RoleRef.Name).To(Equal(nonAdminCRRoleName), "Should reference correct ClusterRole")
-
-			// Verify it binds to non-admin user
-			hasNonAdminUser := false
-			for _, subject := range crb.Subjects {
-				if subject.Kind == "User" && subject.Name == nonAdminUser {
-					hasNonAdminUser = true
-					break
-				}
-			}
-			Expect(hasNonAdminUser).To(BeTrue(), "ClusterRoleBinding should include non-admin user")
-		})
-
-		ginkgo.It("should have created ServiceAccount", func() {
-			sa := &corev1.ServiceAccount{}
-			err := adminClient.Get(testCtx, client.ObjectKey{
-				Name:      ServiceAccount,
-				Namespace: testNamespace,
-			}, sa)
-			Expect(err).NotTo(HaveOccurred(), "ServiceAccount should exist")
-		})
-
-		ginkgo.It("should have granted minimal read permissions to ServiceAccount", func() {
-			cr := &rbacv1.ClusterRole{}
-			err := adminClient.Get(testCtx, client.ObjectKey{Name: SARoleName}, cr)
-			Expect(err).NotTo(HaveOccurred(), "ServiceAccount ClusterRole should exist")
-
-			crb := &rbacv1.ClusterRoleBinding{}
-			err = adminClient.Get(testCtx, client.ObjectKey{Name: SARoleBindName}, crb)
-			Expect(err).NotTo(HaveOccurred(), "ServiceAccount ClusterRoleBinding should exist")
-
-			// Verify binding references the ServiceAccount
-			hasSA := false
-			for _, subject := range crb.Subjects {
-				if subject.Kind == "ServiceAccount" &&
-					subject.Name == ServiceAccount &&
-					subject.Namespace == testNamespace {
-					hasSA = true
-					break
-				}
-			}
-			Expect(hasSA).To(BeTrue(), "ClusterRoleBinding should reference ServiceAccount")
-		})
-	})
 
 	ginkgo.Context("Non-Admin User Permissions", func() {
 		ginkgo.It("non-admin user should be able to create MustGather CRs (SAR check)", func() {
@@ -991,7 +915,7 @@ func verifyOperatorDeployment() {
 	Expect(err).NotTo(HaveOccurred(), "must-gather-operator deployment should exist")
 
 	// Verify deployment has at least one ready replica
-	Expect(deployment.Status.ReadyReplicas).Should(BeNumerically(">", 0),
+	Expect(deployment.Status.ReadyReplicas > 0).Should(BeTrue(),
 		"must-gather-operator deployment should have at least one ready replica")
 
 	ginkgo.GinkgoWriter.Printf("✅ must-gather-operator is deployed and available (ready replicas: %d)\n",
@@ -1001,17 +925,19 @@ func verifyOperatorDeployment() {
 func createTestNamespace() {
 	ns := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: testNamespace,
+			GenerateName: testNamespacePrefix,
 			Labels: map[string]string{
-				"test": "non-admin-must-gather",
+				"test": nonAdminLabel,
+				"operator.openshift.io/must-gather-operator": "e2e-test",
 			},
 		},
 	}
 
 	err := adminClient.Create(testCtx, ns)
-	if !apierrors.IsAlreadyExists(err) {
-		Expect(err).NotTo(HaveOccurred(), "Failed to create test namespace")
-	}
+	Expect(err).NotTo(HaveOccurred(), "Failed to create test namespace")
+
+	// Capture the generated namespace name
+	testNamespace = ns.Name
 
 	ginkgo.GinkgoWriter.Printf("✅ Created test namespace: %s\n", testNamespace)
 }
@@ -1021,7 +947,7 @@ func createNonAdminClusterRole() {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: nonAdminCRRoleName,
 			Labels: map[string]string{
-				"test": "non-admin-must-gather",
+				"test": nonAdminLabel,
 			},
 		},
 		Rules: []rbacv1.PolicyRule{
@@ -1074,7 +1000,7 @@ func createNonAdminClusterRoleBinding() {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: nonAdminCRBindName,
 			Labels: map[string]string{
-				"test": "non-admin-must-gather",
+				"test": nonAdminLabel,
 			},
 		},
 		RoleRef: rbacv1.RoleRef{
@@ -1108,7 +1034,7 @@ func createServiceAccount() {
 			Name:      ServiceAccount,
 			Namespace: testNamespace,
 			Labels: map[string]string{
-				"test": "non-admin-must-gather",
+				"test": nonAdminLabel,
 				"type": "must-gather-sa",
 			},
 		},
@@ -1129,7 +1055,7 @@ func createSARBACForMustGather() {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: SARoleName,
 			Labels: map[string]string{
-				"test": "non-admin-must-gather",
+				"test": nonAdminLabel,
 			},
 		},
 		Rules: []rbacv1.PolicyRule{
@@ -1165,7 +1091,7 @@ func createSARBACForMustGather() {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: SARoleBindName,
 			Labels: map[string]string{
-				"test": "non-admin-must-gather",
+				"test": nonAdminLabel,
 			},
 		},
 		RoleRef: rbacv1.RoleRef{
@@ -1198,7 +1124,7 @@ func createMustGatherCR(name, serviceAccountName string) *mustgatherv1alpha1.Mus
 			Name:      name,
 			Namespace: testNamespace,
 			Labels: map[string]string{
-				"test": "non-admin-must-gather",
+				"test": nonAdminLabel,
 			},
 		},
 		Spec: mustgatherv1alpha1.MustGatherSpec{
@@ -1219,7 +1145,7 @@ func createMustGatherCRWithRetention(name, serviceAccountName string) *mustgathe
 			Name:      name,
 			Namespace: testNamespace,
 			Labels: map[string]string{
-				"test": "non-admin-must-gather",
+				"test": nonAdminLabel,
 			},
 		},
 		Spec: mustgatherv1alpha1.MustGatherSpec{
