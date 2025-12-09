@@ -36,10 +36,6 @@ type MustGatherSpec struct {
 	// +kubebuilder:default:=false
 	Audit *bool `json:"audit,omitempty"`
 
-	// This represents the proxy configuration to be used. If left empty it will default to the cluster-level proxy configuration.
-	// +kubebuilder:validation:Optional
-	ProxyConfig *ProxySpec `json:"proxyConfig,omitempty"`
-
 	// A time limit for gather command to complete a floating point number with a suffix:
 	// "s" for seconds, "m" for minutes, "h" for hours.
 	// Will default to no time limit.
@@ -151,21 +147,6 @@ type PersistentVolumeClaimReference struct {
 	// +kubebuilder:validation:XValidation:rule="!format.dns1123Subdomain().validate(self).hasValue()",message="a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character."
 	// +required
 	Name string `json:"name"`
-}
-
-// +k8s:openapi-gen=true
-type ProxySpec struct {
-	// httpProxy is the URL of the proxy for HTTP requests.
-	// +kubebuilder:validation:Required
-	HTTPProxy string `json:"httpProxy"`
-
-	// httpsProxy is the URL of the proxy for HTTPS requests.
-	// +kubebuilder:validation:Required
-	HTTPSProxy string `json:"httpsProxy"`
-
-	// noProxy is the list of domains for which the proxy should not be used.  Empty means unset and will not result in an env var.
-	// +optional
-	NoProxy string `json:"noProxy,omitempty"`
 }
 
 // MustGatherStatus defines the observed state of MustGather

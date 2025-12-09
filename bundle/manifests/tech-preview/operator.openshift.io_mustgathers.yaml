@@ -52,25 +52,6 @@ spec:
                   Will default to no time limit.
                 format: duration
                 type: string
-              proxyConfig:
-                description: This represents the proxy configuration to be used. If
-                  left empty it will default to the cluster-level proxy configuration.
-                properties:
-                  httpProxy:
-                    description: httpProxy is the URL of the proxy for HTTP requests.
-                    type: string
-                  httpsProxy:
-                    description: httpsProxy is the URL of the proxy for HTTPS requests.
-                    type: string
-                  noProxy:
-                    description: noProxy is the list of domains for which the proxy
-                      should not be used.  Empty means unset and will not result in
-                      an env var.
-                    type: string
-                required:
-                - httpProxy
-                - httpsProxy
-                type: object
               retainResourcesOnCompletion:
                 default: false
                 description: |-
