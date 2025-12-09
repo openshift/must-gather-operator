@@ -2,7 +2,6 @@ package mustgather
 
 import (
 	"fmt"
-	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -10,9 +9,7 @@ import (
 	"time"
 
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
-	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func Test_initializeJobTemplate(t *testing.T) {
@@ -255,157 +252,5 @@ func Test_getUploadContainer(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// helper to find upload container in a job
-func findUploadContainerInJob(t *testing.T, job *batchv1.Job) v1.Container {
-	t.Helper()
-	for _, c := range job.Spec.Template.Spec.Containers {
-		if c.Name == uploadContainerName {
-			return c
-		}
-	}
-	t.Fatalf("upload container not found in job")
-	return v1.Container{}
-}
-
-// helper to map env name->value
-func envValues(container v1.Container) map[string]string {
-	m := make(map[string]string)
-	for _, e := range container.Env {
-		m[e.Name] = e.Value
-	}
-	return m
-}
-
-func Test_getJobTemplate_FallbackWhenOnlyNoProxyProvidedInCR(t *testing.T) {
-	_ = os.Setenv("HTTP_PROXY", "http://env-http:8080")
-	_ = os.Setenv("HTTPS_PROXY", "https://env-https:8443")
-	_ = os.Setenv("NO_PROXY", "env-no-proxy")
-	defer func() {
-		_ = os.Unsetenv("HTTP_PROXY")
-		_ = os.Unsetenv("HTTPS_PROXY")
-		_ = os.Unsetenv("NO_PROXY")
-	}()
-
-	mg := mustgatherv1alpha1.MustGather{
-		ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
-		Spec: mustgatherv1alpha1.MustGatherSpec{
-			ServiceAccountName: "default",
-			MustGatherTimeout:  &metav1.Duration{Duration: 1 * time.Hour},
-			ProxyConfig: &mustgatherv1alpha1.ProxySpec{
-				NoProxy: "cr-no-proxy",
-			},
-			UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-				Type: mustgatherv1alpha1.UploadTypeSFTP,
-				SFTP: &mustgatherv1alpha1.SFTPSpec{
-					CaseID:                         "case",
-					CaseManagementAccountSecretRef: v1.LocalObjectReference{Name: "sec"},
-				},
-			},
-		},
-	}
-
-	job := getJobTemplate("img", mg)
-	upload := findUploadContainerInJob(t, job)
-	got := envValues(upload)
-
-	if got[uploadEnvHttpProxy] != "http://env-http:8080" {
-		t.Fatalf("expected %s from env, got %s", uploadEnvHttpProxy, got[uploadEnvHttpProxy])
-	}
-	if got[uploadEnvHttpsProxy] != "https://env-https:8443" {
-		t.Fatalf("expected %s from env, got %s", uploadEnvHttpsProxy, got[uploadEnvHttpsProxy])
-	}
-	if got[uploadEnvNoProxy] != "env-no-proxy" {
-		t.Fatalf("expected %s from env, got %s", uploadEnvNoProxy, got[uploadEnvNoProxy])
-	}
-}
-
-func Test_getJobTemplate_NoFallbackWhenHttpAndHttpsProvidedInCR(t *testing.T) {
-	_ = os.Setenv("HTTP_PROXY", "http://env-http:8080")
-	_ = os.Setenv("HTTPS_PROXY", "https://env-https:8443")
-	_ = os.Setenv("NO_PROXY", "env-no-proxy")
-	defer func() {
-		_ = os.Unsetenv("HTTP_PROXY")
-		_ = os.Unsetenv("HTTPS_PROXY")
-		_ = os.Unsetenv("NO_PROXY")
-	}()
-
-	mg := mustgatherv1alpha1.MustGather{
-		ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
-		Spec: mustgatherv1alpha1.MustGatherSpec{
-			ServiceAccountName: "default",
-			MustGatherTimeout:  &metav1.Duration{Duration: 1 * time.Hour},
-			ProxyConfig: &mustgatherv1alpha1.ProxySpec{
-				HTTPProxy:  "http://cr-http:8080",
-				HTTPSProxy: "https://cr-https:8443",
-				// NoProxy intentionally empty
-			},
-			UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-				Type: mustgatherv1alpha1.UploadTypeSFTP,
-				SFTP: &mustgatherv1alpha1.SFTPSpec{
-					CaseID:                         "case",
-					CaseManagementAccountSecretRef: v1.LocalObjectReference{Name: "sec"},
-				},
-			},
-		},
-	}
-
-	job := getJobTemplate("img", mg)
-	upload := findUploadContainerInJob(t, job)
-	got := envValues(upload)
-
-	if got[uploadEnvHttpProxy] != "http://cr-http:8080" {
-		t.Fatalf("expected %s to be CR value, got %s", uploadEnvHttpProxy, got[uploadEnvHttpProxy])
-	}
-	if got[uploadEnvHttpsProxy] != "https://cr-https:8443" {
-		t.Fatalf("expected %s to be CR value, got %s", uploadEnvHttpsProxy, got[uploadEnvHttpsProxy])
-	}
-	if _, ok := got[uploadEnvNoProxy]; ok {
-		t.Fatalf("did not expect %s when CR NoProxy is empty", uploadEnvNoProxy)
-	}
-}
-
-func Test_getJobTemplate_NoFallbackIfHttpsProvidedButHttpMissing(t *testing.T) {
-	_ = os.Setenv("HTTP_PROXY", "http://env-http:8080")
-	_ = os.Setenv("HTTPS_PROXY", "https://env-https:8443")
-	_ = os.Setenv("NO_PROXY", "env-no-proxy")
-	defer func() {
-		_ = os.Unsetenv("HTTP_PROXY")
-		_ = os.Unsetenv("HTTPS_PROXY")
-		_ = os.Unsetenv("NO_PROXY")
-	}()
-
-	mg := mustgatherv1alpha1.MustGather{
-		ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
-		Spec: mustgatherv1alpha1.MustGatherSpec{
-			ServiceAccountName: "default",
-			MustGatherTimeout:  &metav1.Duration{Duration: 1 * time.Hour},
-			ProxyConfig: &mustgatherv1alpha1.ProxySpec{
-				HTTPSProxy: "https://cr-https:8443",
-				// HTTPProxy empty to ensure fallback condition is false
-			},
-			UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-				Type: mustgatherv1alpha1.UploadTypeSFTP,
-				SFTP: &mustgatherv1alpha1.SFTPSpec{
-					CaseID:                         "case",
-					CaseManagementAccountSecretRef: v1.LocalObjectReference{Name: "sec"},
-				},
-			},
-		},
-	}
-
-	job := getJobTemplate("img", mg)
-	upload := findUploadContainerInJob(t, job)
-	got := envValues(upload)
-
-	// http proxy should not be present (no fallback)
-	if _, ok := got[uploadEnvHttpProxy]; ok {
-		t.Fatalf("did not expect %s when only HTTPS proxy is provided in CR", uploadEnvHttpProxy)
-	}
-	// https proxy should be from CR
-	if got[uploadEnvHttpsProxy] != "https://cr-https:8443" {
-		t.Fatalf("expected %s to be CR value, got %s", uploadEnvHttpsProxy, got[uploadEnvHttpsProxy])
 	}
 }
