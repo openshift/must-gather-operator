@@ -116,7 +116,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		}
 
 		ginkgo.By("CLEANUP: Removing all test resources")
-		// Deleting namespace and all resources in it (including ServiceAccoun)
+		// Deleting namespace and all resources in it (including ServiceAccount)
 		loader.DeleteTestingNS(ns.Name, func() bool { return ginkgo.CurrentSpecReport().Failed() })
 		// Deleting ClusterRole, ClusterRoleBinding, and associated RBAC
 		loader.DeleteFromFile(testassets.ReadFile, filepath.Join("testdata", "nonadmin-clusterrole.yaml"), ns.Name)

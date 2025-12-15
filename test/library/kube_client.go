@@ -4,8 +4,6 @@
 package library
 
 import (
-	"testing"
-
 	"github.com/stretchr/testify/require"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -14,7 +12,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd/api"
 )
 
-func NewClientsConfigForTest(t *testing.T) (kubernetes.Interface, dynamic.Interface) {
+func NewClientsConfigForTest(t TestingT) (kubernetes.Interface, dynamic.Interface) {
 	config, err := GetConfigForTest(t)
 	if err == nil {
 		t.Logf("Found configuration for host %v.\n", config.Host)
@@ -28,7 +26,7 @@ func NewClientsConfigForTest(t *testing.T) (kubernetes.Interface, dynamic.Interf
 	return kubeClient, dynamicKubeConfig
 }
 
-func GetConfigForTest(t *testing.T) (*rest.Config, error) {
+func GetConfigForTest(t TestingT) (*rest.Config, error) {
 	loader := clientcmd.NewDefaultClientConfigLoadingRules()
 	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loader, &clientcmd.ConfigOverrides{ClusterInfo: api.Cluster{InsecureSkipTLSVerify: true}})
 	config, err := clientConfig.ClientConfig()

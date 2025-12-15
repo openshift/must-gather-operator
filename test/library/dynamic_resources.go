@@ -6,7 +6,6 @@ package library
 import (
 	"bytes"
 	"context"
-	"testing"
 
 	"github.com/stretchr/testify/require"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -21,17 +20,24 @@ import (
 	"k8s.io/client-go/restmapper"
 )
 
+// TestingT is an interface that both *testing.T and GinkgoT() satisfy
+type TestingT interface {
+	Errorf(format string, args ...interface{})
+	FailNow()
+	Logf(format string, args ...interface{})
+}
+
 type DynamicResourceLoader struct {
 	KubeClient    kubernetes.Interface
 	DynamicClient dynamic.Interface
 
 	context context.Context
-	t       *testing.T
+	t       TestingT
 }
 
-type doFunc func(t *testing.T, unstructured *unstructured.Unstructured, dynamicResourceInterface dynamic.ResourceInterface)
+type doFunc func(t TestingT, unstructured *unstructured.Unstructured, dynamicResourceInterface dynamic.ResourceInterface)
 
-func NewDynamicResourceLoader(context context.Context, t *testing.T) DynamicResourceLoader {
+func NewDynamicResourceLoader(context context.Context, t TestingT) DynamicResourceLoader {
 	k, d := NewClientsConfigForTest(t)
 	return DynamicResourceLoader{
 		KubeClient:    k,
@@ -109,8 +115,8 @@ func (d DynamicResourceLoader) do(do doFunc, assetFunc func(name string) ([]byte
 		require.NotEmpty(d.t, unstructuredObj.GetNamespace(), "Namespace can not be empty!")
 		dri = d.DynamicClient.Resource(mapping.Resource).Namespace(unstructuredObj.GetNamespace())
 	} else {
-		// For cluster-scoped bindings (ClusterRoleBinding, RoleBinding), update subject namespaces
-		if overrideNamespace != "" && (gvk.Kind == "ClusterRoleBinding" || gvk.Kind == "RoleBinding") {
+		// For cluster-scoped bindings (ClusterRoleBinding), update subject namespaces
+		if overrideNamespace != "" && gvk.Kind == "ClusterRoleBinding" {
 			d.updateSubjectNamespaces(unstructuredObj, overrideNamespace)
 		}
 		dri = d.DynamicClient.Resource(mapping.Resource)
@@ -121,7 +127,7 @@ func (d DynamicResourceLoader) do(do doFunc, assetFunc func(name string) ([]byte
 
 func (d DynamicResourceLoader) DeleteFromFile(assetFunc func(name string) ([]byte, error), filename string, overrideNamespace string) {
 	d.t.Logf("Deleting resource %v\n", filename)
-	deleteFunc := func(t *testing.T, unstructured *unstructured.Unstructured, dynamicResourceInterface dynamic.ResourceInterface) {
+	deleteFunc := func(t TestingT, unstructured *unstructured.Unstructured, dynamicResourceInterface dynamic.ResourceInterface) {
 		err := dynamicResourceInterface.Delete(context.TODO(), unstructured.GetName(), metav1.DeleteOptions{})
 		d.noErrorSkipNotExisting(err)
 	}
@@ -132,7 +138,7 @@ func (d DynamicResourceLoader) DeleteFromFile(assetFunc func(name string) ([]byt
 
 func (d DynamicResourceLoader) CreateFromFile(assetFunc func(name string) ([]byte, error), filename string, overrideNamespace string) {
 	d.t.Logf("Creating resource %v\n", filename)
-	createFunc := func(t *testing.T, unstructured *unstructured.Unstructured, dynamicResourceInterface dynamic.ResourceInterface) {
+	createFunc := func(t TestingT, unstructured *unstructured.Unstructured, dynamicResourceInterface dynamic.ResourceInterface) {
 		_, err := dynamicResourceInterface.Create(context.TODO(), unstructured, metav1.CreateOptions{})
 		d.noErrorSkipExists(err)
 	}

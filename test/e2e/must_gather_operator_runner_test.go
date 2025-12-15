@@ -72,6 +72,6 @@ var _ = BeforeSuite(func() {
 	By(fmt.Sprintf("using cluster: %s", clusterName))
 
 	By("creating dynamic resources client")
-	loader = library.NewDynamicResourceLoader(context.TODO(), &testing.T{})
+	loader = library.NewDynamicResourceLoader(context.TODO(), GinkgoT())
 
 })

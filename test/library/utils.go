@@ -46,7 +46,7 @@ func (d DynamicResourceLoader) CreateTestingNS(namespacePrefix string, noSuffix 
 	return got, nil
 }
 
-func (d DynamicResourceLoader) DeleteTestingNS(name string, shouldDumpEvents func() bool) (bool, error) {
+func (d DynamicResourceLoader) DeleteTestingNS(name string, shouldDumpEvents func() bool) error {
 	ctx := context.Background()
 	if shouldDumpEvents() {
 		d.DumpEventsInNamespace(name)
@@ -66,9 +66,9 @@ func (d DynamicResourceLoader) DeleteTestingNS(name string, shouldDumpEvents fun
 		return false, nil
 	}); err != nil {
 		log.Printf("Timed out after 30s waiting for namespace %v to become deleted", name)
-		return false, err
+		return err
 	}
-	return false, nil
+	return nil
 }
 
 func (d DynamicResourceLoader) DumpEventsInNamespace(name string) {
