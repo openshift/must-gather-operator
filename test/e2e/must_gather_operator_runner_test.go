@@ -17,6 +17,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 const (
@@ -64,6 +66,9 @@ func TestMustGatherOperator(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	// Initialize controller-runtime logger to suppress warning messages
+	log.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+
 	var err error
 	cfg, err = config.GetConfig()
 	Expect(err).NotTo(HaveOccurred())

@@ -1081,22 +1081,30 @@ func TestMustGatherController(t *testing.T) {
 
 func TestMustGatherControllerWithUploadTarget(t *testing.T) {
 	tests := []struct {
-		name                  string
-		mustGather            *mustgatherv1alpha1.MustGather
-		expectedContainers    int
-		expectUploadContainer bool
+		name                   string
+		mustGather             *mustgatherv1alpha1.MustGather
+		expectedContainers     int
+		expectedInitContainers int
+		expectUploadContainer  bool
+		expectGatherInInit     bool
 	}{
 		{
-			name:                  "With UploadTarget",
-			mustGather:            createMustGatherObjectWithUploadTarget(),
-			expectedContainers:    2,
-			expectUploadContainer: true,
+			name:       "With UploadTarget",
+			mustGather: createMustGatherObjectWithUploadTarget(),
+			// With InitContainer architecture: gather is in InitContainers, upload is in Containers
+			expectedContainers:     1,
+			expectedInitContainers: 1,
+			expectUploadContainer:  true,
+			expectGatherInInit:     true,
 		},
 		{
-			name:                  "Without UploadTarget",
-			mustGather:            createMustGatherObjectWithoutUploadTarget(),
-			expectedContainers:    1,
-			expectUploadContainer: false,
+			name:       "Without UploadTarget",
+			mustGather: createMustGatherObjectWithoutUploadTarget(),
+			// Without UploadTarget: gather is in Containers, no InitContainers
+			expectedContainers:     1,
+			expectedInitContainers: 0,
+			expectUploadContainer:  false,
+			expectGatherInInit:     false,
 		},
 	}
 
@@ -1134,6 +1142,10 @@ func TestMustGatherControllerWithUploadTarget(t *testing.T) {
 				t.Errorf("expected %d containers, got %d", tt.expectedContainers, len(job.Spec.Template.Spec.Containers))
 			}
 
+			if len(job.Spec.Template.Spec.InitContainers) != tt.expectedInitContainers {
+				t.Errorf("expected %d init containers, got %d", tt.expectedInitContainers, len(job.Spec.Template.Spec.InitContainers))
+			}
+
 			hasUploadContainer := false
 			for _, container := range job.Spec.Template.Spec.Containers {
 				if container.Name == "upload" {
@@ -1144,6 +1156,19 @@ func TestMustGatherControllerWithUploadTarget(t *testing.T) {
 
 			if hasUploadContainer != tt.expectUploadContainer {
 				t.Errorf("expected upload container to be %v, but it was %v", tt.expectUploadContainer, hasUploadContainer)
+			}
+
+			// Check if gather is in InitContainers when expected
+			hasGatherInInit := false
+			for _, container := range job.Spec.Template.Spec.InitContainers {
+				if container.Name == "gather" {
+					hasGatherInInit = true
+					break
+				}
+			}
+
+			if hasGatherInInit != tt.expectGatherInInit {
+				t.Errorf("expected gather in init containers to be %v, but it was %v", tt.expectGatherInInit, hasGatherInInit)
 			}
 		})
 	}
