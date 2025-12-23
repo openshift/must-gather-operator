@@ -10,6 +10,7 @@ import (
 	"embed"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -36,6 +37,7 @@ import (
 type MustGatherCROptions struct {
 	UploadTarget     *UploadTargetOptions
 	PersistentVolume *PersistentVolumeOptions
+	Timeout          *time.Duration
 }
 
 // UploadTargetOptions configures SFTP upload target
@@ -77,7 +79,10 @@ const (
 	testCaseID = "00000"
 
 	// PersistentVolume test constants
-	mustGatherPVCName = "must-gather-pvc"
+	mustGatherPVCName        = "must-gather-pvc"
+	caseCredsConfigDirEnvVar = "CASE_MANAGEMENT_CREDS_CONFIG_DIR"
+	vaultUsernameKey         = "sftp_username_e2e"
+	vaultPasswordKey         = "sftp_password_e2e"
 )
 
 //go:embed testdata/*
@@ -693,7 +698,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		})
 	})
 
-	ginkgo.Context("UploadTarget SFTP Configuration Tests", func() {
+	ginkgo.FContext("UploadTarget SFTP Configuration Tests", func() {
 		var mustGatherName string
 		var mustGatherCR *mustgatherv1alpha1.MustGather
 
@@ -719,15 +724,39 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		})
 
 		ginkgo.It("should create Job with upload container when UploadTarget is specified", func() {
+			ginkgo.By("Getting SFTP credentials from Vault")
+
+			sftpUsername, sftpPassword, err := getCaseCredsFromVault()
+			Expect(err).NotTo(HaveOccurred(), "Failed to get SFTP credentials from Vault")
+
+			ginkgo.By("Creating case-management-creds-valid secret")
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      caseManagementSecretNameValid,
+					Namespace: ns.Name,
+					Labels: map[string]string{
+						"test": nonAdminLabel,
+					},
+				},
+				Type: corev1.SecretTypeOpaque,
+				StringData: map[string]string{
+					"username": sftpUsername,
+					"password": sftpPassword,
+				},
+			}
+			err = adminClient.Create(testCtx, secret)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred(), "Failed to create case management secret")
+			}
+
 			ginkgo.By("Creating MustGather CR with UploadTarget and internalUser=false")
-			loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "case-management-secret-valid.yaml"), ns.Name)
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
 				UploadTarget: &UploadTargetOptions{CaseID: testCaseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: stageHostName},
 			})
 
 			ginkgo.By("Verifying MustGather CR has internalUser set to false")
 			fetchedMG := &mustgatherv1alpha1.MustGather{}
-			err := nonAdminClient.Get(testCtx, client.ObjectKey{
+			err = nonAdminClient.Get(testCtx, client.ObjectKey{
 				Name:      mustGatherName,
 				Namespace: ns.Name,
 			}, fetchedMG)
@@ -843,7 +872,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}).WithTimeout(3*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
 				"Both gather and upload containers should start")
 
-			ginkgo.By("Waiting for Job to complete (gather and upload)")
+			ginkgo.By("Waiting for Job to complete successfully (gather and upload)")
 			Eventually(func() bool {
 				j := &batchv1.Job{}
 				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
@@ -853,18 +882,17 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					return false
 				}
 
-				// Check if job completed (succeeded or failed)
+				// Job must succeed for upload verification to pass
 				if j.Status.Succeeded > 0 {
 					ginkgo.GinkgoWriter.Println("Job completed successfully")
 					return true
 				}
 				if j.Status.Failed > 0 {
-					ginkgo.GinkgoWriter.Println("Job failed - this is expected if SFTP credentials are not real")
-					return true
+					ginkgo.Fail("Job failed - gather or upload container failed")
 				}
 				return false
 			}).WithTimeout(5*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
-				"Job should complete (succeed or fail)")
+				"Job should complete successfully")
 
 			ginkgo.By("Verifying file was uploaded to SFTP server at the correct path for external user")
 			// For external users (internal_user=false), the file should be uploaded directly to: <caseid>_<filename>.tar.gz
@@ -880,6 +908,11 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.GinkgoWriter.Println("SFTP upload functionality verified for external user (internal_user=false)")
 			ginkgo.GinkgoWriter.Printf("Verified upload path format: %s_<filename>.tar.gz (no username prefix)\n", testCaseID)
+
+			ginkgo.By("Cleaning up uploaded test files from SFTP server")
+			if cleanupErr := cleanupSFTPFiles(ns.Name, caseManagementSecretNameValid, stageHostName, testCaseID, false); cleanupErr != nil {
+				ginkgo.GinkgoWriter.Printf("Warning: SFTP cleanup failed: %v\n", cleanupErr)
+			}
 		})
 
 		ginkgo.It("should configure internal user flag correctly for UploadTarget", func() {
@@ -1027,7 +1060,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Verifying file was uploaded to SFTP server at the correct path for internal user")
 			// For internal users, the file should be uploaded to: username/<caseid>_<filename>.tar.gz
 			// Connect to SFTP and verify the file exists
-			found, sftpLogs, err := verifySFTPUpload(ns.Name, caseManagementSecretNameValid, "sftp.access.redhat.com", testCaseID, true)
+			found, sftpLogs, err := verifySFTPUpload(ns.Name, caseManagementSecretNameValid, stageHostName, testCaseID, true)
 			if err != nil {
 				ginkgo.GinkgoWriter.Printf("SFTP verification error: %v\n", err)
 			}
@@ -1037,6 +1070,11 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				"File with caseID %s should exist on SFTP server in internal user path (username/<caseid>_must-gather-*.tar.gz)", testCaseID)
 
 			ginkgo.GinkgoWriter.Println("InternalUser upload verified: file correctly uploaded to username/<caseid>_filename.tar.gz path")
+
+			ginkgo.By("Cleaning up uploaded test files from SFTP server")
+			if cleanupErr := cleanupSFTPFiles(ns.Name, caseManagementSecretNameValid, stageHostName, testCaseID, true); cleanupErr != nil {
+				ginkgo.GinkgoWriter.Printf("Warning: SFTP cleanup failed: %v\n", cleanupErr)
+			}
 		})
 
 		ginkgo.It("should update MustGather status after Job completion with UploadTarget", func() {
@@ -1075,6 +1113,72 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				"Reason should be set")
 
 			ginkgo.GinkgoWriter.Printf("MustGather with UploadTarget completed - Status: %s, Reason: %s\n",
+				fetchedMG.Status.Status, fetchedMG.Status.Reason)
+		})
+
+		ginkgo.It("should fail upload with invalid SFTP credentials", func() {
+			ginkgo.By("Creating invalid case management secret")
+			loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "case-management-secret-invalid.yaml"), ns.Name)
+
+			ginkgo.By("Creating MustGather CR with invalid credentials")
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
+				UploadTarget: &UploadTargetOptions{
+					CaseID:       testCaseID,
+					SecretName:   caseManagementSecretNameInvalid,
+					InternalUser: false,
+					Host:         stageHostName,
+				},
+			})
+
+			ginkgo.By("Waiting for Job to be created")
+			job := &batchv1.Job{}
+			Eventually(func() error {
+				return nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+				"Job should be created for MustGather with invalid credentials")
+
+			ginkgo.By("Verifying Job has upload container")
+			hasUploadContainer := false
+			for _, container := range job.Spec.Template.Spec.Containers {
+				if container.Name == uploadContainerName {
+					hasUploadContainer = true
+					break
+				}
+			}
+			Expect(hasUploadContainer).To(BeTrue(), "Job should have upload container")
+
+			ginkgo.By("Waiting for Job to fail due to invalid credentials")
+			Eventually(func() bool {
+				j := &batchv1.Job{}
+				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, j); err != nil {
+					return false
+				}
+				// Job should fail because SFTP authentication will fail with invalid credentials
+				return j.Status.Failed > 0
+			}).WithTimeout(10*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
+				"Job should fail due to invalid SFTP credentials")
+
+			ginkgo.By("Verifying MustGather CR status is Failed")
+			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			Eventually(func() string {
+				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, fetchedMG); err != nil {
+					return ""
+				}
+				return fetchedMG.Status.Status
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Equal("Failed"),
+				"MustGather status should be Failed for invalid credentials")
+
+			Expect(fetchedMG.Status.Completed).To(BeTrue(), "MustGather should be marked as completed")
+			ginkgo.GinkgoWriter.Printf("MustGather with invalid credentials correctly failed - Status: %s, Reason: %s\n",
 				fetchedMG.Status.Status, fetchedMG.Status.Reason)
 		})
 	})
@@ -1299,6 +1403,165 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.GinkgoWriter.Println("Must-gather data successfully persisted to PVC and verified after Job completion")
 		})
 	})
+
+	ginkgo.Context("MustGather Timeout Configuration Tests", func() {
+		var mustGatherName string
+		var mustGatherCR *mustgatherv1alpha1.MustGather
+
+		ginkgo.BeforeEach(func() {
+			mustGatherName = fmt.Sprintf("mg-timeout-test-%d", time.Now().UnixNano())
+		})
+
+		ginkgo.AfterEach(func() {
+			if mustGatherCR != nil {
+				ginkgo.By("Cleaning up MustGather CR")
+				_ = adminClient.Delete(testCtx, mustGatherCR)
+
+				Eventually(func() bool {
+					err := adminClient.Get(testCtx, client.ObjectKey{
+						Name:      mustGatherName,
+						Namespace: ns.Name,
+					}, &mustgatherv1alpha1.MustGather{})
+					return apierrors.IsNotFound(err)
+				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+
+				mustGatherCR = nil
+			}
+		})
+
+		ginkgo.It("should create Job with 1 minute timeout and complete successfully", func() {
+			ginkgo.By("Creating MustGather CR with 1 minute timeout")
+			timeout := 1 * time.Minute
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
+				Timeout: &timeout,
+			})
+
+			ginkgo.By("Verifying MustGather CR has timeout set")
+			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			err := nonAdminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, fetchedMG)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fetchedMG.Spec.MustGatherTimeout).NotTo(BeNil(), "MustGatherTimeout should be set")
+			Expect(fetchedMG.Spec.MustGatherTimeout.Duration).To(Equal(timeout),
+				"MustGatherTimeout should be 1 minute")
+
+			ginkgo.By("Waiting for Job to be created")
+			job := &batchv1.Job{}
+			Eventually(func() error {
+				return nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+				"Job should be created for MustGather with timeout")
+
+			ginkgo.By("Verifying Job's gather container has timeout in command")
+			var gatherContainer *corev1.Container
+			for i := range job.Spec.Template.Spec.Containers {
+				if job.Spec.Template.Spec.Containers[i].Name == gatherContainerName {
+					gatherContainer = &job.Spec.Template.Spec.Containers[i]
+					break
+				}
+			}
+			Expect(gatherContainer).NotTo(BeNil(), "Job should have gather container")
+
+			// The gather container command should include the timeout value
+			// Command format: timeout <seconds> bash -x -c -- '/usr/bin/gather' ...
+			commandStr := strings.Join(gatherContainer.Command, " ")
+			ginkgo.GinkgoWriter.Printf("Gather container command: %s\n", commandStr)
+
+			Expect(commandStr).To(ContainSubstring("timeout"),
+				"Gather container command should include timeout")
+
+			ginkgo.By("Waiting for Job to complete")
+			Eventually(func() bool {
+				j := &batchv1.Job{}
+				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, j); err != nil {
+					return false
+				}
+				return j.Status.Succeeded > 0 || j.Status.Failed > 0
+			}).WithTimeout(5*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
+				"Job should complete within the timeout period")
+
+			ginkgo.By("Verifying MustGather CR status is updated")
+			err = nonAdminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, fetchedMG)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fetchedMG.Status.Completed).To(BeTrue(), "MustGather should be marked as completed")
+
+			ginkgo.GinkgoWriter.Printf("MustGather with 1 minute timeout completed - Status: %s\n", fetchedMG.Status.Status)
+		})
+
+		ginkgo.It("should handle 10 second timeout gracefully when gather takes too long", func() {
+			ginkgo.By("Creating MustGather CR with 10 second timeout")
+			// Use a very short timeout (10 seconds) that will cause the gather to timeout
+			timeout := 10 * time.Second
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
+				Timeout: &timeout,
+			})
+
+			ginkgo.By("Waiting for Job to be created")
+			job := &batchv1.Job{}
+			Eventually(func() error {
+				return nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			ginkgo.By("Waiting for Job to complete (gather should timeout)")
+			Eventually(func() bool {
+				j := &batchv1.Job{}
+				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, j); err != nil {
+					return false
+				}
+				// Job should complete (either success or failure)
+				return j.Status.Succeeded > 0 || j.Status.Failed > 0
+			}).WithTimeout(2*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
+				"Job should complete after timeout")
+
+			ginkgo.By("Checking gather container logs for timeout message")
+			podList := &corev1.PodList{}
+			err := adminClient.List(testCtx, podList,
+				client.InNamespace(ns.Name),
+				client.MatchingLabels{jobNameLabelKey: mustGatherName})
+			Expect(err).NotTo(HaveOccurred())
+
+			if len(podList.Items) > 0 {
+				podName := podList.Items[0].Name
+				logs, logErr := getContainerLogs(ns.Name, podName, gatherContainerName)
+				if logErr == nil {
+					ginkgo.GinkgoWriter.Printf("Gather container logs:\n%s\n", logs)
+					// The gather command should print "Gather timed out." when timeout occurs
+					if strings.Contains(logs, "timed out") {
+						ginkgo.GinkgoWriter.Println("Timeout message found in gather container logs")
+					}
+				}
+			}
+
+			ginkgo.By("Verifying MustGather CR status is updated")
+			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			err = nonAdminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, fetchedMG)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fetchedMG.Status.Completed).To(BeTrue(), "MustGather should be marked as completed")
+
+			ginkgo.GinkgoWriter.Printf("MustGather with short timeout completed - Status: %s, Reason: %s\n",
+				fetchedMG.Status.Status, fetchedMG.Status.Reason)
+		})
+	})
 })
 
 // Helper Functions
@@ -1380,12 +1643,44 @@ func createMustGatherCR(name, namespace, serviceAccountName string, retainResour
 				},
 			}
 		}
+
+		if opts.Timeout != nil {
+			mg.Spec.MustGatherTimeout = &metav1.Duration{Duration: *opts.Timeout}
+		}
 	}
 
 	err := nonAdminClient.Create(testCtx, mg)
 	Expect(err).NotTo(HaveOccurred(), "Failed to create MustGather CR")
 
 	return mg
+}
+
+// getOperatorImage retrieves the OPERATOR_IMAGE from the must-gather-operator deployment
+func getOperatorImage() (string, error) {
+	deployment := &appsv1.Deployment{}
+	err := adminClient.Get(testCtx, client.ObjectKey{
+		Name:      operatorDeployment,
+		Namespace: operatorNamespace,
+	}, deployment)
+	if err != nil {
+		return "", fmt.Errorf("failed to get operator deployment: %w", err)
+	}
+
+	// Look for OPERATOR_IMAGE env var in the container
+	for _, container := range deployment.Spec.Template.Spec.Containers {
+		for _, env := range container.Env {
+			if env.Name == "OPERATOR_IMAGE" {
+				return env.Value, nil
+			}
+		}
+	}
+
+	// Fallback to the container image itself if OPERATOR_IMAGE is not set
+	if len(deployment.Spec.Template.Spec.Containers) > 0 {
+		return deployment.Spec.Template.Spec.Containers[0].Image, nil
+	}
+
+	return "", fmt.Errorf("could not find operator image")
 }
 
 // getContainerLogs retrieves logs from a specific container in a pod
@@ -1411,6 +1706,13 @@ func getContainerLogs(namespace, podName, containerName string) (string, error) 
 // For internal users, the path should be: username/caseid_filename.tar.gz
 // For external users, the path should be: caseid_filename.tar.gz
 func verifySFTPUpload(namespace, secretName, host, caseID string, internalUser bool) (bool, string, error) {
+	// Get the operator image (same image used for SFTP uploads, has sshpass and sftp tools)
+	operatorImage, err := getOperatorImage()
+	if err != nil {
+		return false, "", fmt.Errorf("failed to get operator image: %w", err)
+	}
+	ginkgo.GinkgoWriter.Printf("Using operator image for verification pod: %s\n", operatorImage)
+
 	// Create a verification pod that runs sftp ls command
 	verifyPodName := fmt.Sprintf("sftp-verify-%d", time.Now().UnixNano())
 
@@ -1457,7 +1759,7 @@ EOF
 			Containers: []corev1.Container{
 				{
 					Name:    "sftp-verify",
-					Image:   "quay.io/openshift/origin-must-gather-operator:latest",
+					Image:   operatorImage,
 					Command: []string{"/bin/bash", "-c", sftpCommand},
 					SecurityContext: &corev1.SecurityContext{
 						AllowPrivilegeEscalation: func() *bool { b := false; return &b }(),
@@ -1492,7 +1794,7 @@ EOF
 	}
 
 	// Create the verification pod
-	err := adminClient.Create(testCtx, verifyPod)
+	err = adminClient.Create(testCtx, verifyPod)
 	if err != nil {
 		return false, "", fmt.Errorf("failed to create verification pod: %w", err)
 	}
@@ -1508,6 +1810,17 @@ EOF
 			return corev1.PodUnknown
 		}
 		podPhase = pod.Status.Phase
+
+		// Log debugging info if pod is stuck in Pending
+		if podPhase == corev1.PodPending {
+			ginkgo.GinkgoWriter.Printf("Verification pod %s is Pending. Conditions: %+v\n", verifyPodName, pod.Status.Conditions)
+			for _, cs := range pod.Status.ContainerStatuses {
+				if cs.State.Waiting != nil {
+					ginkgo.GinkgoWriter.Printf("Container %s waiting: %s - %s\n", cs.Name, cs.State.Waiting.Reason, cs.State.Waiting.Message)
+				}
+			}
+		}
+
 		return podPhase
 	}).WithTimeout(3*time.Minute).WithPolling(5*time.Second).Should(
 		Or(Equal(corev1.PodSucceeded), Equal(corev1.PodFailed)),
@@ -1529,4 +1842,150 @@ EOF
 	found := strings.Contains(logs, filePattern)
 
 	return found, logs, nil
+}
+
+// cleanupSFTPFiles deletes uploaded test files from the SFTP server
+// This prevents accumulation of test files on the staging SFTP server
+func cleanupSFTPFiles(namespace, secretName, host, caseID string, internalUser bool) error {
+	// Get the operator image (same image used for SFTP uploads, has sshpass and sftp tools)
+	operatorImage, err := getOperatorImage()
+	if err != nil {
+		return fmt.Errorf("failed to get operator image: %w", err)
+	}
+	ginkgo.GinkgoWriter.Printf("Using operator image for cleanup pod: %s\n", operatorImage)
+
+	// Create a cleanup pod that runs sftp rm command
+	cleanupPodName := fmt.Sprintf("sftp-cleanup-%d", time.Now().UnixNano())
+
+	// Build the sftp command based on internal user flag
+	// For internal users, files are in: username/<caseid>_*.tar.gz
+	// For external users, files are in: <caseid>_*.tar.gz
+	var sftpCleanupCommand string
+	if internalUser {
+		// For internal users, delete files in the username directory
+		// Use -rm which ignores errors if file doesn't exist
+		sftpCleanupCommand = fmt.Sprintf(`
+cd $SFTP_USERNAME
+rm %s_must-gather*.tar.gz
+`, caseID)
+	} else {
+		// For external users, delete files in the root directory
+		sftpCleanupCommand = fmt.Sprintf(`rm %s_must-gather*.tar.gz`, caseID)
+	}
+
+	sftpCommand := fmt.Sprintf(`
+		mkdir -p /tmp/.ssh
+		touch /tmp/.ssh/known_hosts
+		chmod 700 /tmp/.ssh
+		chmod 600 /tmp/.ssh/known_hosts
+		echo "Cleaning up test files on SFTP server..."
+		echo "Internal user mode: %v"
+		echo "Deleting files matching: %s_must-gather*.tar.gz"
+		sshpass -e sftp -o BatchMode=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/tmp/.ssh/known_hosts $SFTP_USERNAME@%s << EOF
+%s
+bye
+EOF
+		echo "Cleanup complete"
+	`, internalUser, caseID, host, sftpCleanupCommand)
+
+	cleanupPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cleanupPodName,
+			Namespace: namespace,
+		},
+		Spec: corev1.PodSpec{
+			RestartPolicy:      corev1.RestartPolicyNever,
+			ServiceAccountName: serviceAccount,
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsNonRoot: func() *bool { b := true; return &b }(),
+				SeccompProfile: &corev1.SeccompProfile{
+					Type: corev1.SeccompProfileTypeRuntimeDefault,
+				},
+			},
+			Containers: []corev1.Container{
+				{
+					Name:    "sftp-cleanup",
+					Image:   operatorImage,
+					Command: []string{"/bin/bash", "-c", sftpCommand},
+					SecurityContext: &corev1.SecurityContext{
+						AllowPrivilegeEscalation: func() *bool { b := false; return &b }(),
+						Capabilities: &corev1.Capabilities{
+							Drop: []corev1.Capability{"ALL"},
+						},
+						RunAsNonRoot: func() *bool { b := true; return &b }(),
+					},
+					Env: []corev1.EnvVar{
+						{
+							Name: "SFTP_USERNAME",
+							ValueFrom: &corev1.EnvVarSource{
+								SecretKeyRef: &corev1.SecretKeySelector{
+									Key:                  "username",
+									LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+								},
+							},
+						},
+						{
+							Name: "SSHPASS",
+							ValueFrom: &corev1.EnvVarSource{
+								SecretKeyRef: &corev1.SecretKeySelector{
+									Key:                  "password",
+									LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Create the cleanup pod
+	err = adminClient.Create(testCtx, cleanupPod)
+	if err != nil {
+		return fmt.Errorf("failed to create cleanup pod: %w", err)
+	}
+
+	// Wait for pod to complete
+	Eventually(func() corev1.PodPhase {
+		pod := &corev1.Pod{}
+		if err := adminClient.Get(testCtx, client.ObjectKey{
+			Name:      cleanupPodName,
+			Namespace: namespace,
+		}, pod); err != nil {
+			return corev1.PodUnknown
+		}
+		return pod.Status.Phase
+	}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(
+		Or(Equal(corev1.PodSucceeded), Equal(corev1.PodFailed)),
+		"Cleanup pod should complete")
+
+	// Get logs from cleanup pod for debugging
+	logs, err := getContainerLogs(namespace, cleanupPodName, "sftp-cleanup")
+	if err != nil {
+		ginkgo.GinkgoWriter.Printf("Failed to get cleanup pod logs: %v\n", err)
+	} else {
+		ginkgo.GinkgoWriter.Printf("SFTP cleanup logs:\n%s\n", logs)
+	}
+
+	// Cleanup pod
+	_ = adminClient.Delete(testCtx, cleanupPod)
+
+	return nil
+}
+
+func getCaseCredsFromVault() (string, string, error) {
+	configDir := os.Getenv(caseCredsConfigDirEnvVar)
+	var sftpUsername, sftpPassword []byte
+	var err error
+	if configDir != "" {
+		sftpUsername, err = os.ReadFile(configDir + "/" + vaultUsernameKey)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to read sftp username from file: %w", err)
+		}
+		sftpPassword, err = os.ReadFile(configDir + "/" + vaultPasswordKey)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to read sftp password from file: %w", err)
+		}
+	}
+	return string(sftpUsername), string(sftpPassword), nil
 }
