@@ -15,12 +15,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
-func (d DynamicResourceLoader) CreateTestingNS(namespacePrefix string, noSuffix bool) (*corev1.Namespace, error) {
+func (d DynamicResourceLoader) CreateTestNS(namespacePrefix string, noSuffix bool) (*corev1.Namespace, error) {
 	namespace := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels: map[string]string{
-				"e2e-test": "true",
-				"operator": "openshift-must-gather-operator",
+				"e2e-test": "support-log-gather",
 			},
 		},
 	}

@@ -5,10 +5,8 @@ package e2e
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -24,10 +22,9 @@ const (
 )
 
 var (
-	loader      library.DynamicResourceLoader
-	cfg         *rest.Config
-	clusterName string
-	ns          *corev1.Namespace
+	loader library.DynamicResourceLoader
+	cfg    *rest.Config
+	ns     *corev1.Namespace
 )
 
 func getTestDir() string {
@@ -37,19 +34,6 @@ func getTestDir() string {
 	}
 	// not running in a CI job
 	return "/tmp"
-}
-
-// getClusterName returns the cluster name from the provided rest.Config
-func getClusterName(cfg *rest.Config) string {
-	// Extract cluster name from the API server URL
-	if cfg.Host != "" {
-		host := cfg.Host
-		host = strings.TrimPrefix(host, "https://")
-		host = strings.TrimPrefix(host, "http://")
-		return host
-	}
-
-	return "unknown-cluster"
 }
 
 // TestMustGatherOperator is the test entrypoint for e2e tests.
@@ -67,9 +51,6 @@ var _ = BeforeSuite(func() {
 	var err error
 	cfg, err = config.GetConfig()
 	Expect(err).NotTo(HaveOccurred())
-
-	clusterName = getClusterName(cfg)
-	By(fmt.Sprintf("using cluster: %s", clusterName))
 
 	By("creating dynamic resources client")
 	loader = library.NewDynamicResourceLoader(context.TODO(), GinkgoT())

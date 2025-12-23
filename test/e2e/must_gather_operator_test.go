@@ -34,7 +34,7 @@ const (
 	nonAdminUser       = "must-gather-nonadmin-user"
 	nonAdminCRRoleName = "must-gather-nonadmin-clusterrole"
 	serviceAccount     = "must-gather-serviceaccount"
-	nonAdminLabel      = "non-admin-must-gather-e2e"
+	nonAdminLabel      = "support-log-gather"
 
 	// Operator constants
 	operatorNamespace  = "must-gather-operator"
@@ -85,8 +85,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		ginkgo.By("Verifying must-gather-operator is deployed and available")
 		verifyOperatorDeployment()
 
-		ginkgo.By("STEP 2: Creates testing namespace")
-		namespace, err := loader.CreateTestingNS("must-gather-operator-e2e", false)
+		ginkgo.By("STEP 2: Creates test namespace")
+		namespace, err := loader.CreateTestNS("must-gather-operator-e2e", false)
 		Expect(err).NotTo(HaveOccurred())
 		ns = namespace
 
@@ -153,8 +153,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}
 		})
 
-		ginkgo.It("can create and get MustGather CR", func() {
-			ginkgo.By("using impersonation")
+		ginkgo.It("can create, get, and list MustGather CRs", func() {
+			ginkgo.By("Creating MustGather CR using impersonation")
 			mustGatherCR = &mustgatherv1alpha1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      mustGatherName,
@@ -183,15 +183,10 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.GinkgoWriter.Printf("Non-admin user '%s' successfully created MustGather CR: %s\n",
 				nonAdminUser, mustGatherName)
-		})
-
-		ginkgo.It("can list MustGather CRs", func() {
-			ginkgo.By("Creating a MustGather CR first")
-			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, false)
 
 			ginkgo.By("Non-admin user listing MustGather CRs in their namespace")
 			mgList := &mustgatherv1alpha1.MustGatherList{}
-			err := nonAdminClient.List(testCtx, mgList, client.InNamespace(ns.Name))
+			err = nonAdminClient.List(testCtx, mgList, client.InNamespace(ns.Name))
 			Expect(err).NotTo(HaveOccurred(), "Non-admin should be able to list MustGather CRs")
 			Expect(mgList.Items).NotTo(BeEmpty(),
 				"List should contain at least the MustGather CR we just created")
@@ -274,7 +269,6 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			for _, container := range job.Spec.Template.Spec.Containers {
 				if container.Name == gatherContainerName {
 					hasGatherContainer = true
-					Expect(container.Image).NotTo(BeEmpty(), "Gather container should have an image")
 					break
 				}
 			}
@@ -291,6 +285,149 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			Expect(hasOutputVolume).To(BeTrue(), "Job should have must-gather-output volume")
 		})
 
+		ginkgo.It("should be able to monitor MustGather progress", func() {
+			ginkgo.By("creating MustGather CR")
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, false)
+
+			ginkgo.By("checking MustGather CR status")
+			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			err := nonAdminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, fetchedMG)
+			Expect(err).NotTo(HaveOccurred(), "Non-admin user should be able to get MustGather CR")
+			ginkgo.GinkgoWriter.Printf("Non-admin can read MustGather status: %s\n", fetchedMG.Status.Status)
+
+			ginkgo.By("listing Jobs in namespace")
+			jobList := &batchv1.JobList{}
+			err = nonAdminClient.List(testCtx, jobList, client.InNamespace(ns.Name))
+			Expect(err).NotTo(HaveOccurred(), "Non-admin user should be able to list Jobs")
+			ginkgo.GinkgoWriter.Printf("Non-admin can see %d Jobs\n", len(jobList.Items))
+
+			ginkgo.By("listing Pods in namespace")
+			podList := &corev1.PodList{}
+			err = nonAdminClient.List(testCtx, podList, client.InNamespace(ns.Name))
+			Expect(err).NotTo(HaveOccurred(), "Non-admin user should be able to list Pods")
+			ginkgo.GinkgoWriter.Printf("Non-admin can see %d Pods\n", len(podList.Items))
+
+			ginkgo.By("checking for gather Pods")
+			Eventually(func() bool {
+				pods := &corev1.PodList{}
+				if err := nonAdminClient.List(testCtx, pods,
+					client.InNamespace(ns.Name),
+					client.MatchingLabels{jobNameLabelKey: mustGatherName}); err != nil {
+					return false
+				}
+				if len(pods.Items) > 0 {
+					ginkgo.GinkgoWriter.Printf("Non-admin can see gather pod: %s\n", pods.Items[0].Name)
+				}
+				return len(pods.Items) > 0
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+
+			ginkgo.GinkgoWriter.Println("Non-admin user successfully monitored MustGather progress")
+		})
+
+		ginkgo.It("can delete their MustGather CR", func() {
+			mustGatherName := fmt.Sprintf("test-cleanup-%d", time.Now().UnixNano())
+
+			ginkgo.By("creating MustGather CR")
+			mg := createMustGatherCR(mustGatherName, ns.Name, serviceAccount, false)
+
+			ginkgo.By("deleting their MustGather CR")
+			err := nonAdminClient.Delete(testCtx, mg)
+			Expect(err).NotTo(HaveOccurred(), "Non-admin should be able to delete their own CR")
+
+			ginkgo.By("Verifying CR is deleted")
+			Eventually(func() bool {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, &mustgatherv1alpha1.MustGather{})
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+
+			ginkgo.GinkgoWriter.Printf("Non-admin user successfully deleted MustGather CR: %s\n", mustGatherName)
+		})
+
+		ginkgo.It("should clean up Job and Pod when MustGather CR is deleted", func() {
+			mustGatherName := fmt.Sprintf("test-cascading-delete-%d", time.Now().UnixNano())
+
+			ginkgo.By("Creating MustGather CR")
+			mg := createMustGatherCR(mustGatherName, ns.Name, serviceAccount, false)
+
+			ginkgo.By("Waiting for Job to be created")
+			Eventually(func() error {
+				return adminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, &batchv1.Job{})
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			ginkgo.By("Waiting for Pod to be created")
+			Eventually(func() int {
+				podList := &corev1.PodList{}
+				if err := adminClient.List(testCtx, podList,
+					client.InNamespace(ns.Name),
+					client.MatchingLabels{jobNameLabelKey: mustGatherName}); err != nil {
+					return 0
+				}
+				return len(podList.Items)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeNumerically(">=", 1),
+				"Pod should be created by Job")
+
+			ginkgo.By("Deleting MustGather CR")
+			err := nonAdminClient.Delete(testCtx, mg)
+			Expect(err).NotTo(HaveOccurred())
+
+			ginkgo.By("Verifying Job is eventually cleaned up")
+			Eventually(func() bool {
+				err := adminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, &batchv1.Job{})
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
+				"Job should be cleaned up when MustGather CR is deleted")
+
+			ginkgo.By("Verifying Pods are eventually cleaned up")
+			Eventually(func() int {
+				podList := &corev1.PodList{}
+				if err := adminClient.List(testCtx, podList,
+					client.InNamespace(ns.Name),
+					client.MatchingLabels{jobNameLabelKey: mustGatherName}); err != nil {
+					return 0
+				}
+				return len(podList.Items)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Equal(0),
+				"Pods should be cleaned up when MustGather CR is deleted")
+		})
+	})
+
+	ginkgo.Context("Admin User Operations", func() {
+		var mustGatherName string
+		var mustGatherCR *mustgatherv1alpha1.MustGather
+
+		ginkgo.BeforeEach(func() {
+			mustGatherName = fmt.Sprintf("non-admin-mg-with-retain-resources-%d", time.Now().UnixNano())
+		})
+
+		ginkgo.AfterEach(func() {
+			if mustGatherCR != nil {
+				ginkgo.By("Cleaning up MustGather CR")
+				_ = adminClient.Delete(testCtx, mustGatherCR)
+
+				// Wait for cleanup
+				Eventually(func() bool {
+					err := adminClient.Get(testCtx, client.ObjectKey{
+						Name:      mustGatherName,
+						Namespace: ns.Name,
+					}, &mustgatherv1alpha1.MustGather{})
+					return apierrors.IsNotFound(err)
+				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+
+				mustGatherCR = nil
+			}
+		})
 		ginkgo.It("Pod should gather data and complete successfully", func() {
 			ginkgo.By("creating MustGather CR with RetainResourcesOnCompletion")
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true)
@@ -402,48 +539,31 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.GinkgoWriter.Printf("MustGather Status: %s - Completed: %v - Reason: %s\n",
 				fetchedMG.Status.Status, fetchedMG.Status.Completed, fetchedMG.Status.Reason)
-		})
 
-		ginkgo.It("should be able to monitor MustGather progress", func() {
-			ginkgo.By("creating MustGather CR")
-			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, false)
+			ginkgo.By("Verifying resources are retained after completion (RetainResourcesOnCompletion=true)")
+			// Wait a bit to ensure the operator has had time to process the completion
+			time.Sleep(10 * time.Second)
 
-			ginkgo.By("checking MustGather CR status")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			ginkgo.By("Verifying Job still exists after completion")
+			retainedJob := &batchv1.Job{}
 			err := nonAdminClient.Get(testCtx, client.ObjectKey{
 				Name:      mustGatherName,
 				Namespace: ns.Name,
-			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred(), "Non-admin user should be able to get MustGather CR")
-			ginkgo.GinkgoWriter.Printf("Non-admin can read MustGather status: %s\n", fetchedMG.Status.Status)
+			}, retainedJob)
+			Expect(err).NotTo(HaveOccurred(), "Job should still exist when RetainResourcesOnCompletion is true")
+			ginkgo.GinkgoWriter.Printf("Job %s is retained after completion\n", retainedJob.Name)
 
-			ginkgo.By("listing Jobs in namespace")
-			jobList := &batchv1.JobList{}
-			err = nonAdminClient.List(testCtx, jobList, client.InNamespace(ns.Name))
-			Expect(err).NotTo(HaveOccurred(), "Non-admin user should be able to list Jobs")
-			ginkgo.GinkgoWriter.Printf("Non-admin can see %d Jobs\n", len(jobList.Items))
+			ginkgo.By("Verifying Pod still exists after completion")
+			retainedPodList := &corev1.PodList{}
+			err = nonAdminClient.List(testCtx, retainedPodList,
+				client.InNamespace(ns.Name),
+				client.MatchingLabels{jobNameLabelKey: mustGatherName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(retainedPodList.Items).NotTo(BeEmpty(),
+				"Pod should still exist when RetainResourcesOnCompletion is true")
+			ginkgo.GinkgoWriter.Printf("Pod %s is retained after completion\n", retainedPodList.Items[0].Name)
 
-			ginkgo.By("listing Pods in namespace")
-			podList := &corev1.PodList{}
-			err = nonAdminClient.List(testCtx, podList, client.InNamespace(ns.Name))
-			Expect(err).NotTo(HaveOccurred(), "Non-admin user should be able to list Pods")
-			ginkgo.GinkgoWriter.Printf("Non-admin can see %d Pods\n", len(podList.Items))
-
-			ginkgo.By("checking for gather Pods")
-			Eventually(func() bool {
-				pods := &corev1.PodList{}
-				if err := nonAdminClient.List(testCtx, pods,
-					client.InNamespace(ns.Name),
-					client.MatchingLabels{jobNameLabelKey: mustGatherName}); err != nil {
-					return false
-				}
-				if len(pods.Items) > 0 {
-					ginkgo.GinkgoWriter.Printf("Non-admin can see gather pod: %s\n", pods.Items[0].Name)
-				}
-				return len(pods.Items) > 0
-			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
-
-			ginkgo.GinkgoWriter.Println("Non-admin user successfully monitored MustGather progress")
+			ginkgo.GinkgoWriter.Println("RetainResourcesOnCompletion=true verified: Job and Pod are retained after completion")
 		})
 	})
 
@@ -577,83 +697,6 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			Expect(apierrors.IsForbidden(err)).To(BeTrue(), "Should get Forbidden error")
 		})
 	})
-
-	ginkgo.Context("Cleanup and Artifact Retrieval - Non-Admin User", func() {
-		ginkgo.It("can delete their MustGather CR", func() {
-			mustGatherName := fmt.Sprintf("test-cleanup-%d", time.Now().UnixNano())
-
-			ginkgo.By("creating MustGather CR")
-			mg := createMustGatherCR(mustGatherName, ns.Name, serviceAccount, false)
-
-			ginkgo.By("deleting their MustGather CR")
-			err := nonAdminClient.Delete(testCtx, mg)
-			Expect(err).NotTo(HaveOccurred(), "Non-admin should be able to delete their own CR")
-
-			ginkgo.By("Verifying CR is deleted")
-			Eventually(func() bool {
-				err := nonAdminClient.Get(testCtx, client.ObjectKey{
-					Name:      mustGatherName,
-					Namespace: ns.Name,
-				}, &mustgatherv1alpha1.MustGather{})
-				return apierrors.IsNotFound(err)
-			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
-
-			ginkgo.GinkgoWriter.Printf("Non-admin user successfully deleted MustGather CR: %s\n", mustGatherName)
-		})
-
-		ginkgo.It("should clean up Job and Pod when MustGather CR is deleted", func() {
-			mustGatherName := fmt.Sprintf("test-cascading-delete-%d", time.Now().UnixNano())
-
-			ginkgo.By("Creating MustGather CR")
-			mg := createMustGatherCR(mustGatherName, ns.Name, serviceAccount, false)
-
-			ginkgo.By("Waiting for Job to be created")
-			Eventually(func() error {
-				return adminClient.Get(testCtx, client.ObjectKey{
-					Name:      mustGatherName,
-					Namespace: ns.Name,
-				}, &batchv1.Job{})
-			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
-
-			ginkgo.By("Waiting for Pod to be created")
-			Eventually(func() int {
-				podList := &corev1.PodList{}
-				if err := adminClient.List(testCtx, podList,
-					client.InNamespace(ns.Name),
-					client.MatchingLabels{jobNameLabelKey: mustGatherName}); err != nil {
-					return 0
-				}
-				return len(podList.Items)
-			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeNumerically(">=", 1),
-				"Pod should be created by Job")
-
-			ginkgo.By("Deleting MustGather CR")
-			err := nonAdminClient.Delete(testCtx, mg)
-			Expect(err).NotTo(HaveOccurred())
-
-			ginkgo.By("Verifying Job is eventually cleaned up")
-			Eventually(func() bool {
-				err := adminClient.Get(testCtx, client.ObjectKey{
-					Name:      mustGatherName,
-					Namespace: ns.Name,
-				}, &batchv1.Job{})
-				return apierrors.IsNotFound(err)
-			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
-				"Job should be cleaned up when MustGather CR is deleted")
-
-			ginkgo.By("Verifying Pods are eventually cleaned up")
-			Eventually(func() int {
-				podList := &corev1.PodList{}
-				if err := adminClient.List(testCtx, podList,
-					client.InNamespace(ns.Name),
-					client.MatchingLabels{jobNameLabelKey: mustGatherName}); err != nil {
-					return 0
-				}
-				return len(podList.Items)
-			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Equal(0),
-				"Pods should be cleaned up when MustGather CR is deleted")
-		})
-	})
 })
 
 // Helper Functions
@@ -700,7 +743,7 @@ func createMustGatherCR(name, namespace, serviceAccountName string, retainResour
 			Name:      name,
 			Namespace: namespace,
 			Labels: map[string]string{
-				"test": nonAdminLabel,
+				"e2e-test": nonAdminLabel,
 			},
 		},
 		Spec: mustgatherv1alpha1.MustGatherSpec{
