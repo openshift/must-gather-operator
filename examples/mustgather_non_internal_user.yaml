@@ -3,9 +3,12 @@ kind: MustGather
 metadata:
   name: example-mustgather
 spec:
-  caseID: '02527285'
-  caseManagementAccountSecretRef:
-    name: case-management-creds
   serviceAccountRef:
     name: must-gather-admin
-  internalUser: false
+  uploadTarget:
+    type: SFTP
+    sftp:
+      caseID: '02527285'
+      caseManagementAccountSecretRef:
+        name: case-management-creds
+      internalUser: false
