@@ -68,7 +68,7 @@ oc apply -f ./test/must-gather.yaml
 
 **API Types** (`api/v1alpha1/mustgather_types.go`):
 - `MustGather` CR defines the specification for must-gather collection jobs
-- Key fields: `caseID`, `caseManagementAccountSecretRef`, `serviceAccountRef`, `audit`, `proxyConfig`, `mustGatherTimeout`, `internalUser`
+- Key fields: `caseID`, `caseManagementAccountSecretRef`, `serviceAccountRef`, `audit`, `mustGatherTimeout`, `internalUser`
 - Status tracking with conditions and completion state
 
 **Controller** (`controllers/mustgather/mustgather_controller.go`):
@@ -94,7 +94,7 @@ oc apply -f ./test/must-gather.yaml
 ### Reconciliation Flow
 
 1. Fetch MustGather instance
-2. Initialize defaults (ServiceAccountRef, ProxyConfig from cluster)
+2. Initialize defaults (ServiceAccountRef from cluster)
 3. Handle deletion via finalizer:
    - Delete secret from operator namespace
    - Delete job and associated pods
@@ -114,7 +114,7 @@ oc apply -f ./test/must-gather.yaml
 - **Two-container approach**: Separate containers for gathering and uploading allows gather to run with cluster permissions while upload runs with limited permissions
 - **Process namespace sharing**: Enables upload container to detect gather completion via `pgrep`
 - **Infra node affinity**: Jobs prefer infra nodes (with tolerations) to avoid impacting application workloads
-- **Proxy support**: Inherits cluster proxy config by default, overridable per MustGather CR
+- **Proxy support**: Inherits cluster proxy config from environment variables
 - **FIPS mode**: Enabled by default (`FIPS_ENABLED=true` in Makefile)
 
 ### Important Files
@@ -133,7 +133,7 @@ Required for operation:
 
 Optional:
 - `OSDK_FORCE_RUN_MODE=local`: Bypasses leader election for local development
-- Proxy variables: `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` (can be overridden per CR)
+- Proxy variables: `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`
 
 ### API Group Migration
 
