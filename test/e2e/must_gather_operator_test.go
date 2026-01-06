@@ -1000,8 +1000,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				"Job should complete successfully")
 
 			ginkgo.By("Verifying file was uploaded to SFTP server at the correct path for external user")
+
 			// For external users (internal_user=false), the file should be uploaded directly to: <caseid>_<filename>.tar.gz
-			// (no username prefix, unlike internal users who upload to: username/<caseid>_<filename>.tar.gz)
 			found, sftpLogs, err := verifySFTPUpload(ns.Name, caseManagementSecretNameValid, stageHostName, testCaseID, false)
 			if err != nil {
 				ginkgo.GinkgoWriter.Printf("SFTP verification error: %v\n", err)
@@ -1028,18 +1028,19 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.GinkgoWriter.Printf("MustGather with UploadTarget completed - Status: %s, Reason: %s\n",
 				fetchedMG.Status.Status, fetchedMG.Status.Reason)
 
-			// ginkgo.By("Cleaning up uploaded test files from SFTP server")
-			// if cleanupErr := cleanupSFTPFiles(ns.Name, caseManagementSecretNameValid, stageHostName, testCaseID, false); cleanupErr != nil {
-			// 	ginkgo.GinkgoWriter.Printf("Warning: SFTP cleanup failed: %v\n", cleanupErr)
-			// }
+			// Note: Uploaded test files are automatically purged by the SFTP server daily,
+			// so manual cleanup is not required.
 		})
 
 		ginkgo.It("should fail upload with invalid SFTP credentials", func() {
 			ginkgo.By("Creating invalid case management secret")
 			loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "case-management-secret-invalid.yaml"), ns.Name)
 
-			ginkgo.By("Creating MustGather CR with invalid credentials")
+			ginkgo.By("Creating MustGather CR with invalid credentials and short timeout")
+			// Use a short timeout to make the test run faster (4 retries needed)
+			shortTimeout := 1 * time.Minute
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
+				Timeout: &shortTimeout, // Short timeout to speed up test
 				UploadTarget: &UploadTargetOptions{
 					CaseID:       testCaseID,
 					SecretName:   caseManagementSecretNameInvalid,
@@ -1068,18 +1069,21 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}
 			Expect(hasUploadContainer).To(BeTrue(), "Job should have upload container")
 
-			ginkgo.By("Waiting for Job to fail due to invalid credentials")
-			Eventually(func() bool {
+			ginkgo.By("Waiting for Job to fail due to invalid credentials (backoffLimit=3, needs >3 failures)")
+			// The Job's backoffLimit is 3, so the controller only marks MustGather as Failed
+			// when job.Status.Failed > backoffLimit (i.e., > 3, meaning 4+ failures)
+			Eventually(func() int32 {
 				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
 				}, job); err != nil {
-					return false
+					return 0
 				}
-				// Job should fail because SFTP authentication will fail with invalid credentials
-				return job.Status.Failed > 0
-			}).WithTimeout(10*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
-				"Job should fail due to invalid SFTP credentials")
+				ginkgo.GinkgoWriter.Printf("Job status - Active: %d, Succeeded: %d, Failed: %d\n",
+					job.Status.Active, job.Status.Succeeded, job.Status.Failed)
+				return job.Status.Failed
+			}).WithTimeout(10*time.Minute).WithPolling(10*time.Second).Should(BeNumerically(">", 3),
+				"Job should fail more than backoffLimit (3) times due to invalid SFTP credentials")
 
 			ginkgo.By("Verifying MustGather CR status is Failed")
 			fetchedMG := &mustgatherv1alpha1.MustGather{}
@@ -1418,20 +1422,33 @@ func createMustGatherCR(name, namespace, serviceAccountName string, retainResour
 	return mg
 }
 func getCaseCredsFromVault() (string, string, error) {
+	// First, try to read from Vault-mounted files (CI/CD environment)
 	configDir := os.Getenv(caseCredsConfigDirEnvVar)
-	var sftpUsername, sftpPassword []byte
-	var err error
 	if configDir != "" {
-		sftpUsername, err = os.ReadFile(configDir + "/" + vaultUsernameKey)
-		if err != nil {
-			return "", "", fmt.Errorf("failed to read sftp username from file: %w", err)
-		}
-		sftpPassword, err = os.ReadFile(configDir + "/" + vaultPasswordKey)
-		if err != nil {
-			return "", "", fmt.Errorf("failed to read sftp password from file: %w", err)
+		// Check if the directory exists before trying to read
+		if _, err := os.Stat(configDir); err == nil {
+			sftpUsername, err := os.ReadFile(configDir + "/" + vaultUsernameKey)
+			if err != nil {
+				return "", "", fmt.Errorf("failed to read sftp username from file: %w", err)
+			}
+			sftpPassword, err := os.ReadFile(configDir + "/" + vaultPasswordKey)
+			if err != nil {
+				return "", "", fmt.Errorf("failed to read sftp password from file: %w", err)
+			}
+			return strings.TrimSpace(string(sftpUsername)), strings.TrimSpace(string(sftpPassword)), nil
 		}
 	}
-	return string(sftpUsername), string(sftpPassword), nil
+
+	// Fallback: try direct environment variables (for local testing)
+	sftpUsername := os.Getenv("SFTP_USERNAME_E2E")
+	sftpPassword := os.Getenv("SFTP_PASSWORD_E2E")
+	if sftpUsername != "" && sftpPassword != "" {
+		return sftpUsername, sftpPassword, nil
+	}
+
+	return "", "", fmt.Errorf("SFTP credentials not found. Set either:\n" +
+		"  1. CASE_MANAGEMENT_CREDS_CONFIG_DIR with Vault-mounted files (sftp_username_e2e, sftp_password_e2e), or\n" +
+		"  2. SFTP_USERNAME_E2E and SFTP_PASSWORD_E2E environment variables for local testing")
 }
 
 // getOperatorImage retrieves the OPERATOR_IMAGE from the must-gather-operator deployment
