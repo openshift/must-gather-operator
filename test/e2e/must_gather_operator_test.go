@@ -80,8 +80,8 @@ const (
 	// PersistentVolume test constants
 	mustGatherPVCName        = "must-gather-pvc"
 	caseCredsConfigDirEnvVar = "CASE_MANAGEMENT_CREDS_CONFIG_DIR"
-	vaultUsernameKey         = "sftp_username_e2e"
-	vaultPasswordKey         = "sftp_password_e2e"
+	vaultUsernameKey         = "sftp-username-e2e"
+	vaultPasswordKey         = "sftp-password-e2e"
 )
 
 //go:embed testdata/*
