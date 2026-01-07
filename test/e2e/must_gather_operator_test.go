@@ -89,13 +89,14 @@ var testassets embed.FS
 
 // Test suite variables
 var (
-	testCtx         context.Context
-	testScheme      *k8sruntime.Scheme
-	adminRestConfig *rest.Config
-	adminClient     client.Client
-	nonAdminClient  client.Client
-	adminClientset  *kubernetes.Clientset
-	setupComplete   bool
+	testCtx           context.Context
+	testScheme        *k8sruntime.Scheme
+	adminRestConfig   *rest.Config
+	adminClient       client.Client
+	nonAdminClient    client.Client
+	nonAdminClientset *kubernetes.Clientset
+	operatorImage     string
+	setupComplete     bool
 )
 
 func init() {
@@ -121,11 +122,13 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		adminClient, err = client.New(adminRestConfig, client.Options{Scheme: testScheme})
 		Expect(err).NotTo(HaveOccurred(), "Failed to create admin typed client")
 
-		adminClientset, err = kubernetes.NewForConfig(adminRestConfig)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create admin clientset")
-
 		ginkgo.By("Verifying must-gather-operator is deployed and available")
 		verifyOperatorDeployment()
+
+		ginkgo.By("Getting operator image for verification pods")
+		operatorImage, err = getOperatorImage()
+		Expect(err).NotTo(HaveOccurred(), "Failed to get operator image")
+		ginkgo.GinkgoWriter.Printf("Operator image: %s\n", operatorImage)
 
 		ginkgo.By("STEP 2: Creates test namespace")
 		namespace, err := loader.CreateTestNS("must-gather-operator-e2e", false)
@@ -883,44 +886,28 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
 				"Job should be created for MustGather with UploadTarget")
 
-			ginkgo.By("Verifying Job has upload container with correct environment variables for external user upload path")
-			hasUploadContainer := false
-			foundInternalUserEnv := false
-			foundCaseIdEnv := false
-			for _, container := range job.Spec.Template.Spec.Containers {
-				if container.Name == uploadContainerName {
-					hasUploadContainer = true
-
-					ginkgo.By("Verifying upload container has required environment variables")
-					envVarNames := make(map[string]bool)
-					for _, env := range container.Env {
-						envVarNames[env.Name] = true
-
-						switch env.Name {
-						case "internal_user":
-							foundInternalUserEnv = true
-							Expect(env.Value).To(Equal("false"),
-								"internal_user env var should be 'false' for external user")
-						case "caseid":
-							foundCaseIdEnv = true
-							Expect(env.Value).To(Equal(testCaseID),
-								"caseid env var should match the configured case ID")
-						}
-					}
-					Expect(envVarNames["caseid"]).To(BeTrue(), "Upload container should have caseid env var")
-					Expect(envVarNames["username"]).To(BeTrue(), "Upload container should have username env var")
-					Expect(envVarNames["password"]).To(BeTrue(), "Upload container should have password env var")
-					Expect(envVarNames["host"]).To(BeTrue(), "Upload container should have host env var")
-					Expect(envVarNames["internal_user"]).To(BeTrue(), "Upload container should have internal_user env var")
-
+			ginkgo.By("Verifying Job has upload container with correct environment variables")
+			var uploadContainer *corev1.Container
+			for i := range job.Spec.Template.Spec.Containers {
+				if job.Spec.Template.Spec.Containers[i].Name == uploadContainerName {
+					uploadContainer = &job.Spec.Template.Spec.Containers[i]
 					break
 				}
 			}
-			Expect(hasUploadContainer).To(BeTrue(), "Job should have upload container when UploadTarget is specified")
-			Expect(foundInternalUserEnv).To(BeTrue(), "internal_user env var should exist in upload container")
-			Expect(foundCaseIdEnv).To(BeTrue(), "caseid env var should exist in upload container")
+			Expect(uploadContainer).NotTo(BeNil(), "Job should have upload container")
 
-			ginkgo.GinkgoWriter.Printf("Upload path for external user (internal_user=false) will be: %s_<filename>.tar.gz\n", testCaseID)
+			envVars := make(map[string]string)
+			for _, env := range uploadContainer.Env {
+				envVars[env.Name] = env.Value
+			}
+
+			Expect(envVars).To(HaveKey("caseid"), "Upload container should have caseid env var")
+			Expect(envVars).To(HaveKey("username"), "Upload container should have username env var")
+			Expect(envVars).To(HaveKey("password"), "Upload container should have password env var")
+			Expect(envVars).To(HaveKey("host"), "Upload container should have host env var")
+			Expect(envVars).To(HaveKey("internal_user"), "Upload container should have internal_user env var")
+			Expect(envVars["internal_user"]).To(Equal("false"), "internal_user should be 'false' for external user")
+			Expect(envVars["caseid"]).To(Equal(testCaseID), "caseid should match configured case ID")
 
 			ginkgo.By("Waiting for Pod to be created and start running")
 			var mustGatherPod *corev1.Pod
@@ -945,38 +932,21 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					"Pod should reach Running, Succeeded, or Failed state")
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
-			ginkgo.By("Verifying both containers start (check container statuses)")
-			Eventually(func() bool {
-				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+			ginkgo.By("Verifying both containers have started")
+			Eventually(func(g Gomega) {
+				g.Expect(nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherPod.Name,
 					Namespace: ns.Name,
-				}, mustGatherPod); err != nil {
-					return false
-				}
+				}, mustGatherPod)).To(Succeed())
 
-				gatherStarted := false
-				uploadStarted := false
-
+				containerStatuses := make(map[string]bool)
 				for _, cs := range mustGatherPod.Status.ContainerStatuses {
-					if cs.Name == gatherContainerName {
-						if cs.State.Running != nil || cs.State.Terminated != nil {
-							gatherStarted = true
-							ginkgo.GinkgoWriter.Printf("Gather container status - Running: %v, Terminated: %v, RestartCount: %d\n",
-								cs.State.Running != nil, cs.State.Terminated != nil, cs.RestartCount)
-						}
-					}
-					if cs.Name == uploadContainerName {
-						if cs.State.Running != nil || cs.State.Terminated != nil {
-							uploadStarted = true
-							ginkgo.GinkgoWriter.Printf("Upload container status - Running: %v, Terminated: %v, RestartCount: %d\n",
-								cs.State.Running != nil, cs.State.Terminated != nil, cs.RestartCount)
-						}
-					}
+					started := cs.State.Running != nil || cs.State.Terminated != nil
+					containerStatuses[cs.Name] = started
 				}
-
-				return gatherStarted && uploadStarted
-			}).WithTimeout(3*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
-				"Both gather and upload containers should start")
+				g.Expect(containerStatuses[gatherContainerName]).To(BeTrue(), "Gather container should have started")
+				g.Expect(containerStatuses[uploadContainerName]).To(BeTrue(), "Upload container should have started")
+			}).WithTimeout(3 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
 			ginkgo.By("Waiting for Job to complete successfully (gather and upload)")
 			Eventually(func() bool {
@@ -1059,14 +1029,11 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				"Job should be created for MustGather with invalid credentials")
 
 			ginkgo.By("Verifying Job has upload container")
-			hasUploadContainer := false
-			for _, container := range job.Spec.Template.Spec.Containers {
-				if container.Name == uploadContainerName {
-					hasUploadContainer = true
-					break
-				}
+			containerNames := make([]string, len(job.Spec.Template.Spec.Containers))
+			for i, c := range job.Spec.Template.Spec.Containers {
+				containerNames[i] = c.Name
 			}
-			Expect(hasUploadContainer).To(BeTrue(), "Job should have upload container")
+			Expect(containerNames).To(ContainElement(uploadContainerName), "Job should have upload container")
 
 			ginkgo.By("Waiting for Job to fail due to invalid credentials")
 			Eventually(func() bool {
@@ -1154,18 +1121,24 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
 			ginkgo.By("Verifying gather container has subPath configured in volume mount")
-			for _, container := range job.Spec.Template.Spec.Containers {
-				if container.Name == gatherContainerName {
-					for _, volumeMount := range container.VolumeMounts {
-						if volumeMount.Name == outputVolumeName {
-							Expect(volumeMount.SubPath).To(Equal(subPath),
-								"Volume mount should have subPath configured")
-						}
-					}
+			var gatherContainer *corev1.Container
+			for i := range job.Spec.Template.Spec.Containers {
+				if job.Spec.Template.Spec.Containers[i].Name == gatherContainerName {
+					gatherContainer = &job.Spec.Template.Spec.Containers[i]
+					break
 				}
 			}
+			Expect(gatherContainer).NotTo(BeNil(), "Job should have gather container")
 
-			ginkgo.GinkgoWriter.Printf("SubPath '%s' correctly configured in gather container volume mount\n", subPath)
+			var outputMount *corev1.VolumeMount
+			for i := range gatherContainer.VolumeMounts {
+				if gatherContainer.VolumeMounts[i].Name == outputVolumeName {
+					outputMount = &gatherContainer.VolumeMounts[i]
+					break
+				}
+			}
+			Expect(outputMount).NotTo(BeNil(), "Gather container should have output volume mount")
+			Expect(outputMount.SubPath).To(Equal(subPath), "Volume mount should have subPath configured")
 		})
 
 		ginkgo.It("should create MustGather with PVC storage, configure Job correctly, and persist data", func() {
@@ -1198,20 +1171,18 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				"Job should be created for MustGather with PersistentVolume storage")
 
 			ginkgo.By("Verifying Job uses PVC for output volume")
-			hasPVCVolume := false
-			for _, volume := range job.Spec.Template.Spec.Volumes {
-				if volume.Name == outputVolumeName {
-					Expect(volume.VolumeSource.PersistentVolumeClaim).NotTo(BeNil(),
-						"Output volume should use PersistentVolumeClaim, not EmptyDir")
-					Expect(volume.VolumeSource.PersistentVolumeClaim.ClaimName).To(Equal(mustGatherPVCName),
-						"PVC claim name should match the configured PVC")
-					hasPVCVolume = true
+			var outputVolume *corev1.Volume
+			for i := range job.Spec.Template.Spec.Volumes {
+				if job.Spec.Template.Spec.Volumes[i].Name == outputVolumeName {
+					outputVolume = &job.Spec.Template.Spec.Volumes[i]
 					break
 				}
 			}
-			Expect(hasPVCVolume).To(BeTrue(), "Job should have output volume configured")
-
-			ginkgo.GinkgoWriter.Printf("Job correctly using PVC '%s' for output volume\n", mustGatherPVCName)
+			Expect(outputVolume).NotTo(BeNil(), "Job should have output volume configured")
+			Expect(outputVolume.VolumeSource.PersistentVolumeClaim).NotTo(BeNil(),
+				"Output volume should use PersistentVolumeClaim, not EmptyDir")
+			Expect(outputVolume.VolumeSource.PersistentVolumeClaim.ClaimName).To(Equal(mustGatherPVCName),
+				"PVC claim name should match the configured PVC")
 
 			ginkgo.By("Waiting for Job to complete")
 			Eventually(func() int32 {
@@ -1241,8 +1212,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					},
 					Containers: []corev1.Container{
 						{
-							Name:  "verify",
-							Image: "registry.redhat.io/ubi8/ubi-minimal:latest",
+							Name:  "pvc-verify",
+							Image: operatorImage,
 							Command: []string{
 								"/bin/sh", "-c",
 								`echo '=== PVC Contents ===' &&
@@ -1295,7 +1266,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				"Verification pod should complete")
 
 			ginkgo.By("Checking verification Pod logs for must-gather data")
-			logs, err := getContainerLogs(ns.Name, verifyPodName, "verify")
+			logs, err := getContainerLogs(ns.Name, verifyPodName, "pvc-verify")
 			Expect(err).NotTo(HaveOccurred(), "Failed to get verification pod logs")
 
 			ginkgo.GinkgoWriter.Printf("Verification Pod logs:\n%s\n", logs)
@@ -1324,6 +1295,10 @@ func createNonAdminClient() client.Client {
 
 	c, err := client.New(nonAdminConfig, client.Options{Scheme: testScheme})
 	Expect(err).NotTo(HaveOccurred(), "Failed to create non-admin impersonation client")
+
+	// Also create a clientset for operations like GetLogs
+	nonAdminClientset, err = kubernetes.NewForConfig(nonAdminConfig)
+	Expect(err).NotTo(HaveOccurred(), "Failed to create non-admin clientset")
 
 	ginkgo.GinkgoWriter.Printf("Created impersonated client for user: %s\n", nonAdminUser)
 	return c
@@ -1463,7 +1438,7 @@ func getOperatorImage() (string, error) {
 
 // getContainerLogs retrieves logs from a specific container in a pod
 func getContainerLogs(namespace, podName, containerName string) (string, error) {
-	req := adminClientset.CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{
+	req := nonAdminClientset.CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{
 		Container: containerName,
 	})
 	podLogs, err := req.Stream(testCtx)
@@ -1480,27 +1455,14 @@ func getContainerLogs(namespace, podName, containerName string) (string, error) 
 	return buf.String(), nil
 }
 
-// verifySFTPUpload connects to the SFTP server and verifies a file exists at the expected path
-// For internal users, the path should be: username/caseid_filename.tar.gz
-// For external users, the path should be: caseid_filename.tar.gz
+// verifySFTPUpload connects to the SFTP server and verifies a file with caseID exists.
+// Path: internal users → username/<caseid>_*.tar.gz,
+// external users → <caseid>_*.tar.gz
 func verifySFTPUpload(namespace, secretName, host, caseID string, internalUser bool) (bool, string, error) {
-	// Get the operator image (same image used for SFTP uploads, has sshpass and sftp tools)
-	operatorImage, err := getOperatorImage()
-	if err != nil {
-		return false, "", fmt.Errorf("failed to get operator image: %w", err)
-	}
-	ginkgo.GinkgoWriter.Printf("Using operator image for verification pod: %s\n", operatorImage)
-
-	// Create a verification pod that runs sftp ls command
 	verifyPodName := fmt.Sprintf("sftp-verify-%d", time.Now().UnixNano())
 
-	// Build the sftp command based on internal user flag
-	// For internal users, files are uploaded to: username/<caseid>_filename.tar.gz
-	// When logged in as the user, we need to list the username subdirectory
-	// For external users, files are uploaded directly to: <caseid>_filename.tar.gz
 	var sftpListCommand string
 	if internalUser {
-		// For internal users, list files in the username directory (cd to username dir first)
 		sftpListCommand = "ls -la $SFTP_USERNAME"
 	} else {
 		// For external users, list files in the root directory
@@ -1572,8 +1534,7 @@ EOF
 	}
 
 	// Create the verification pod
-	err = nonAdminClient.Create(testCtx, verifyPod)
-	if err != nil {
+	if err := nonAdminClient.Create(testCtx, verifyPod); err != nil {
 		return false, "", fmt.Errorf("failed to create verification pod: %w", err)
 	}
 
