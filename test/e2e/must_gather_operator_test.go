@@ -10,6 +10,7 @@ import (
 	"embed"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,8 +75,6 @@ const (
 	caseManagementSecretNameValid   = "case-management-creds-valid"
 	caseManagementSecretNameInvalid = "case-management-creds-invalid"
 	stageHostName                   = "sftp.access.stage.redhat.com"
-
-	testCaseID = "00000"
 
 	// PersistentVolume test constants
 	mustGatherPVCName        = "must-gather-pvc"
@@ -485,11 +484,11 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}
 			Expect(gatherContainer).NotTo(BeNil(), "Job should have gather container")
 
-			// The gather container command should include the timeout value
+			// The gather container command should include the configured timeout value (60 seconds)
 			commandStr := strings.Join(gatherContainer.Command, " ")
 			ginkgo.GinkgoWriter.Printf("Gather container command: %s\n", commandStr)
-			Expect(commandStr).To(ContainSubstring("timeout"),
-				"Gather container command should include timeout")
+			Expect(commandStr).To(ContainSubstring("timeout 60"),
+				"Gather container command should include timeout value of 60 seconds")
 
 			ginkgo.By("Waiting for Job to complete")
 			Eventually(func() bool {
@@ -862,8 +861,12 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}
 
 			ginkgo.By("Creating MustGather CR with UploadTarget and internalUser=false")
+			// Generate unique caseID to avoid false positives from previous test runs
+			caseID := generateTestCaseID()
+			ginkgo.GinkgoWriter.Printf("Using unique caseID: %s\n", caseID)
+
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
-				UploadTarget: &UploadTargetOptions{CaseID: testCaseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: stageHostName},
+				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: stageHostName},
 			})
 
 			ginkgo.By("Verifying MustGather CR has internalUser set to false")
@@ -907,7 +910,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			Expect(envVars).To(HaveKey("host"), "Upload container should have host env var")
 			Expect(envVars).To(HaveKey("internal_user"), "Upload container should have internal_user env var")
 			Expect(envVars["internal_user"]).To(Equal("false"), "internal_user should be 'false' for external user")
-			Expect(envVars["caseid"]).To(Equal(testCaseID), "caseid should match configured case ID")
+			Expect(envVars["caseid"]).To(Equal(caseID), "caseid should match configured case ID")
 
 			ginkgo.By("Waiting for Pod to be created and start running")
 			var mustGatherPod *corev1.Pod
@@ -972,17 +975,17 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Verifying file was uploaded to SFTP server at the correct path for external user")
 
 			// For external users (internal_user=false), the file should be uploaded directly to: <caseid>_<filename>.tar.gz
-			found, sftpLogs, err := verifySFTPUpload(ns.Name, caseManagementSecretNameValid, stageHostName, testCaseID, false)
+			found, sftpLogs, err := verifySFTPUpload(ns.Name, caseManagementSecretNameValid, stageHostName, caseID, false)
 			if err != nil {
 				ginkgo.GinkgoWriter.Printf("SFTP verification error: %v\n", err)
 			}
 			ginkgo.GinkgoWriter.Printf("SFTP directory listing:\n%s\n", sftpLogs)
 
 			Expect(found).To(BeTrue(),
-				"File with caseID %s should exist on SFTP server in external user path (<caseid>_must-gather-*.tar.gz)", testCaseID)
+				"File with caseID %s should exist on SFTP server in external user path (<caseid>_must-gather-*.tar.gz)", caseID)
 
 			ginkgo.GinkgoWriter.Println("SFTP upload functionality verified for external user (internal_user=false)")
-			ginkgo.GinkgoWriter.Printf("Verified upload path format: %s_<filename>.tar.gz (no username prefix)\n", testCaseID)
+			ginkgo.GinkgoWriter.Printf("Verified upload path format: %s_<filename>.tar.gz (no username prefix)\n", caseID)
 
 			ginkgo.By("Verifying MustGather CR status is updated after Job completion")
 			err = nonAdminClient.Get(testCtx, client.ObjectKey{
@@ -1011,7 +1014,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
 				Timeout: &shortTimeout, // Short timeout to speed up test
 				UploadTarget: &UploadTargetOptions{
-					CaseID:       testCaseID,
+					CaseID:       "00000",
 					SecretName:   caseManagementSecretNameInvalid,
 					InternalUser: false,
 					Host:         stageHostName,
@@ -1436,6 +1439,13 @@ func getOperatorImage() (string, error) {
 	return "", fmt.Errorf("could not find operator image")
 }
 
+// generateTestCaseID creates a unique 8-digit case ID for each test run.
+func generateTestCaseID() string {
+	// Generate a random 8-digit number starting with 0 (00000000-09999999)
+	random := rand.Intn(10000000)
+	return fmt.Sprintf("%08d", random)
+}
+
 // getContainerLogs retrieves logs from a specific container in a pod
 func getContainerLogs(namespace, podName, containerName string) (string, error) {
 	req := nonAdminClientset.CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{
@@ -1576,9 +1586,21 @@ EOF
 	// Cleanup pod
 	_ = nonAdminClient.Delete(testCtx, verifyPod)
 
-	// Check if the file with caseID exists in the listing
-	filePattern := fmt.Sprintf("%s_must-gather", caseID)
-	found := strings.Contains(logs, filePattern)
+	// Check if the file with caseID exists in the listing.
+	// The file format is: <caseID>_must-gather-<timestamp>.tar.gz
+	// We check for files uploaded today to avoid matching old files from previous test runs.
+	today := time.Now().UTC().Format("20060102")
+	filePatternWithDate := fmt.Sprintf("%s_must-gather-%s", caseID, today)
+
+	// First try to match file uploaded today
+	found := strings.Contains(logs, filePatternWithDate)
+
+	// If not found with today's date, fall back to checking just the caseID prefix
+	// This handles edge cases where test runs near midnight
+	if !found {
+		filePatternBasic := fmt.Sprintf("%s_must-gather", caseID)
+		found = strings.Contains(logs, filePatternBasic)
+	}
 
 	return found, logs, nil
 }
