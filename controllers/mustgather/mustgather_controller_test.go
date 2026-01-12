@@ -459,13 +459,20 @@ func TestReconcile(t *testing.T) {
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
-								CaseID:                         "12345678",
+								Host:                           "sftp.example.com",
+							CaseID:                         "12345678",
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
 							},
 						},
 					},
 				}
-				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: "ns"}}
+				userSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: "ns"},
+					Data: map[string][]byte{
+						"username": []byte("testuser"),
+						"password": []byte("testpass"),
+					},
+				}
 				cv := &configv1.ClusterVersion{
 					ObjectMeta: metav1.ObjectMeta{Name: "version"},
 					Status: configv1.ClusterVersionStatus{
