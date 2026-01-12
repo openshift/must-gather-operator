@@ -171,6 +171,29 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 				log.Error(err, fmt.Sprintf("Error getting secret (%s): %s", secretName, err.Error()))
 				return reconcile.Result{Requeue: true}, err
 			}
+
+			// Validate SFTP credentials before creating the job
+			reqLogger.Info("Validating SFTP credentials before creating must-gather job")
+			validationErr := validateSFTPCredentials(
+				ctx,
+				r.GetClient(),
+				instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef,
+				instance.Spec.UploadTarget.SFTP.Host,
+				instance.Namespace,
+			)
+			if validationErr != nil {
+				reqLogger.Error(validationErr, "SFTP credential validation failed")
+				// Update status to indicate validation failure
+				statusErr := r.updateStatusWithValidationError(ctx, instance, "SFTP", validationErr)
+				if statusErr != nil {
+					log.Error(statusErr, "Failed to update status after validation error")
+					return r.ManageError(ctx, instance, statusErr)
+				}
+				// Don't create job, don't requeue - this is a permanent failure
+				return reconcile.Result{}, nil
+			}
+
+			reqLogger.Info("SFTP credentials validated successfully")
 		}
 
 		// job is not there, create it.
