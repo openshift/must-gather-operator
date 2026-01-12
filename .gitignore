@@ -88,6 +88,3 @@ saas-must-gather-operator-bundle
 # IDE
 .idea
 test/e2e/test-run-results/
-
-# Go vendor directory (not needed with Go modules)
-vendor/
