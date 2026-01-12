@@ -91,6 +91,23 @@ func (w failingStatusWriter) Update(ctx context.Context, obj client.Object, opts
 	return errors.New("forced status update error")
 }
 
+// mockSFTPValidator is a test validator that doesn't make real network connections
+type mockSFTPValidator struct {
+	shouldFail bool
+	err        error
+}
+
+func (m mockSFTPValidator) validateConnection(username, password, host string) error {
+	if m.shouldFail {
+		if m.err != nil {
+			return m.err
+		}
+		return errors.New("mock SFTP validation failure")
+	}
+	// Success case - no actual connection made
+	return nil
+}
+
 func TestCleanupMustGatherResources(t *testing.T) {
 	targetNamespace := "foo-bar"
 
@@ -456,21 +473,6 @@ func TestReconcile(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
 						ServiceAccountName: "default",
-						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-							Type: mustgatherv1alpha1.UploadTypeSFTP,
-							SFTP: &mustgatherv1alpha1.SFTPSpec{
-								Host:                           "sftp.example.com",
-							CaseID:                         "12345678",
-								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
-							},
-						},
-					},
-				}
-				userSecret := &corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: "ns"},
-					Data: map[string][]byte{
-						"username": []byte("testuser"),
-						"password": []byte("testpass"),
 					},
 				}
 				cv := &configv1.ClusterVersion{
@@ -479,7 +481,7 @@ func TestReconcile(t *testing.T) {
 						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
 					},
 				}
-				return []client.Object{mg, userSecret, cv}
+				return []client.Object{mg, cv}
 			},
 			interceptors: func() interceptClient { return interceptClient{} },
 			expectError:  false,

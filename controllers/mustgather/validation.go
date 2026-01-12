@@ -1,19 +1,3 @@
-/*
-Copyright 2022.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package mustgather
 
 import (
@@ -50,6 +34,30 @@ func validateSFTPCredentials(
 	host string,
 	namespace string,
 ) error {
+	return validateSFTPCredentialsWithValidator(ctx, k8sClient, secretRef, host, namespace, defaultSFTPValidator{})
+}
+
+// sftpValidator is an interface for testing SFTP connections
+type sftpValidator interface {
+	validateConnection(username, password, host string) error
+}
+
+// defaultSFTPValidator is the production implementation
+type defaultSFTPValidator struct{}
+
+func (defaultSFTPValidator) validateConnection(username, password, host string) error {
+	return testSFTPConnection(username, password, host)
+}
+
+// validateSFTPCredentialsWithValidator allows injection of a custom validator for testing
+func validateSFTPCredentialsWithValidator(
+	ctx context.Context,
+	k8sClient client.Client,
+	secretRef corev1.LocalObjectReference,
+	host string,
+	namespace string,
+	validator sftpValidator,
+) error {
 	// Retrieve the secret
 	secret := &corev1.Secret{}
 	err := k8sClient.Get(ctx, types.NamespacedName{
@@ -78,7 +86,7 @@ func validateSFTPCredentials(
 	// Run validation in a goroutine to respect context timeout
 	errChan := make(chan error, 1)
 	go func() {
-		errChan <- testSFTPConnection(string(username), string(password), host)
+		errChan <- validator.validateConnection(string(username), string(password), host)
 	}()
 
 	select {
