@@ -499,7 +499,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					return false
 				}
 				return job.Status.Succeeded > 0 || job.Status.Failed > 0
-			}).WithTimeout(5*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
+			}).WithTimeout(2*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
 				"Job should complete within the timeout period")
 
 			ginkgo.By("Verifying MustGather CR status is updated")
@@ -1590,20 +1590,9 @@ EOF
 	_ = nonAdminClient.Delete(testCtx, verifyPod)
 
 	// Check if the file with caseID exists in the listing.
-	// The file format is: <caseID>_must-gather-<timestamp>.tar.gz
-	// We check for files uploaded today to avoid matching old files from previous test runs.
-	today := time.Now().UTC().Format("20060102")
-	filePatternWithDate := fmt.Sprintf("%s_must-gather-%s", caseID, today)
-
-	// First try to match file uploaded today
-	found := strings.Contains(logs, filePatternWithDate)
-
-	// If not found with today's date, fall back to checking just the caseID prefix
-	// This handles edge cases where test runs near midnight
-	if !found {
-		filePatternBasic := fmt.Sprintf("%s_must-gather", caseID)
-		found = strings.Contains(logs, filePatternBasic)
-	}
+	// File format: <caseID>_must-gather-<timestamp>.tar.gz
+	filePattern := fmt.Sprintf("%s_must-gather", caseID)
+	found := strings.Contains(logs, filePattern)
 
 	return found, logs, nil
 }
