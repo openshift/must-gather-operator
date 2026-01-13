@@ -154,15 +154,30 @@ func isTransientAPIError(err error) bool {
 // This is a lightweight test that only checks credentials without transferring files.
 //
 // The context is used to cancel the SSH connection if the validation times out.
+//
+// The host parameter accepts:
+// - IPv4: "hostname" or "hostname:port" or "192.0.2.1" or "192.0.2.1:2222"
+// - IPv6: "[2001:db8::1]" or "[2001:db8::1]:2222" or "2001:db8::1" (auto-bracketed)
+// If no port is specified, the default SFTP port (22) is used.
+//
 // The hostKeyData parameter should contain SSH known_hosts format data for host verification.
 // If hostKeyData is empty, the connection will use ssh.InsecureIgnoreHostKey() which skips host
 // key verification (NOT RECOMMENDED for production - vulnerable to MITM attacks).
 // When hostKeyData is provided, it uses knownhosts.New() for secure OpenSSH-compatible verification.
 func testSFTPConnection(ctx context.Context, username, password, host, hostKeyData string) error {
 	// Add default port if not specified
+	// For IPv6 addresses without brackets, wrap in brackets before adding port
+	// to avoid malformed addresses like 2001:db8::1:22
 	address := host
-	if address != "" && address[len(address)-1] != ':' && !containsPort(address) {
-		address = fmt.Sprintf("%s:%s", address, sftpDefaultPort)
+	if address != "" && !containsPort(address) {
+		// Check if this looks like an IPv6 address (contains colons but not bracketed)
+		if strings.Contains(address, ":") && !strings.HasPrefix(address, "[") {
+			// Unbracketed IPv6 address - wrap in brackets before adding port
+			address = fmt.Sprintf("[%s]:%s", address, sftpDefaultPort)
+		} else {
+			// IPv4 or already-bracketed IPv6 - add port normally
+			address = fmt.Sprintf("%s:%s", address, sftpDefaultPort)
+		}
 	}
 
 	// Create host key callback - conditional based on whether host_key is provided
@@ -264,6 +279,10 @@ func testSFTPConnection(ctx context.Context, username, password, host, hostKeyDa
 }
 
 // containsPort checks if the host string already contains a port.
+// Returns true for valid host:port combinations like "hostname:22" or "[::1]:22".
+// Returns false for:
+// - IPv4 without port: "hostname" or "192.0.2.1"
+// - IPv6 without port: "[2001:db8::1]" or unbracketed "2001:db8::1"
 func containsPort(host string) bool {
 	_, _, err := net.SplitHostPort(host)
 	// If SplitHostPort succeeds, a valid host:port was present
