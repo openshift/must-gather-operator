@@ -103,10 +103,10 @@ func validateSFTPCredentials(
 	username, usernameExists := secret.Data["username"]
 	password, passwordExists := secret.Data["password"]
 
-	if !usernameExists {
+	if !usernameExists || len(username) == 0 {
 		return fmt.Errorf("SFTP credentials secret '%s' is missing required field 'username'", secretRef.Name)
 	}
-	if !passwordExists {
+	if !passwordExists || len(password) == 0 {
 		return fmt.Errorf("SFTP credentials secret '%s' is missing required field 'password'", secretRef.Name)
 	}
 
