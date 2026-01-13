@@ -97,18 +97,12 @@ func validateSFTPCredentials(
 		return fmt.Errorf("SFTP credentials secret '%s' is missing required field 'password'", secretRef.Name)
 	}
 
-	// Retrieve required host_key for verification
-	// The hostKey is REQUIRED - testSFTPConnection will fail without it to prevent MITM attacks
-	hostKey, hostKeyExists := secret.Data["host_key"]
-	if !hostKeyExists {
-		return fmt.Errorf("SFTP credentials secret '%s' is missing required field 'host_key'", secretRef.Name)
-	}
-
-	hostKeyData := string(hostKey)
-	// Validate that hostKeyData is not empty before calling testSFTPConnection
-	// testSFTPConnection requires non-empty hostKeyData for host key verification
-	if strings.TrimSpace(hostKeyData) == "" {
-		return fmt.Errorf("SFTP credentials secret '%s' has empty 'host_key' field; host key verification data is required", secretRef.Name)
+	// Retrieve optional host_key for verification
+	// If not provided, testSFTPConnection will use InsecureIgnoreHostKey (NOT RECOMMENDED for production)
+	// For production use, always provide host_key to prevent MITM attacks
+	hostKeyData := ""
+	if hostKey, hostKeyExists := secret.Data["host_key"]; hostKeyExists {
+		hostKeyData = string(hostKey)
 	}
 
 	// Test SFTP connection with timeout
@@ -153,43 +147,47 @@ func testSFTPConnection(ctx context.Context, username, password, host, hostKeyDa
 		address = fmt.Sprintf("%s:%s", address, sftpDefaultPort)
 	}
 
-	// Create host key callback - REQUIRED for security
-	// Use golang.org/x/crypto/ssh/knownhosts for production-grade known_hosts parsing
-	// This properly handles:
-	// - Hashed hostnames (|1|...|...)
-	// - Wildcard patterns (*.example.com, !*.internal)
-	// - Standard OpenSSH known_hosts formats
+	// Create host key callback - conditional based on whether host_key is provided
 	var hostKeyCallback ssh.HostKeyCallback
+
 	if strings.TrimSpace(hostKeyData) == "" {
-		// Host key verification is REQUIRED - fail if not provided
-		return fmt.Errorf("SFTP host key verification data is required but not provided; refusing to connect without host key verification to prevent MITM attacks")
+		// WARNING: No host_key provided - using InsecureIgnoreHostKey
+		// This skips host key verification and is VULNERABLE to Man-in-the-Middle (MITM) attacks
+		// For production use, always provide host_key in the secret to enable secure verification
+		hostKeyCallback = ssh.InsecureIgnoreHostKey()
+	} else {
+		// Use golang.org/x/crypto/ssh/knownhosts for production-grade known_hosts parsing
+		// This properly handles:
+		// - Hashed hostnames (|1|...|...)
+		// - Wildcard patterns (*.example.com, !*.internal)
+		// - Standard OpenSSH known_hosts formats
+
+		// knownhosts.New() requires a file path, so create a temporary file
+		// to hold the in-memory hostKeyData from the Kubernetes secret
+		tmpFile, err := os.CreateTemp("", "known_hosts_*")
+		if err != nil {
+			return fmt.Errorf("failed to create temporary known_hosts file: %w", err)
+		}
+		tmpFilePath := tmpFile.Name()
+		defer os.Remove(tmpFilePath) // Clean up temp file
+
+		// Write the known_hosts data to the temporary file
+		if _, err := tmpFile.WriteString(hostKeyData); err != nil {
+			tmpFile.Close()
+			return fmt.Errorf("failed to write known_hosts data to temporary file: %w", err)
+		}
+		if err := tmpFile.Close(); err != nil {
+			return fmt.Errorf("failed to close temporary known_hosts file: %w", err)
+		}
+
+		// Use knownhosts.New() to get a proper callback with full OpenSSH support
+		hostKeyCallback, err = knownhosts.New(tmpFilePath)
+		if err != nil {
+			return fmt.Errorf("failed to parse known_hosts data: %w", err)
+		}
 	}
 
-	// knownhosts.New() requires a file path, so create a temporary file
-	// to hold the in-memory hostKeyData from the Kubernetes secret
-	tmpFile, err := os.CreateTemp("", "known_hosts_*")
-	if err != nil {
-		return fmt.Errorf("failed to create temporary known_hosts file: %w", err)
-	}
-	tmpFilePath := tmpFile.Name()
-	defer os.Remove(tmpFilePath) // Clean up temp file
-
-	// Write the known_hosts data to the temporary file
-	if _, err := tmpFile.WriteString(hostKeyData); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("failed to write known_hosts data to temporary file: %w", err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("failed to close temporary known_hosts file: %w", err)
-	}
-
-	// Use knownhosts.New() to get a proper callback with full OpenSSH support
-	hostKeyCallback, err = knownhosts.New(tmpFilePath)
-	if err != nil {
-		return fmt.Errorf("failed to parse known_hosts data: %w", err)
-	}
-
-	// Configure SSH client with proper host key verification
+	// Configure the SSH client with proper host key verification
 	config := &ssh.ClientConfig{
 		User: username,
 		Auth: []ssh.AuthMethod{
@@ -216,7 +214,7 @@ func testSFTPConnection(ctx context.Context, username, password, host, hostKeyDa
 	select {
 	case result := <-dialChan:
 		if result.err != nil {
-			return fmt.Errorf("SFTP authentication failed: %w", result.err)
+			return fmt.Errorf("SFTP connection failed: %w", result.err)
 		}
 		conn = result.conn
 	case <-ctx.Done():
@@ -225,7 +223,7 @@ func testSFTPConnection(ctx context.Context, username, password, host, hostKeyDa
 	}
 	defer conn.Close()
 
-	// Attempt to create SFTP client
+	// Attempt to create an SFTP client
 	sftpClient, err := sftp.NewClient(conn)
 	if err != nil {
 		return fmt.Errorf("failed to create SFTP client: %w", err)
