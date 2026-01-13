@@ -988,15 +988,18 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.GinkgoWriter.Printf("Verified upload path format: %s_<filename>.tar.gz (no username prefix)\n", caseID)
 
 			ginkgo.By("Verifying MustGather CR status is updated after Job completion")
-			err = nonAdminClient.Get(testCtx, client.ObjectKey{
-				Name:      mustGatherName,
-				Namespace: ns.Name,
-			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(fetchedMG.Status.Completed).To(BeTrue(), "MustGather should be marked as completed")
-			Expect(fetchedMG.Status.Status).To(Or(Equal("Completed"), Equal("Failed")),
-				"Status should be Completed or Failed")
-			Expect(fetchedMG.Status.Reason).NotTo(BeEmpty(), "Reason should be set")
+			Eventually(func(g Gomega) {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, fetchedMG)
+				g.Expect(err).NotTo(HaveOccurred(), "Should fetch MustGather CR")
+				g.Expect(fetchedMG.Status.Completed).To(BeTrue(), "MustGather should be marked as completed")
+				g.Expect(fetchedMG.Status.Status).To(Or(Equal("Completed"), Equal("Failed")),
+					"Status should be Completed or Failed")
+				g.Expect(fetchedMG.Status.Reason).NotTo(BeEmpty(), "Reason should be set")
+			}).WithTimeout(30*time.Second).WithPolling(2*time.Second).Should(Succeed(),
+				"MustGather status should be updated after completion")
 
 			ginkgo.GinkgoWriter.Printf("MustGather with UploadTarget completed - Status: %s, Reason: %s\n",
 				fetchedMG.Status.Status, fetchedMG.Status.Reason)
