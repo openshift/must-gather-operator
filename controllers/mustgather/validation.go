@@ -1,17 +1,17 @@
 package mustgather
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -97,10 +97,19 @@ func validateSFTPCredentials(
 		return fmt.Errorf("SFTP credentials secret '%s' is missing required field 'password'", secretRef.Name)
 	}
 
-	// Retrieve optional host key for verification
-	// If not provided, testSFTPConnection will fail with a security error
-	hostKey, _ := secret.Data["host_key"]
+	// Retrieve required host_key for verification
+	// The hostKey is REQUIRED - testSFTPConnection will fail without it to prevent MITM attacks
+	hostKey, hostKeyExists := secret.Data["host_key"]
+	if !hostKeyExists {
+		return fmt.Errorf("SFTP credentials secret '%s' is missing required field 'host_key'", secretRef.Name)
+	}
+
 	hostKeyData := string(hostKey)
+	// Validate that hostKeyData is not empty before calling testSFTPConnection
+	// testSFTPConnection requires non-empty hostKeyData for host key verification
+	if strings.TrimSpace(hostKeyData) == "" {
+		return fmt.Errorf("SFTP credentials secret '%s' has empty 'host_key' field; host key verification data is required", secretRef.Name)
+	}
 
 	// Test SFTP connection with timeout
 	validationCtx, cancel := context.WithTimeout(ctx, sftpValidationTimeout)
@@ -145,58 +154,39 @@ func testSFTPConnection(ctx context.Context, username, password, host, hostKeyDa
 	}
 
 	// Create host key callback - REQUIRED for security
+	// Use golang.org/x/crypto/ssh/knownhosts for production-grade known_hosts parsing
+	// This properly handles:
+	// - Hashed hostnames (|1|...|...)
+	// - Wildcard patterns (*.example.com, !*.internal)
+	// - Standard OpenSSH known_hosts formats
 	var hostKeyCallback ssh.HostKeyCallback
 	if strings.TrimSpace(hostKeyData) == "" {
 		// Host key verification is REQUIRED - fail if not provided
 		return fmt.Errorf("SFTP host key verification data is required but not provided; refusing to connect without host key verification to prevent MITM attacks")
 	}
 
-	// Parse known_hosts format data
-	// Create a temporary in-memory knownhosts callback
-	hostKeyCallback = func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-		// Parse each line of the known_hosts data
-		for _, line := range strings.Split(hostKeyData, "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
+	// knownhosts.New() requires a file path, so create a temporary file
+	// to hold the in-memory hostKeyData from the Kubernetes secret
+	tmpFile, err := os.CreateTemp("", "known_hosts_*")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary known_hosts file: %w", err)
+	}
+	tmpFilePath := tmpFile.Name()
+	defer os.Remove(tmpFilePath) // Clean up temp file
 
-			// Parse known_hosts line format: "hostname keytype key"
-			fields := strings.Fields(line)
-			if len(fields) < 3 {
-				continue
-			}
+	// Write the known_hosts data to the temporary file
+	if _, err := tmpFile.WriteString(hostKeyData); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("failed to write known_hosts data to temporary file: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("failed to close temporary known_hosts file: %w", err)
+	}
 
-			// fields[0] = hostname pattern
-			// fields[1] = key type
-			// fields[2] = base64-encoded key
-
-			// Simple hostname match (could be enhanced with pattern matching)
-			expectedHost := fields[0]
-			if expectedHost != hostname && expectedHost != host {
-				continue
-			}
-
-			// Decode the public key
-			keyBytes, err := base64.StdEncoding.DecodeString(fields[2])
-			if err != nil {
-				continue
-			}
-
-			// Parse the public key
-			expectedKey, err := ssh.ParsePublicKey(keyBytes)
-			if err != nil {
-				continue
-			}
-
-			// Compare keys
-			if bytes.Equal(key.Marshal(), expectedKey.Marshal()) {
-				return nil // Host key matches!
-			}
-		}
-
-		// No matching key found
-		return fmt.Errorf("ssh: host key verification failed for %s: provided host key does not match known_hosts data", hostname)
+	// Use knownhosts.New() to get a proper callback with full OpenSSH support
+	hostKeyCallback, err = knownhosts.New(tmpFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to parse known_hosts data: %w", err)
 	}
 
 	// Configure SSH client with proper host key verification
