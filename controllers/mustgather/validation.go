@@ -2,16 +2,17 @@ package mustgather
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 )
 
 const (
@@ -22,11 +23,37 @@ const (
 	sftpDefaultPort = "22"
 )
 
+// sftpDialFunc is the function used to test SFTP connections.
+// It can be overridden in tests to avoid real network calls.
+var sftpDialFunc = testSFTPConnection
+
+// TransientError wraps an error that should trigger a requeue rather than permanent failure
+type TransientError struct {
+	Err error
+}
+
+func (e *TransientError) Error() string {
+	return fmt.Sprintf("transient error: %v", e.Err)
+}
+
+func (e *TransientError) Unwrap() error {
+	return e.Err
+}
+
+// IsTransientError checks if an error is transient and should trigger a requeue
+func IsTransientError(err error) bool {
+	var transientErr *TransientError
+	return errors.As(err, &transientErr)
+}
+
 // validateSFTPCredentials tests SFTP connection with the provided credentials.
 // It returns an error if:
-// - The secret doesn't exist or is missing required fields
+// - The secret doesn't exist or is missing required fields (may be transient if API server error)
 // - Connection to SFTP host fails
 // - Authentication with provided credentials fails
+//
+// Transient errors (API timeouts, network issues) are wrapped in TransientError
+// for the caller to requeue. Permanent validation failures return regular errors.
 func validateSFTPCredentials(
 	ctx context.Context,
 	k8sClient client.Client,
@@ -34,30 +61,11 @@ func validateSFTPCredentials(
 	host string,
 	namespace string,
 ) error {
-	return validateSFTPCredentialsWithValidator(ctx, k8sClient, secretRef, host, namespace, defaultSFTPValidator{})
-}
+	// Validate host is not empty before attempting connection
+	if strings.TrimSpace(host) == "" {
+		return fmt.Errorf("SFTP host cannot be empty")
+	}
 
-// sftpValidator is an interface for testing SFTP connections
-type sftpValidator interface {
-	validateConnection(username, password, host string) error
-}
-
-// defaultSFTPValidator is the production implementation
-type defaultSFTPValidator struct{}
-
-func (defaultSFTPValidator) validateConnection(username, password, host string) error {
-	return testSFTPConnection(username, password, host)
-}
-
-// validateSFTPCredentialsWithValidator allows injection of a custom validator for testing
-func validateSFTPCredentialsWithValidator(
-	ctx context.Context,
-	k8sClient client.Client,
-	secretRef corev1.LocalObjectReference,
-	host string,
-	namespace string,
-	validator sftpValidator,
-) error {
 	// Retrieve the secret
 	secret := &corev1.Secret{}
 	err := k8sClient.Get(ctx, types.NamespacedName{
@@ -65,6 +73,13 @@ func validateSFTPCredentialsWithValidator(
 		Name:      secretRef.Name,
 	}, secret)
 	if err != nil {
+		// Check for transient API server errors that should trigger requeue
+		if isTransientAPIError(err) {
+			return &TransientError{
+				Err: fmt.Errorf("failed to retrieve SFTP credentials secret (transient): %w", err),
+			}
+		}
+		// Non-transient error (e.g., NotFound) - permanent validation failure
 		return fmt.Errorf("failed to retrieve SFTP credentials secret: %w", err)
 	}
 
@@ -86,7 +101,7 @@ func validateSFTPCredentialsWithValidator(
 	// Run validation in a goroutine to respect context timeout
 	errChan := make(chan error, 1)
 	go func() {
-		errChan <- validator.validateConnection(string(username), string(password), host)
+		errChan <- sftpDialFunc(string(username), string(password), host)
 	}()
 
 	select {
@@ -95,6 +110,16 @@ func validateSFTPCredentialsWithValidator(
 	case <-validationCtx.Done():
 		return fmt.Errorf("SFTP credential validation timed out after %v", sftpValidationTimeout)
 	}
+}
+
+// isTransientAPIError checks if an error from the API server is transient
+func isTransientAPIError(err error) bool {
+	// Check for transient errors that should trigger a requeue
+	return apierrors.IsTimeout(err) ||
+		apierrors.IsServerTimeout(err) ||
+		apierrors.IsTooManyRequests(err) ||
+		apierrors.IsServiceUnavailable(err) ||
+		apierrors.IsInternalError(err)
 }
 
 // testSFTPConnection attempts to establish an SFTP connection and authenticate.
@@ -150,23 +175,4 @@ func containsPort(host string) bool {
 		}
 	}
 	return false
-}
-
-// updateStatusWithValidationError updates the MustGather status to indicate validation failure
-func (r *MustGatherReconciler) updateStatusWithValidationError(
-	ctx context.Context,
-	instance *mustgatherv1alpha1.MustGather,
-	validationType string,
-	err error,
-) error {
-	instance.Status.Status = "Failed"
-	instance.Status.Completed = true
-	instance.Status.Reason = fmt.Sprintf("%s validation failed: %v", validationType, err)
-
-	// Update the status
-	if statusErr := r.GetClient().Status().Update(ctx, instance); statusErr != nil {
-		return fmt.Errorf("failed to update MustGather status: %w", statusErr)
-	}
-
-	return nil
 }

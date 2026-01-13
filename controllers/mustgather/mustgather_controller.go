@@ -182,10 +182,20 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 				instance.Namespace,
 			)
 			if validationErr != nil {
-				reqLogger.Error(validationErr, "SFTP credential validation failed")
-				// Update status to indicate validation failure
-				statusErr := r.updateStatusWithValidationError(ctx, instance, "SFTP", validationErr)
-				if statusErr != nil {
+				// Check if this is a transient error that should trigger requeue
+				if IsTransientError(validationErr) {
+					reqLogger.Info("SFTP validation encountered transient error, requeuing", "error", validationErr)
+					return reconcile.Result{Requeue: true}, validationErr
+				}
+
+				// Permanent validation failure - update status and don't requeue
+				reqLogger.Error(validationErr, "SFTP credential validation failed permanently")
+				instance.Status.Status = "Failed"
+				instance.Status.Completed = true
+				instance.Status.Reason = fmt.Sprintf("SFTP validation failed: %v", validationErr)
+
+				// Update the status
+				if statusErr := r.GetClient().Status().Update(ctx, instance); statusErr != nil {
 					log.Error(statusErr, "Failed to update status after validation error")
 					return r.ManageError(ctx, instance, statusErr)
 				}
