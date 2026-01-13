@@ -91,23 +91,6 @@ func (w failingStatusWriter) Update(ctx context.Context, obj client.Object, opts
 	return errors.New("forced status update error")
 }
 
-// mockSFTPValidator is a test validator that doesn't make real network connections
-type mockSFTPValidator struct {
-	shouldFail bool
-	err        error
-}
-
-func (m mockSFTPValidator) validateConnection(username, password, host string) error {
-	if m.shouldFail {
-		if m.err != nil {
-			return m.err
-		}
-		return errors.New("mock SFTP validation failure")
-	}
-	// Success case - no actual connection made
-	return nil
-}
-
 func TestCleanupMustGatherResources(t *testing.T) {
 	targetNamespace := "foo-bar"
 
@@ -877,13 +860,21 @@ func TestReconcile(t *testing.T) {
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
+								Host:                           "sftp.example.com",
 								CaseID:                         "12345678",
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
 							},
 						},
 					},
 				}
-				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: operatorNs}}
+				userSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: operatorNs},
+					Data: map[string][]byte{
+						"username": []byte("testuser"),
+						"password": []byte("testpass"),
+						"host_key": []byte("sftp.example.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC..."),
+					},
+				}
 				cv := &configv1.ClusterVersion{
 					ObjectMeta: metav1.ObjectMeta{Name: "version"},
 					Status: configv1.ClusterVersionStatus{
@@ -1017,6 +1008,16 @@ func TestReconcile(t *testing.T) {
 			if interceptor.onGet != nil || interceptor.onList != nil || interceptor.onDelete != nil || interceptor.onUpdate != nil || interceptor.onCreate != nil || interceptor.status != nil {
 				interceptor.Client = base
 				cl = interceptor
+			}
+
+			// Mock sftpDialFunc to avoid real network calls in tests
+			// Save original and restore after test
+			originalSftpDialFunc := sftpDialFunc
+			defer func() { sftpDialFunc = originalSftpDialFunc }()
+
+			// Mock SFTP dial function to always succeed
+			sftpDialFunc = func(ctx context.Context, username, password, host, hostKeyData string) error {
+				return nil // Mock success - allows validation to pass and test job creation logic
 			}
 
 			// Create reconciler

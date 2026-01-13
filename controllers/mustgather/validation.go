@@ -246,17 +246,9 @@ func testSFTPConnection(ctx context.Context, username, password, host, hostKeyDa
 	return nil
 }
 
-// containsPort checks if the host string already contains a port
+// containsPort checks if the host string already contains a port.
 func containsPort(host string) bool {
-	// Simple check for port in host string
-	for i := len(host) - 1; i >= 0; i-- {
-		if host[i] == ':' {
-			return true
-		}
-		if host[i] == ']' {
-			// IPv6 address without port
-			return false
-		}
-	}
-	return false
+	_, _, err := net.SplitHostPort(host)
+	// If SplitHostPort succeeds, a valid host:port was present
+	return err == nil
 }
