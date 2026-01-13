@@ -35,10 +35,12 @@ type TransientError struct {
 	Err error
 }
 
+// Error returns the error message for TransientError, implementing the error interface.
 func (e *TransientError) Error() string {
 	return fmt.Sprintf("transient error: %v", e.Err)
 }
 
+// Unwrap returns the underlying error, implementing the errors.Unwrap interface.
 func (e *TransientError) Unwrap() error {
 	return e.Err
 }
@@ -50,13 +52,24 @@ func IsTransientError(err error) bool {
 }
 
 // validateSFTPCredentials tests SFTP connection with the provided credentials.
+//
+// Required secret fields: username, password
+// Optional secret field: host_key (recommended for production to prevent MITM attacks)
+//
+// The host parameter must not be empty. The function performs validation with a 10-second timeout.
+//
 // It returns an error if:
-// - The secret doesn't exist or is missing required fields (may be transient if API server error)
+// - The host parameter is empty
+// - The secret doesn't exist or is missing required fields (username, password)
 // - Connection to SFTP host fails
 // - Authentication with provided credentials fails
+// - Validation times out after 10 seconds
 //
 // Transient errors (API timeouts, network issues) are wrapped in TransientError
 // for the caller to requeue. Permanent validation failures return regular errors.
+//
+// Security: When host_key is not provided, connections use InsecureIgnoreHostKey which
+// is vulnerable to MITM attacks and NOT RECOMMENDED for production use.
 func validateSFTPCredentials(
 	ctx context.Context,
 	k8sClient client.Client,
@@ -124,7 +137,10 @@ func validateSFTPCredentials(
 	}
 }
 
-// isTransientAPIError checks if an error from the API server is transient
+// isTransientAPIError checks if an error from the API server is transient.
+// Transient errors should trigger a requeue rather than permanent failure.
+//
+// Returns true for: Timeout, ServerTimeout, TooManyRequests, ServiceUnavailable, InternalError
 func isTransientAPIError(err error) bool {
 	// Check for transient errors that should trigger a requeue
 	return apierrors.IsTimeout(err) ||
@@ -139,7 +155,9 @@ func isTransientAPIError(err error) bool {
 //
 // The context is used to cancel the SSH connection if the validation times out.
 // The hostKeyData parameter should contain SSH known_hosts format data for host verification.
-// If hostKeyData is empty, the connection will fail with an error (host key verification is required).
+// If hostKeyData is empty, the connection will use ssh.InsecureIgnoreHostKey() which skips host
+// key verification (NOT RECOMMENDED for production - vulnerable to MITM attacks).
+// When hostKeyData is provided, it uses knownhosts.New() for secure OpenSSH-compatible verification.
 func testSFTPConnection(ctx context.Context, username, password, host, hostKeyData string) error {
 	// Add default port if not specified
 	address := host
@@ -154,6 +172,7 @@ func testSFTPConnection(ctx context.Context, username, password, host, hostKeyDa
 		// WARNING: No host_key provided - using InsecureIgnoreHostKey
 		// This skips host key verification and is VULNERABLE to Man-in-the-Middle (MITM) attacks
 		// For production use, always provide host_key in the secret to enable secure verification
+		// #nosec G106 -- Intentional use when host_key not provided, documented security trade-off
 		hostKeyCallback = ssh.InsecureIgnoreHostKey()
 	} else {
 		// Use golang.org/x/crypto/ssh/knownhosts for production-grade known_hosts parsing
@@ -207,7 +226,17 @@ func testSFTPConnection(ctx context.Context, username, password, host, hostKeyDa
 	dialChan := make(chan dialResult, 1)
 	go func() {
 		conn, err := ssh.Dial("tcp", address, config)
-		dialChan <- dialResult{conn: conn, err: err}
+		// Use non-blocking select to avoid leaking connections if ctx is cancelled
+		// after successful dial but before the outer select receives the result
+		select {
+		case dialChan <- dialResult{conn: conn, err: err}:
+			// Successfully sent result to channel
+		case <-ctx.Done():
+			// Context was cancelled before we could send result - close connection to avoid leak
+			if conn != nil {
+				conn.Close()
+			}
+		}
 	}()
 
 	var conn *ssh.Client
