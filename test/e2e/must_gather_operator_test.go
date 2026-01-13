@@ -1387,11 +1387,11 @@ func getCaseCredsFromVault() (string, string, error) {
 	if configDir != "" {
 		// Check if the directory exists before trying to read
 		if _, err := os.Stat(configDir); err == nil {
-			sftpUsername, err := os.ReadFile(configDir + "/" + vaultUsernameKey)
+			sftpUsername, err := os.ReadFile(filepath.Join(configDir, vaultUsernameKey))
 			if err != nil {
 				return "", "", fmt.Errorf("failed to read sftp username from file: %w", err)
 			}
-			sftpPassword, err := os.ReadFile(configDir + "/" + vaultPasswordKey)
+			sftpPassword, err := os.ReadFile(filepath.Join(configDir, vaultPasswordKey))
 			if err != nil {
 				return "", "", fmt.Errorf("failed to read sftp password from file: %w", err)
 			}
@@ -1406,9 +1406,9 @@ func getCaseCredsFromVault() (string, string, error) {
 		return sftpUsername, sftpPassword, nil
 	}
 
-	return "", "", fmt.Errorf("SFTP credentials not found. Set either:\n" +
-		"  1. CASE_MANAGEMENT_CREDS_CONFIG_DIR with Vault-mounted files (sftp_username_e2e, sftp_password_e2e), or\n" +
-		"  2. SFTP_USERNAME_E2E and SFTP_PASSWORD_E2E environment variables for local testing")
+	return "", "", fmt.Errorf("SFTP credentials not found. Set either:\n"+
+		"  1. CASE_MANAGEMENT_CREDS_CONFIG_DIR with Vault-mounted files (%s, %s), or\n"+
+		"  2. SFTP_USERNAME_E2E and SFTP_PASSWORD_E2E environment variables for local testing", vaultUsernameKey, vaultPasswordKey)
 }
 
 // getOperatorImage retrieves the OPERATOR_IMAGE from the must-gather-operator deployment
@@ -1448,10 +1448,13 @@ func generateTestCaseID() string {
 
 // getContainerLogs retrieves logs from a specific container in a pod
 func getContainerLogs(namespace, podName, containerName string) (string, error) {
+	ctx, cancel := context.WithTimeout(testCtx, 30*time.Second)
+	defer cancel()
+
 	req := nonAdminClientset.CoreV1().Pods(namespace).GetLogs(podName, &corev1.PodLogOptions{
 		Container: containerName,
 	})
-	podLogs, err := req.Stream(testCtx)
+	podLogs, err := req.Stream(ctx)
 	if err != nil {
 		return "", err
 	}
