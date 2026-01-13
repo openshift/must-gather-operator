@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -342,7 +343,7 @@ func Test_testSFTPConnection(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("testSFTPConnection() expected error, got nil")
-				} else if tt.errContains != "" && !containsString(err.Error(), tt.errContains) {
+				} else if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
 					t.Errorf("testSFTPConnection() error = %v, want error containing %q", err, tt.errContains)
 				}
 			} else {
@@ -388,7 +389,7 @@ func Test_testSFTPConnection_ContextCancellation(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("testSFTPConnection() expected error, got nil")
-				} else if tt.errContains != "" && !containsString(err.Error(), tt.errContains) {
+				} else if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
 					t.Errorf("testSFTPConnection() error = %v, want error containing %q", err, tt.errContains)
 				}
 			}
@@ -634,7 +635,7 @@ func Test_validateSFTPCredentials(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("validateSFTPCredentials() expected error, got nil")
-				} else if tt.errContains != "" && !containsString(err.Error(), tt.errContains) {
+				} else if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
 					t.Errorf("validateSFTPCredentials() error = %v, want error containing %q", err, tt.errContains)
 				}
 
@@ -759,7 +760,7 @@ func Test_validateSFTPCredentials_Timeout(t *testing.T) {
 
 	if err == nil {
 		t.Errorf("validateSFTPCredentials() expected timeout error, got nil")
-	} else if !containsString(err.Error(), "timed out") {
+	} else if !strings.Contains(err.Error(), "timed out") {
 		t.Errorf("validateSFTPCredentials() error = %v, want error containing 'timed out'", err)
 	}
 }
@@ -772,18 +773,4 @@ type fakeClientWithError struct {
 
 func (f *fakeClientWithError) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 	return f.err
-}
-
-// Helper function to check if a string contains a substring
-func containsString(s, substr string) bool {
-	return len(substr) == 0 || len(s) >= len(substr) && (s == substr || len(s) > len(substr) && containsSubstring(s, substr))
-}
-
-func containsSubstring(s, substr string) bool {
-	for i := 0; i+len(substr) <= len(s); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
