@@ -29,6 +29,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -172,14 +173,36 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 				return reconcile.Result{Requeue: true}, err
 			}
 
+			// Validate and extract required credentials
+			username, usernameExists := userSecret.Data["username"]
+			password, passwordExists := userSecret.Data["password"]
+
+			if !usernameExists || len(username) == 0 {
+				validationErr := fmt.Errorf("SFTP credentials secret '%s' is missing required field 'username'", secretName)
+				reqLogger.Error(validationErr, "SFTP credential validation failed")
+				return r.setValidationFailureStatus(ctx, instance, validationErr)
+			}
+
+			if !passwordExists || len(password) == 0 {
+				validationErr := fmt.Errorf("SFTP credentials secret '%s' is missing required field 'password'", secretName)
+				reqLogger.Error(validationErr, "SFTP credential validation failed")
+				return r.setValidationFailureStatus(ctx, instance, validationErr)
+			}
+
+			// Extract optional host_key for verification
+			hostKeyData := ""
+			if hostKey, hostKeyExists := userSecret.Data["host_key"]; hostKeyExists {
+				hostKeyData = string(hostKey)
+			}
+
 			// Validate SFTP credentials before creating the job
 			reqLogger.Info("Validating SFTP credentials before creating must-gather job")
 			validationErr := validateSFTPCredentials(
 				ctx,
-				r.GetClient(),
-				instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef,
+				string(username),
+				string(password),
 				instance.Spec.UploadTarget.SFTP.Host,
-				instance.Namespace,
+				hostKeyData,
 			)
 			if validationErr != nil {
 				// Check if this is a transient error that should trigger requeue
@@ -190,17 +213,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 				// Permanent validation failure - update status and don't requeue
 				reqLogger.Error(validationErr, "SFTP credential validation failed permanently")
-				instance.Status.Status = "Failed"
-				instance.Status.Completed = true
-				instance.Status.Reason = fmt.Sprintf("SFTP validation failed: %v", validationErr)
-
-				// Update the status
-				if statusErr := r.GetClient().Status().Update(ctx, instance); statusErr != nil {
-					log.Error(statusErr, "Failed to update status after validation error")
-					return r.ManageError(ctx, instance, statusErr)
-				}
-				// Don't create job, don't requeue - this is a permanent failure
-				return reconcile.Result{}, nil
+				return r.setValidationFailureStatus(ctx, instance, validationErr)
 			}
 
 			reqLogger.Info("SFTP credentials validated successfully")
@@ -287,6 +300,25 @@ func (r *MustGatherReconciler) updateStatus(ctx context.Context, instance *mustg
 	instance.Status.Completed = !job.Status.CompletionTime.IsZero()
 
 	return r.ManageSuccess(ctx, instance)
+}
+
+// setValidationFailureStatus updates the MustGather status to indicate a validation failure.
+// It sets the status to Failed, marks it as completed, updates the reason, and sets the timestamp.
+func (r *MustGatherReconciler) setValidationFailureStatus(
+	ctx context.Context,
+	instance *mustgatherv1alpha1.MustGather,
+	validationErr error,
+) (reconcile.Result, error) {
+	instance.Status.Status = "Failed"
+	instance.Status.Completed = true
+	instance.Status.Reason = fmt.Sprintf("SFTP validation failed: %v", validationErr)
+	instance.Status.LastUpdate = metav1.Now()
+
+	if statusErr := r.GetClient().Status().Update(ctx, instance); statusErr != nil {
+		log.Error(statusErr, "Failed to update status after validation error")
+		return r.ManageError(ctx, instance, statusErr)
+	}
+	return reconcile.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

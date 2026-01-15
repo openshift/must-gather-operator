@@ -12,10 +12,6 @@ import (
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -53,71 +49,26 @@ func IsTransientError(err error) bool {
 
 // validateSFTPCredentials tests SFTP connection with the provided credentials.
 //
-// Required secret fields: username, password
-// Optional secret field: host_key (recommended for production to prevent MITM attacks)
+// The username and password parameters must be non-empty (validated by caller).
+// The host parameter is expected to be non-empty (enforced by CRD default value).
+// The hostKeyData parameter is optional and should contain SSH known_hosts format data.
 //
-// The host parameter must not be empty. The function performs validation with a 10-second timeout.
+// The function performs validation with a 10-second timeout.
 //
 // It returns an error if:
-// - The host parameter is empty
-// - The secret doesn't exist or is missing required fields (username, password)
 // - Connection to SFTP host fails
 // - Authentication with provided credentials fails
 // - Validation times out after 10 seconds
 //
-// Transient errors (API timeouts, network issues) are wrapped in TransientError
-// for the caller to requeue. Permanent validation failures return regular errors.
-//
-// Security: When host_key is not provided, connections use InsecureIgnoreHostKey which
+// Security: When hostKeyData is not provided, connections use InsecureIgnoreHostKey which
 // is vulnerable to MITM attacks and NOT RECOMMENDED for production use.
 func validateSFTPCredentials(
 	ctx context.Context,
-	k8sClient client.Client,
-	secretRef corev1.LocalObjectReference,
+	username string,
+	password string,
 	host string,
-	namespace string,
+	hostKeyData string,
 ) error {
-	// Validate host is not empty before attempting connection
-	if strings.TrimSpace(host) == "" {
-		return fmt.Errorf("SFTP host cannot be empty")
-	}
-
-	// Retrieve the secret
-	secret := &corev1.Secret{}
-	err := k8sClient.Get(ctx, types.NamespacedName{
-		Namespace: namespace,
-		Name:      secretRef.Name,
-	}, secret)
-	if err != nil {
-		// Check for transient API server errors that should trigger requeue
-		if isTransientAPIError(err) {
-			return &TransientError{
-				Err: fmt.Errorf("failed to retrieve SFTP credentials secret (transient): %w", err),
-			}
-		}
-		// Non-transient error (e.g., NotFound) - permanent validation failure
-		return fmt.Errorf("failed to retrieve SFTP credentials secret: %w", err)
-	}
-
-	// Validate required fields
-	username, usernameExists := secret.Data["username"]
-	password, passwordExists := secret.Data["password"]
-
-	if !usernameExists || len(username) == 0 {
-		return fmt.Errorf("SFTP credentials secret '%s' is missing required field 'username'", secretRef.Name)
-	}
-	if !passwordExists || len(password) == 0 {
-		return fmt.Errorf("SFTP credentials secret '%s' is missing required field 'password'", secretRef.Name)
-	}
-
-	// Retrieve optional host_key for verification
-	// If not provided, testSFTPConnection will use InsecureIgnoreHostKey (NOT RECOMMENDED for production)
-	// For production use, always provide host_key to prevent MITM attacks
-	hostKeyData := ""
-	if hostKey, hostKeyExists := secret.Data["host_key"]; hostKeyExists {
-		hostKeyData = string(hostKey)
-	}
-
 	// Test SFTP connection with timeout
 	validationCtx, cancel := context.WithTimeout(ctx, sftpValidationTimeout)
 	defer cancel()
@@ -126,7 +77,7 @@ func validateSFTPCredentials(
 	// Pass validationCtx to allow cancellation of SSH operations
 	errChan := make(chan error, 1)
 	go func() {
-		errChan <- sftpDialFunc(validationCtx, string(username), string(password), host, hostKeyData)
+		errChan <- sftpDialFunc(validationCtx, username, password, host, hostKeyData)
 	}()
 
 	select {
@@ -135,19 +86,6 @@ func validateSFTPCredentials(
 	case <-validationCtx.Done():
 		return fmt.Errorf("SFTP credential validation timed out after %v", sftpValidationTimeout)
 	}
-}
-
-// isTransientAPIError checks if an error from the API server is transient.
-// Transient errors should trigger a requeue rather than permanent failure.
-//
-// Returns true for: Timeout, ServerTimeout, TooManyRequests, ServiceUnavailable, InternalError
-func isTransientAPIError(err error) bool {
-	// Check for transient errors that should trigger a requeue
-	return apierrors.IsTimeout(err) ||
-		apierrors.IsServerTimeout(err) ||
-		apierrors.IsTooManyRequests(err) ||
-		apierrors.IsServiceUnavailable(err) ||
-		apierrors.IsInternalError(err)
 }
 
 // testSFTPConnection attempts to establish an SFTP connection and authenticate.
@@ -165,64 +103,95 @@ func isTransientAPIError(err error) bool {
 // key verification (NOT RECOMMENDED for production - vulnerable to MITM attacks).
 // When hostKeyData is provided, it uses knownhosts.New() for secure OpenSSH-compatible verification.
 func testSFTPConnection(ctx context.Context, username, password, host, hostKeyData string) error {
-	// Add default port if not specified
-	// For IPv6 addresses without brackets, wrap in brackets before adding port
-	// to avoid malformed addresses like 2001:db8::1:22
-	address := host
-	if address != "" && !containsPort(address) {
-		// Check if this looks like an IPv6 address (contains colons but not bracketed)
-		if strings.Contains(address, ":") && !strings.HasPrefix(address, "[") {
-			// Unbracketed IPv6 address - wrap in brackets before adding port
-			address = fmt.Sprintf("[%s]:%s", address, sftpDefaultPort)
-		} else {
-			// IPv4 or already-bracketed IPv6 - add port normally
-			address = fmt.Sprintf("%s:%s", address, sftpDefaultPort)
-		}
+	address := normalizeHostAddress(host)
+	hostKeyCallback, err := buildHostKeyCallback(hostKeyData)
+	if err != nil {
+		return err
 	}
 
-	// Create host key callback - conditional based on whether host_key is provided
-	var hostKeyCallback ssh.HostKeyCallback
+	config := buildSSHConfig(username, password, hostKeyCallback)
+	conn, err := dialSSHWithContext(ctx, address, config)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
 
+	return verifySFTPSubsystem(conn)
+}
+
+// normalizeHostAddress adds the default SFTP port if not specified.
+// For IPv6 addresses without brackets, it wraps them in brackets before adding the port
+// to avoid malformed addresses like 2001:db8::1:22.
+func normalizeHostAddress(host string) string {
+	if host == "" || containsPort(host) {
+		return host
+	}
+
+	// Check if this looks like an IPv6 address (contains colons but not bracketed)
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		// Unbracketed IPv6 address - wrap in brackets before adding port
+		return fmt.Sprintf("[%s]:%s", host, sftpDefaultPort)
+	}
+
+	// IPv4 or already-bracketed IPv6 - add port normally
+	return fmt.Sprintf("%s:%s", host, sftpDefaultPort)
+}
+
+// buildHostKeyCallback creates an SSH host key callback based on the provided host key data.
+// If hostKeyData is empty, it returns InsecureIgnoreHostKey (NOT RECOMMENDED for production).
+// If hostKeyData is provided, it creates a proper known_hosts-based callback.
+func buildHostKeyCallback(hostKeyData string) (ssh.HostKeyCallback, error) {
 	if strings.TrimSpace(hostKeyData) == "" {
 		// WARNING: No host_key provided - using InsecureIgnoreHostKey
 		// This skips host key verification and is VULNERABLE to Man-in-the-Middle (MITM) attacks
 		// For production use, always provide host_key in the secret to enable secure verification
 		// #nosec G106 -- Intentional use when host_key not provided, documented security trade-off
-		hostKeyCallback = ssh.InsecureIgnoreHostKey()
-	} else {
-		// Use golang.org/x/crypto/ssh/knownhosts for production-grade known_hosts parsing
-		// This properly handles:
-		// - Hashed hostnames (|1|...|...)
-		// - Wildcard patterns (*.example.com, !*.internal)
-		// - Standard OpenSSH known_hosts formats
-
-		// knownhosts.New() requires a file path, so create a temporary file
-		// to hold the in-memory hostKeyData from the Kubernetes secret
-		tmpFile, err := os.CreateTemp("", "known_hosts_*")
-		if err != nil {
-			return fmt.Errorf("failed to create temporary known_hosts file: %w", err)
-		}
-		tmpFilePath := tmpFile.Name()
-		defer os.Remove(tmpFilePath) // Clean up temp file
-
-		// Write the known_hosts data to the temporary file
-		if _, err := tmpFile.WriteString(hostKeyData); err != nil {
-			tmpFile.Close()
-			return fmt.Errorf("failed to write known_hosts data to temporary file: %w", err)
-		}
-		if err := tmpFile.Close(); err != nil {
-			return fmt.Errorf("failed to close temporary known_hosts file: %w", err)
-		}
-
-		// Use knownhosts.New() to get a proper callback with full OpenSSH support
-		hostKeyCallback, err = knownhosts.New(tmpFilePath)
-		if err != nil {
-			return fmt.Errorf("failed to parse known_hosts data: %w", err)
-		}
+		return ssh.InsecureIgnoreHostKey(), nil
 	}
 
-	// Configure the SSH client with proper host key verification
-	config := &ssh.ClientConfig{
+	return createKnownHostsCallback(hostKeyData)
+}
+
+// createKnownHostsCallback creates a host key callback from known_hosts format data.
+// It creates a temporary file to hold the data since knownhosts.New() requires a file path.
+// The temporary file is automatically cleaned up.
+func createKnownHostsCallback(hostKeyData string) (ssh.HostKeyCallback, error) {
+	// Use golang.org/x/crypto/ssh/knownhosts for production-grade known_hosts parsing
+	// This properly handles:
+	// - Hashed hostnames (|1|...|...)
+	// - Wildcard patterns (*.example.com, !*.internal)
+	// - Standard OpenSSH known_hosts formats
+
+	// knownhosts.New() requires a file path, so create a temporary file
+	// to hold the in-memory hostKeyData from the Kubernetes secret
+	tmpFile, err := os.CreateTemp("", "known_hosts_*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temporary known_hosts file: %w", err)
+	}
+	tmpFilePath := tmpFile.Name()
+	defer os.Remove(tmpFilePath) // Clean up temp file
+
+	// Write the known_hosts data to the temporary file
+	if _, err := tmpFile.WriteString(hostKeyData); err != nil {
+		tmpFile.Close()
+		return nil, fmt.Errorf("failed to write known_hosts data to temporary file: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close temporary known_hosts file: %w", err)
+	}
+
+	// Use knownhosts.New() to get a proper callback with full OpenSSH support
+	callback, err := knownhosts.New(tmpFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse known_hosts data: %w", err)
+	}
+
+	return callback, nil
+}
+
+// buildSSHConfig creates an SSH client configuration with the provided credentials and host key callback.
+func buildSSHConfig(username, password string, hostKeyCallback ssh.HostKeyCallback) *ssh.ClientConfig {
+	return &ssh.ClientConfig{
 		User: username,
 		Auth: []ssh.AuthMethod{
 			ssh.Password(password),
@@ -230,14 +199,17 @@ func testSFTPConnection(ctx context.Context, username, password, host, hostKeyDa
 		HostKeyCallback: hostKeyCallback,
 		Timeout:         5 * time.Second,
 	}
+}
 
-	// Attempt SSH connection with context cancellation support
-	// Use a channel to allow context cancellation during connection
-	type dialResult struct {
-		conn *ssh.Client
-		err  error
-	}
+// dialResult holds the result of an SSH dial operation.
+type dialResult struct {
+	conn *ssh.Client
+	err  error
+}
 
+// dialSSHWithContext attempts to establish an SSH connection with context cancellation support.
+// It uses a goroutine and channel to allow the context to cancel the operation.
+func dialSSHWithContext(ctx context.Context, address string, config *ssh.ClientConfig) (*ssh.Client, error) {
 	dialChan := make(chan dialResult, 1)
 	go func() {
 		conn, err := ssh.Dial("tcp", address, config)
@@ -254,20 +226,21 @@ func testSFTPConnection(ctx context.Context, username, password, host, hostKeyDa
 		}
 	}()
 
-	var conn *ssh.Client
 	select {
 	case result := <-dialChan:
 		if result.err != nil {
-			return fmt.Errorf("SFTP connection failed: %w", result.err)
+			return nil, fmt.Errorf("SFTP connection failed: %w", result.err)
 		}
-		conn = result.conn
+		return result.conn, nil
 	case <-ctx.Done():
 		// Context cancelled - connection will be abandoned
-		return fmt.Errorf("SFTP connection cancelled: %w", ctx.Err())
+		return nil, fmt.Errorf("SFTP connection cancelled: %w", ctx.Err())
 	}
-	defer conn.Close()
+}
 
-	// Attempt to create an SFTP client
+// verifySFTPSubsystem verifies that the SFTP subsystem is available on the SSH connection.
+// This creates and immediately closes an SFTP client to confirm functionality.
+func verifySFTPSubsystem(conn *ssh.Client) error {
 	sftpClient, err := sftp.NewClient(conn)
 	if err != nil {
 		return fmt.Errorf("failed to create SFTP client: %w", err)

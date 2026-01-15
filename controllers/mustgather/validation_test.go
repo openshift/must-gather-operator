@@ -8,14 +8,22 @@ import (
 	"testing"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+// isTransientAPIError checks if an error from the API server is transient.
+// Transient errors should trigger a requeue rather than permanent failure.
+//
+// Returns true for: Timeout, ServerTimeout, TooManyRequests, ServiceUnavailable, InternalError
+func isTransientAPIError(err error) bool {
+	// Check for transient errors that should trigger a requeue
+	return apierrors.IsTimeout(err) ||
+		apierrors.IsServerTimeout(err) ||
+		apierrors.IsTooManyRequests(err) ||
+		apierrors.IsServiceUnavailable(err) ||
+		apierrors.IsInternalError(err)
+}
 
 func Test_containsPort(t *testing.T) {
 	tests := []struct {
@@ -398,214 +406,60 @@ func Test_testSFTPConnection_ContextCancellation(t *testing.T) {
 }
 
 func Test_validateSFTPCredentials(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
-
 	tests := []struct {
-		name          string
-		secretRef     corev1.LocalObjectReference
-		host          string
-		namespace     string
-		secret        *corev1.Secret
-		mockDialErr   error
-		wantErr       bool
-		errContains   string
-		wantTransient bool
+		name        string
+		username    string
+		password    string
+		host        string
+		hostKeyData string
+		mockDialErr error
+		wantErr     bool
+		errContains string
 	}{
 		{
-			name:          "empty host",
-			secretRef:     corev1.LocalObjectReference{Name: "test-secret"},
-			host:          "",
-			namespace:     "default",
-			wantErr:       true,
-			errContains:   "SFTP host cannot be empty",
-			wantTransient: false,
+			name:        "valid credentials - connection fails",
+			username:    "user",
+			password:    "pass",
+			host:        "sftp.example.com",
+			hostKeyData: "",
+			mockDialErr: fmt.Errorf("SFTP connection failed: ssh: handshake failed"),
+			wantErr:     true,
+			errContains: "SFTP connection failed",
 		},
 		{
-			name:          "whitespace only host",
-			secretRef:     corev1.LocalObjectReference{Name: "test-secret"},
-			host:          "   ",
-			namespace:     "default",
-			wantErr:       true,
-			errContains:   "SFTP host cannot be empty",
-			wantTransient: false,
+			name:        "valid credentials - auth fails",
+			username:    "user",
+			password:    "wrongpass",
+			host:        "sftp.example.com",
+			hostKeyData: "",
+			mockDialErr: fmt.Errorf("SFTP connection failed: ssh: unable to authenticate"),
+			wantErr:     true,
+			errContains: "SFTP connection failed",
 		},
 		{
-			name:          "secret not found",
-			secretRef:     corev1.LocalObjectReference{Name: "missing-secret"},
-			host:          "sftp.example.com",
-			namespace:     "default",
-			wantErr:       true,
-			errContains:   "failed to retrieve SFTP credentials secret",
-			wantTransient: false,
-		},
-		{
-			name:      "secret missing username",
-			secretRef: corev1.LocalObjectReference{Name: "test-secret"},
-			host:      "sftp.example.com",
-			namespace: "default",
-			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-secret",
-					Namespace: "default",
-				},
-				Data: map[string][]byte{
-					"password": []byte("pass"),
-				},
-			},
-			wantErr:       true,
-			errContains:   "missing required field 'username'",
-			wantTransient: false,
-		},
-		{
-			name:      "secret username empty",
-			secretRef: corev1.LocalObjectReference{Name: "test-secret"},
-			host:      "sftp.example.com",
-			namespace: "default",
-			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-secret",
-					Namespace: "default",
-				},
-				Data: map[string][]byte{
-					"username": []byte(""),
-					"password": []byte("pass"),
-				},
-			},
-			wantErr:       true,
-			errContains:   "missing required field 'username'",
-			wantTransient: false,
-		},
-		{
-			name:      "secret missing password",
-			secretRef: corev1.LocalObjectReference{Name: "test-secret"},
-			host:      "sftp.example.com",
-			namespace: "default",
-			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-secret",
-					Namespace: "default",
-				},
-				Data: map[string][]byte{
-					"username": []byte("user"),
-				},
-			},
-			wantErr:       true,
-			errContains:   "missing required field 'password'",
-			wantTransient: false,
-		},
-		{
-			name:      "secret password empty",
-			secretRef: corev1.LocalObjectReference{Name: "test-secret"},
-			host:      "sftp.example.com",
-			namespace: "default",
-			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-secret",
-					Namespace: "default",
-				},
-				Data: map[string][]byte{
-					"username": []byte("user"),
-					"password": []byte(""),
-				},
-			},
-			wantErr:       true,
-			errContains:   "missing required field 'password'",
-			wantTransient: false,
-		},
-		{
-			name:      "valid credentials - connection fails",
-			secretRef: corev1.LocalObjectReference{Name: "test-secret"},
-			host:      "sftp.example.com",
-			namespace: "default",
-			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-secret",
-					Namespace: "default",
-				},
-				Data: map[string][]byte{
-					"username": []byte("user"),
-					"password": []byte("pass"),
-				},
-			},
-			mockDialErr:   fmt.Errorf("SFTP connection failed: ssh: handshake failed"),
-			wantErr:       true,
-			errContains:   "SFTP connection failed",
-			wantTransient: false,
-		},
-		{
-			name:      "valid credentials - auth fails",
-			secretRef: corev1.LocalObjectReference{Name: "test-secret"},
-			host:      "sftp.example.com",
-			namespace: "default",
-			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-secret",
-					Namespace: "default",
-				},
-				Data: map[string][]byte{
-					"username": []byte("user"),
-					"password": []byte("wrongpass"),
-				},
-			},
-			mockDialErr:   fmt.Errorf("SFTP connection failed: ssh: unable to authenticate"),
-			wantErr:       true,
-			errContains:   "SFTP connection failed",
-			wantTransient: false,
-		},
-		{
-			name:      "valid credentials - success",
-			secretRef: corev1.LocalObjectReference{Name: "test-secret"},
-			host:      "sftp.example.com",
-			namespace: "default",
-			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-secret",
-					Namespace: "default",
-				},
-				Data: map[string][]byte{
-					"username": []byte("user"),
-					"password": []byte("pass"),
-				},
-			},
+			name:        "valid credentials - success",
+			username:    "user",
+			password:    "pass",
+			host:        "sftp.example.com",
+			hostKeyData: "",
 			mockDialErr: nil,
 			wantErr:     false,
 		},
 		{
-			name:      "valid credentials with host key",
-			secretRef: corev1.LocalObjectReference{Name: "test-secret"},
-			host:      "sftp.example.com",
-			namespace: "default",
-			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-secret",
-					Namespace: "default",
-				},
-				Data: map[string][]byte{
-					"username": []byte("user"),
-					"password": []byte("pass"),
-					"host_key": []byte("sftp.example.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ..."),
-				},
-			},
+			name:        "valid credentials with host key",
+			username:    "user",
+			password:    "pass",
+			host:        "sftp.example.com",
+			hostKeyData: "sftp.example.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ...",
 			mockDialErr: nil,
 			wantErr:     false,
 		},
 		{
-			name:      "valid credentials with empty host key",
-			secretRef: corev1.LocalObjectReference{Name: "test-secret"},
-			host:      "sftp.example.com",
-			namespace: "default",
-			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-secret",
-					Namespace: "default",
-				},
-				Data: map[string][]byte{
-					"username": []byte("user"),
-					"password": []byte("pass"),
-					"host_key": []byte(""),
-				},
-			},
+			name:        "valid credentials with empty host key",
+			username:    "user",
+			password:    "pass",
+			host:        "sftp.example.com",
+			hostKeyData: "",
 			mockDialErr: nil,
 			wantErr:     false,
 		},
@@ -613,14 +467,6 @@ func Test_validateSFTPCredentials(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create fake client
-			var k8sClient client.Client
-			if tt.secret != nil {
-				k8sClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(tt.secret).Build()
-			} else {
-				k8sClient = fake.NewClientBuilder().WithScheme(scheme).Build()
-			}
-
 			// Mock the dial function
 			originalDialFunc := sftpDialFunc
 			defer func() { sftpDialFunc = originalDialFunc }()
@@ -630,18 +476,13 @@ func Test_validateSFTPCredentials(t *testing.T) {
 			}
 
 			// Run the validation
-			err := validateSFTPCredentials(context.Background(), k8sClient, tt.secretRef, tt.host, tt.namespace)
+			err := validateSFTPCredentials(context.Background(), tt.username, tt.password, tt.host, tt.hostKeyData)
 
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("validateSFTPCredentials() expected error, got nil")
 				} else if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
 					t.Errorf("validateSFTPCredentials() error = %v, want error containing %q", err, tt.errContains)
-				}
-
-				// Check if error is transient when expected
-				if tt.wantTransient != IsTransientError(err) {
-					t.Errorf("validateSFTPCredentials() transient error = %v, want %v", IsTransientError(err), tt.wantTransient)
 				}
 			} else {
 				if err != nil {
@@ -652,96 +493,7 @@ func Test_validateSFTPCredentials(t *testing.T) {
 	}
 }
 
-func Test_validateSFTPCredentials_TransientAPIErrors(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
-
-	resource := schema.GroupResource{Group: "v1", Resource: "secrets"}
-
-	tests := []struct {
-		name          string
-		apiError      error
-		wantTransient bool
-	}{
-		{
-			name:          "timeout error",
-			apiError:      apierrors.NewTimeoutError("timeout", 5),
-			wantTransient: true,
-		},
-		{
-			name:          "server timeout error",
-			apiError:      apierrors.NewServerTimeout(resource, "get", 5),
-			wantTransient: true,
-		},
-		{
-			name:          "too many requests error",
-			apiError:      apierrors.NewTooManyRequests("too many requests", 5),
-			wantTransient: true,
-		},
-		{
-			name:          "service unavailable error",
-			apiError:      apierrors.NewServiceUnavailable("service unavailable"),
-			wantTransient: true,
-		},
-		{
-			name:          "internal error",
-			apiError:      apierrors.NewInternalError(errors.New("internal error")),
-			wantTransient: true,
-		},
-		{
-			name:          "not found error",
-			apiError:      apierrors.NewNotFound(resource, "test-secret"),
-			wantTransient: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create a fake client that returns the specified error
-			k8sClient := &fakeClientWithError{
-				err: tt.apiError,
-			}
-
-			// Run the validation
-			err := validateSFTPCredentials(
-				context.Background(),
-				k8sClient,
-				corev1.LocalObjectReference{Name: "test-secret"},
-				"sftp.example.com",
-				"default",
-			)
-
-			if err == nil {
-				t.Errorf("validateSFTPCredentials() expected error, got nil")
-				return
-			}
-
-			// Check if error is transient
-			isTransient := IsTransientError(err)
-			if isTransient != tt.wantTransient {
-				t.Errorf("validateSFTPCredentials() transient error = %v, want %v for error: %v", isTransient, tt.wantTransient, tt.apiError)
-			}
-		})
-	}
-}
-
 func Test_validateSFTPCredentials_Timeout(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
-
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-secret",
-			Namespace: "default",
-		},
-		Data: map[string][]byte{
-			"username": []byte("user"),
-			"password": []byte("pass"),
-		},
-	}
-
-	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
-
 	// Mock the dial function to block indefinitely
 	originalDialFunc := sftpDialFunc
 	defer func() { sftpDialFunc = originalDialFunc }()
@@ -756,21 +508,11 @@ func Test_validateSFTPCredentials_Timeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	err := validateSFTPCredentials(ctx, k8sClient, corev1.LocalObjectReference{Name: "test-secret"}, "sftp.example.com", "default")
+	err := validateSFTPCredentials(ctx, "user", "pass", "sftp.example.com", "")
 
 	if err == nil {
 		t.Errorf("validateSFTPCredentials() expected timeout error, got nil")
 	} else if !strings.Contains(err.Error(), "timed out") {
 		t.Errorf("validateSFTPCredentials() error = %v, want error containing 'timed out'", err)
 	}
-}
-
-// Helper type to simulate client errors
-type fakeClientWithError struct {
-	client.Client
-	err error
-}
-
-func (f *fakeClientWithError) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-	return f.err
 }
