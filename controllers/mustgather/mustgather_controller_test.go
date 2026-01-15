@@ -3,6 +3,7 @@ package mustgather
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -1509,10 +1510,16 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			}
 
 			// Mock the SFTP dial function if provided
+			originalDialFunc := sftpDialFunc
+			defer func() { sftpDialFunc = originalDialFunc }()
 			if tt.mockSFTPDialFunc != nil {
-				originalDialFunc := sftpDialFunc
 				sftpDialFunc = tt.mockSFTPDialFunc
-				defer func() { sftpDialFunc = originalDialFunc }()
+			} else {
+				// Safety: fail if the dial is called unexpectedly
+				sftpDialFunc = func(ctx context.Context, username, password, host, hostKeyData string) error {
+					t.Fatal("sftpDialFunc called unexpectedly")
+					return nil
+				}
 			}
 
 			// Execute reconcile
@@ -1532,7 +1539,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			}
 
 			// Check requeue expectation
-			if tt.expectRequeue && result.RequeueAfter == 0 {
+			if tt.expectRequeue && result.RequeueAfter == 0 && err == nil {
 				t.Errorf("expected requeue but got: %+v", result)
 			}
 
@@ -1557,24 +1564,8 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			}
 
 			if tt.expectedReasonContains != "" {
-				if updatedMG.Status.Reason == "" {
-					t.Errorf("expected reason to contain %q, but reason is empty", tt.expectedReasonContains)
-				} else if !contains([]string{updatedMG.Status.Reason}, tt.expectedReasonContains) {
-					// Using simple substring check
-					found := false
-					for _, r := range []string{updatedMG.Status.Reason} {
-						if len(r) >= len(tt.expectedReasonContains) {
-							for i := 0; i <= len(r)-len(tt.expectedReasonContains); i++ {
-								if r[i:i+len(tt.expectedReasonContains)] == tt.expectedReasonContains {
-									found = true
-									break
-								}
-							}
-						}
-					}
-					if !found {
-						t.Errorf("expected reason to contain %q, got %q", tt.expectedReasonContains, updatedMG.Status.Reason)
-					}
+				if !strings.Contains(updatedMG.Status.Reason, tt.expectedReasonContains) {
+					t.Errorf("expected reason to contain %q, got %q", tt.expectedReasonContains, updatedMG.Status.Reason)
 				}
 			}
 
