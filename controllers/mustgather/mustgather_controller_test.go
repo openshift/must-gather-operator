@@ -1532,7 +1532,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			}
 
 			// Check requeue expectation
-			if tt.expectRequeue && !result.Requeue {
+			if tt.expectRequeue && result.RequeueAfter == 0 {
 				t.Errorf("expected requeue but got: %+v", result)
 			}
 
