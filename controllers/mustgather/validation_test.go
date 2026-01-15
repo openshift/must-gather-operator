@@ -186,6 +186,16 @@ func Test_IsTransientError(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "context deadline exceeded",
+			err:      context.DeadlineExceeded,
+			expected: true,
+		},
+		{
+			name:     "wrapped context deadline exceeded",
+			err:      fmt.Errorf("wrapped: %w", context.DeadlineExceeded),
+			expected: true,
+		},
+		{
 			name:     "regular error",
 			err:      errors.New("regular error"),
 			expected: false,

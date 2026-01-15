@@ -43,6 +43,9 @@ func (e *TransientError) Unwrap() error {
 
 // IsTransientError checks if an error is transient and should trigger a requeue
 func IsTransientError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
 	var transientErr *TransientError
 	return errors.As(err, &transientErr)
 }
@@ -84,7 +87,7 @@ func validateSFTPCredentials(
 	case err := <-errChan:
 		return err
 	case <-validationCtx.Done():
-		return fmt.Errorf("SFTP credential validation timed out after %v", sftpValidationTimeout)
+		return &TransientError{Err: fmt.Errorf("SFTP credential validation timed out after %v", sftpValidationTimeout)}
 	}
 }
 
