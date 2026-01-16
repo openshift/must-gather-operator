@@ -1228,7 +1228,6 @@ func TestSFTPCredentialValidation(t *testing.T) {
 		mustgather             *mustgatherv1alpha1.MustGather
 		mockSFTPDialFunc       func(ctx context.Context, username, password, host, hostKeyData string) error
 		expectError            bool
-		expectRequeue          bool
 		expectedStatus         string
 		expectedCompleted      bool
 		expectedReasonContains string
@@ -1264,7 +1263,6 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			},
 			mockSFTPDialFunc:       nil, // Won't be called
 			expectError:            false,
-			expectRequeue:          false,
 			expectedStatus:         "Failed",
 			expectedCompleted:      true,
 			expectedReasonContains: "missing required field 'username'",
@@ -1301,7 +1299,6 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			},
 			mockSFTPDialFunc:       nil,
 			expectError:            false,
-			expectRequeue:          false,
 			expectedStatus:         "Failed",
 			expectedCompleted:      true,
 			expectedReasonContains: "missing required field 'username'",
@@ -1337,7 +1334,6 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			},
 			mockSFTPDialFunc:       nil,
 			expectError:            false,
-			expectRequeue:          false,
 			expectedStatus:         "Failed",
 			expectedCompleted:      true,
 			expectedReasonContains: "missing required field 'password'",
@@ -1374,7 +1370,6 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			},
 			mockSFTPDialFunc:       nil,
 			expectError:            false,
-			expectRequeue:          false,
 			expectedStatus:         "Failed",
 			expectedCompleted:      true,
 			expectedReasonContains: "missing required field 'password'",
@@ -1413,7 +1408,6 @@ func TestSFTPCredentialValidation(t *testing.T) {
 				return errors.New("SFTP connection failed: authentication failed")
 			},
 			expectError:            false,
-			expectRequeue:          false,
 			expectedStatus:         "Failed",
 			expectedCompleted:      true,
 			expectedReasonContains: "SFTP validation failed",
@@ -1452,7 +1446,6 @@ func TestSFTPCredentialValidation(t *testing.T) {
 				return &TransientError{Err: errors.New("network timeout")}
 			},
 			expectError:     true,
-			expectRequeue:   true,
 			checkLastUpdate: false,
 		},
 		{
@@ -1488,8 +1481,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			mockSFTPDialFunc: func(ctx context.Context, username, password, host, hostKeyData string) error {
 				return nil // Success
 			},
-			expectError:   false,
-			expectRequeue: false,
+			expectError: false,
 			// When validation succeeds, job creation is attempted (not tested here)
 			checkLastUpdate: false,
 		},
@@ -1523,7 +1515,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			}
 
 			// Execute reconcile
-			result, err := r.Reconcile(context.Background(), reconcile.Request{
+			_, err := r.Reconcile(context.Background(), reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      tt.mustgather.Name,
 					Namespace: tt.mustgather.Namespace,
@@ -1536,11 +1528,6 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			}
 			if !tt.expectError && err != nil {
 				t.Errorf("unexpected error: %v", err)
-			}
-
-			// Check requeue expectation
-			if tt.expectRequeue && result.RequeueAfter == 0 && err == nil {
-				t.Errorf("expected requeue but got: %+v", result)
 			}
 
 			// Get updated MustGather to check status
