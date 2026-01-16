@@ -697,6 +697,114 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			Expect(apierrors.IsForbidden(err)).To(BeTrue(), "Should get Forbidden error")
 		})
 	})
+
+	ginkgo.Context("UploadTarget SFTP Configuration Tests", func() {
+		var mustGatherName string
+		var mustGatherCR *mustgatherv1alpha1.MustGather
+		var sftpSecret *corev1.Secret
+
+		ginkgo.AfterEach(func() {
+			if mustGatherCR != nil {
+				ginkgo.By("Cleaning up MustGather CR")
+				_ = adminClient.Delete(testCtx, mustGatherCR)
+
+				// Wait for cleanup
+				Eventually(func() bool {
+					err := adminClient.Get(testCtx, client.ObjectKey{
+						Name:      mustGatherName,
+						Namespace: ns.Name,
+					}, &mustgatherv1alpha1.MustGather{})
+					return apierrors.IsNotFound(err)
+				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+
+				mustGatherCR = nil
+			}
+
+			if sftpSecret != nil {
+				ginkgo.By("Cleaning up SFTP secret")
+				_ = adminClient.Delete(testCtx, sftpSecret)
+				sftpSecret = nil
+			}
+		})
+
+		ginkgo.It("should fail upload with invalid SFTP credentials", func() {
+			mustGatherName = fmt.Sprintf("mg-upload-target-e2e-test-%d", time.Now().UnixNano())
+
+			ginkgo.By("Creating secret with invalid SFTP credentials")
+			sftpSecret = &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("sftp-secret-%d", time.Now().UnixNano()),
+					Namespace: ns.Name,
+				},
+				Data: map[string][]byte{
+					"username": []byte("invalid-user"),
+					"password": []byte("invalid-password"),
+				},
+			}
+			err := adminClient.Create(testCtx, sftpSecret)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create SFTP secret")
+
+			ginkgo.By("Creating MustGather with invalid SFTP credentials")
+			mustGatherCR = &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+					Labels: map[string]string{
+						"e2e-test": nonAdminLabel,
+					},
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: serviceAccount,
+					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+						Type: mustgatherv1alpha1.UploadTypeSFTP,
+						SFTP: &mustgatherv1alpha1.SFTPSpec{
+							Host: "invalid-sftp-host.example.com",
+							CaseManagementAccountSecretRef: corev1.LocalObjectReference{
+								Name: sftpSecret.Name,
+							},
+						},
+					},
+				},
+			}
+			err = adminClient.Create(testCtx, mustGatherCR)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create MustGather CR")
+
+			ginkgo.By("Verifying MustGather status is set to Failed due to SFTP validation failure")
+			Eventually(func() string {
+				err := adminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, mustGatherCR)
+				if err != nil {
+					return ""
+				}
+				return mustGatherCR.Status.Status
+			}).WithTimeout(30*time.Second).WithPolling(2*time.Second).Should(Equal("Failed"),
+				"MustGather status should be set to Failed when SFTP validation fails")
+
+			ginkgo.By("Verifying status indicates SFTP validation failure")
+			Expect(mustGatherCR.Status.Completed).To(BeTrue(),
+				"MustGather should be marked as completed")
+			Expect(mustGatherCR.Status.Reason).To(ContainSubstring("SFTP validation failed"),
+				"Status reason should indicate SFTP validation failure")
+
+			ginkgo.By("Verifying that NO Job was created due to pre-flight validation failure")
+			job := &batchv1.Job{}
+			err = adminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, job)
+			Expect(err).To(HaveOccurred(),
+				"Job should NOT be created when SFTP validation fails")
+			Expect(apierrors.IsNotFound(err)).To(BeTrue(),
+				"Job should not exist when pre-flight SFTP validation fails")
+
+			ginkgo.GinkgoWriter.Printf(
+				"SFTP validation correctly prevented Job creation for MustGather: %s\n"+
+					"Status: %s, Reason: %s\n",
+				mustGatherName, mustGatherCR.Status.Status, mustGatherCR.Status.Reason)
+		})
+	})
 })
 
 // Helper Functions
