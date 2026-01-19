@@ -72,9 +72,11 @@ const (
 	jobNameLabelKey     = "job-name"
 
 	// UploadTarget test constants
-	caseManagementSecretNameValid   = "case-management-creds-valid"
-	caseManagementSecretNameInvalid = "case-management-creds-invalid"
-	stageHostName                   = "sftp.access.stage.redhat.com"
+	caseManagementSecretNameValid         = "case-management-creds-valid"
+	caseManagementSecretNameInvalid       = "case-management-creds-invalid"
+	caseManagementSecretNameEmptyUsername = "case-management-creds-empty-username"
+	caseManagementSecretNameEmptyPassword = "case-management-creds-empty-password"
+	stageHostName                         = "sftp.access.stage.redhat.com"
 
 	// PersistentVolume test constants
 	mustGatherPVCName        = "must-gather-pvc"
@@ -1052,6 +1054,98 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				"Job should NOT be created when SFTP credentials fail validation")
 
 			ginkgo.GinkgoWriter.Println("Verified: No Job created due to invalid SFTP credentials (fail-fast validation)")
+		})
+
+		ginkgo.It("should fail validation with empty username", func() {
+			ginkgo.By("Creating secret with empty username")
+			loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "case-management-secret-empty-username.yaml"), ns.Name)
+
+			ginkgo.By("Creating MustGather CR with empty username credentials")
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
+				UploadTarget: &UploadTargetOptions{
+					CaseID:       "00000",
+					SecretName:   caseManagementSecretNameEmptyUsername,
+					InternalUser: false,
+					Host:         stageHostName,
+				},
+			})
+
+			ginkgo.By("Waiting for MustGather status to be updated to Failed")
+			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			Eventually(func(g Gomega) {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, fetchedMG)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(fetchedMG.Status.Status).To(Equal("Failed"),
+					"MustGather should fail with empty username")
+				g.Expect(fetchedMG.Status.Reason).To(ContainSubstring("username"),
+					"Failure reason should mention username validation error")
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+				"MustGather should fail validation with empty username")
+
+			ginkgo.GinkgoWriter.Printf("MustGather failed with status: %s, reason: %s\n",
+				fetchedMG.Status.Status, fetchedMG.Status.Reason)
+
+			ginkgo.By("Verifying Job is NOT created due to failed validation")
+			job := &batchv1.Job{}
+			Consistently(func() bool {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job)
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(30*time.Second).WithPolling(5*time.Second).Should(BeTrue(),
+				"Job should NOT be created when username is empty")
+
+			ginkgo.GinkgoWriter.Println("Verified: No Job created due to empty username (fail-fast validation)")
+		})
+
+		ginkgo.It("should fail validation with empty password", func() {
+			ginkgo.By("Creating secret with empty password")
+			loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "case-management-secret-empty-password.yaml"), ns.Name)
+
+			ginkgo.By("Creating MustGather CR with empty password credentials")
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
+				UploadTarget: &UploadTargetOptions{
+					CaseID:       "00000",
+					SecretName:   caseManagementSecretNameEmptyPassword,
+					InternalUser: false,
+					Host:         stageHostName,
+				},
+			})
+
+			ginkgo.By("Waiting for MustGather status to be updated to Failed")
+			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			Eventually(func(g Gomega) {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, fetchedMG)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(fetchedMG.Status.Status).To(Equal("Failed"),
+					"MustGather should fail with empty password")
+				g.Expect(fetchedMG.Status.Reason).To(ContainSubstring("password"),
+					"Failure reason should mention password validation error")
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+				"MustGather should fail validation with empty password")
+
+			ginkgo.GinkgoWriter.Printf("MustGather failed with status: %s, reason: %s\n",
+				fetchedMG.Status.Status, fetchedMG.Status.Reason)
+
+			ginkgo.By("Verifying Job is NOT created due to failed validation")
+			job := &batchv1.Job{}
+			Consistently(func() bool {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job)
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(30*time.Second).WithPolling(5*time.Second).Should(BeTrue(),
+				"Job should NOT be created when password is empty")
+
+			ginkgo.GinkgoWriter.Println("Verified: No Job created due to empty password (fail-fast validation)")
 		})
 	})
 
