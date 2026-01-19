@@ -1017,7 +1017,7 @@ func TestReconcile(t *testing.T) {
 			defer func() { sftpDialFunc = originalSftpDialFunc }()
 
 			// Mock SFTP dial function to always succeed
-			sftpDialFunc = func(ctx context.Context, username, password, host, hostKeyData string) error {
+			sftpDialFunc = func(ctx context.Context, username, password, host string) error {
 				return nil // Mock success - allows validation to pass and test job creation logic
 			}
 
@@ -1226,7 +1226,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 		name                   string
 		secret                 *corev1.Secret
 		mustgather             *mustgatherv1alpha1.MustGather
-		mockSFTPDialFunc       func(ctx context.Context, username, password, host, hostKeyData string) error
+		mockSFTPDialFunc       func(ctx context.Context, username, password, host string) error
 		expectError            bool
 		expectedStatus         string
 		expectedCompleted      bool
@@ -1404,7 +1404,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					},
 				},
 			},
-			mockSFTPDialFunc: func(ctx context.Context, username, password, host, hostKeyData string) error {
+			mockSFTPDialFunc: func(ctx context.Context, username, password, host string) error {
 				return errors.New("SFTP connection failed: authentication failed")
 			},
 			expectError:            false,
@@ -1442,7 +1442,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					},
 				},
 			},
-			mockSFTPDialFunc: func(ctx context.Context, username, password, host, hostKeyData string) error {
+			mockSFTPDialFunc: func(ctx context.Context, username, password, host string) error {
 				return &TransientError{Err: errors.New("network timeout")}
 			},
 			expectError:     true,
@@ -1458,7 +1458,6 @@ func TestSFTPCredentialValidation(t *testing.T) {
 				Data: map[string][]byte{
 					"username": []byte("testuser"),
 					"password": []byte("password123"),
-					"host_key": []byte("sftp.example.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ..."),
 				},
 			},
 			mustgather: &mustgatherv1alpha1.MustGather{
@@ -1478,7 +1477,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					},
 				},
 			},
-			mockSFTPDialFunc: func(ctx context.Context, username, password, host, hostKeyData string) error {
+			mockSFTPDialFunc: func(ctx context.Context, username, password, host string) error {
 				return nil // Success
 			},
 			expectError: false,
@@ -1508,13 +1507,14 @@ func TestSFTPCredentialValidation(t *testing.T) {
 				sftpDialFunc = tt.mockSFTPDialFunc
 			} else {
 				// Safety: fail if the dial is called unexpectedly
-				sftpDialFunc = func(ctx context.Context, username, password, host, hostKeyData string) error {
+				sftpDialFunc = func(ctx context.Context, username, password, host string) error {
 					t.Fatal("sftpDialFunc called unexpectedly")
 					return nil
 				}
 			}
 
 			// Execute reconcile
+			// Result is ignored as we only care about error state for validation tests
 			_, err := r.Reconcile(context.Background(), reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      tt.mustgather.Name,

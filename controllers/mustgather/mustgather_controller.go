@@ -166,10 +166,10 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			}, userSecret)
 			if err != nil {
 				if errors.IsNotFound(err) {
-					log.Error(err, fmt.Sprintf("The secret %s was not found in namespace %s: Error: %s", secretName, instance.Namespace, err.Error()))
+					log.Error(err, "secret not found", "secret", secretName, "namespace", instance.Namespace)
 					return r.ManageError(ctx, instance, fmt.Errorf("secret %s not found in namespace %s: Please create the secret referenced by caseManagementAccountSecretRef", secretName, instance.Namespace))
 				}
-				log.Error(err, fmt.Sprintf("Error getting secret (%s): %s", secretName, err.Error()))
+				log.Error(err, "error getting secret", "secret", secretName)
 				return reconcile.Result{Requeue: true}, err
 			}
 
@@ -178,21 +178,15 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			password, passwordExists := userSecret.Data["password"]
 
 			if !usernameExists || len(username) == 0 {
-				validationErr := fmt.Errorf("SFTP credentials secret '%s' is missing required field 'username'", secretName)
-				reqLogger.Error(validationErr, "SFTP credential validation failed")
-				return r.setValidationFailureStatus(ctx, instance, validationErr)
+				validationErr := fmt.Errorf("sftp credentials secret %q is missing required field 'username'", secretName)
+				reqLogger.Error(validationErr, "sftp credential validation failed")
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, validationErr)
 			}
 
 			if !passwordExists || len(password) == 0 {
-				validationErr := fmt.Errorf("SFTP credentials secret '%s' is missing required field 'password'", secretName)
-				reqLogger.Error(validationErr, "SFTP credential validation failed")
-				return r.setValidationFailureStatus(ctx, instance, validationErr)
-			}
-
-			// Extract optional host_key for verification
-			hostKeyData := ""
-			if hostKey, hostKeyExists := userSecret.Data["host_key"]; hostKeyExists {
-				hostKeyData = string(hostKey)
+				validationErr := fmt.Errorf("sftp credentials secret %q is missing required field 'password'", secretName)
+				reqLogger.Error(validationErr, "sftp credential validation failed")
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, validationErr)
 			}
 
 			// Validate SFTP credentials before creating the job
@@ -202,7 +196,6 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 				string(username),
 				string(password),
 				instance.Spec.UploadTarget.SFTP.Host,
-				hostKeyData,
 			)
 			if validationErr != nil {
 				// Check if this is a transient error that should trigger requeue
@@ -213,7 +206,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 				// Permanent validation failure - update status and don't requeue
 				reqLogger.Error(validationErr, "SFTP credential validation failed permanently")
-				return r.setValidationFailureStatus(ctx, instance, validationErr)
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, validationErr)
 			}
 
 			reqLogger.Info("SFTP credentials validated successfully")
@@ -306,6 +299,7 @@ func (r *MustGatherReconciler) updateStatus(ctx context.Context, instance *mustg
 // It sets the status to Failed, marks it as completed, updates the reason, and sets the timestamp.
 func (r *MustGatherReconciler) setValidationFailureStatus(
 	ctx context.Context,
+	reqLogger logr.Logger,
 	instance *mustgatherv1alpha1.MustGather,
 	validationErr error,
 ) (reconcile.Result, error) {
@@ -315,7 +309,7 @@ func (r *MustGatherReconciler) setValidationFailureStatus(
 	instance.Status.LastUpdate = metav1.Now()
 
 	if statusErr := r.GetClient().Status().Update(ctx, instance); statusErr != nil {
-		log.Error(statusErr, "Failed to update status after validation error")
+		reqLogger.Error(statusErr, "failed to update status after validation error")
 		return r.ManageError(ctx, instance, statusErr)
 	}
 	return reconcile.Result{}, nil

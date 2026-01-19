@@ -7,23 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 )
-
-// isTransientAPIError checks if an error from the API server is transient.
-// Transient errors should trigger a requeue rather than permanent failure.
-//
-// Returns true for: Timeout, ServerTimeout, TooManyRequests, ServiceUnavailable, InternalError
-func isTransientAPIError(err error) bool {
-	// Check for transient errors that should trigger a requeue
-	return apierrors.IsTimeout(err) ||
-		apierrors.IsServerTimeout(err) ||
-		apierrors.IsTooManyRequests(err) ||
-		apierrors.IsServiceUnavailable(err) ||
-		apierrors.IsInternalError(err)
-}
 
 func Test_containsPort(t *testing.T) {
 	tests := []struct {
@@ -93,77 +77,59 @@ func Test_containsPort(t *testing.T) {
 	}
 }
 
-func Test_isTransientAPIError(t *testing.T) {
-	// Create a test resource reference for errors
-	resource := schema.GroupResource{Group: "v1", Resource: "secrets"}
-
+func Test_normalizeHostAddress(t *testing.T) {
 	tests := []struct {
 		name     string
-		err      error
-		expected bool
+		host     string
+		expected string
 	}{
 		{
-			name:     "timeout error",
-			err:      apierrors.NewTimeoutError("timeout", 5),
-			expected: true,
+			name:     "empty host",
+			host:     "",
+			expected: "",
 		},
 		{
-			name:     "server timeout error",
-			err:      apierrors.NewServerTimeout(resource, "get", 5),
-			expected: true,
+			name:     "IPv4 without port",
+			host:     "192.168.1.1",
+			expected: "192.168.1.1:22",
 		},
 		{
-			name:     "too many requests error",
-			err:      apierrors.NewTooManyRequests("too many requests", 5),
-			expected: true,
+			name:     "IPv4 with port",
+			host:     "192.168.1.1:2222",
+			expected: "192.168.1.1:2222",
 		},
 		{
-			name:     "service unavailable error",
-			err:      apierrors.NewServiceUnavailable("service unavailable"),
-			expected: true,
+			name:     "hostname without port",
+			host:     "example.com",
+			expected: "example.com:22",
 		},
 		{
-			name:     "internal server error",
-			err:      apierrors.NewInternalError(errors.New("internal error")),
-			expected: true,
+			name:     "hostname with port",
+			host:     "example.com:2222",
+			expected: "example.com:2222",
 		},
 		{
-			name:     "not found error",
-			err:      apierrors.NewNotFound(resource, "test-secret"),
-			expected: false,
+			name:     "IPv6 unbracketed",
+			host:     "2001:db8::1",
+			expected: "[2001:db8::1]:22",
 		},
 		{
-			name:     "already exists error",
-			err:      apierrors.NewAlreadyExists(resource, "test-secret"),
-			expected: false,
+			name:     "IPv6 bracketed without port",
+			host:     "[2001:db8::1]",
+			expected: "[2001:db8::1]:22",
 		},
 		{
-			name:     "unauthorized error",
-			err:      apierrors.NewUnauthorized("unauthorized"),
-			expected: false,
-		},
-		{
-			name:     "forbidden error",
-			err:      apierrors.NewForbidden(resource, "test-secret", errors.New("forbidden")),
-			expected: false,
-		},
-		{
-			name:     "generic error",
-			err:      errors.New("generic error"),
-			expected: false,
-		},
-		{
-			name:     "nil error",
-			err:      nil,
-			expected: false,
+			name:     "IPv6 bracketed with port",
+			host:     "[2001:db8::1]:2222",
+			expected: "[2001:db8::1]:2222",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isTransientAPIError(tt.err)
+			got := normalizeHostAddress(tt.host)
 			if got != tt.expected {
-				t.Errorf("isTransientAPIError() = %v, want %v for error: %v", got, tt.expected, tt.err)
+				t.Errorf("normalizeHostAddress(%q) = %q, want %q", tt.host, got, tt.expected)
 			}
 		})
 	}
@@ -266,7 +232,6 @@ func Test_testSFTPConnection(t *testing.T) {
 		username    string
 		password    string
 		host        string
-		hostKeyData string
 		wantErr     bool
 		errContains string
 	}{
@@ -275,7 +240,6 @@ func Test_testSFTPConnection(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "",
-			hostKeyData: "",
 			wantErr:     true,
 			errContains: "SFTP connection failed",
 		},
@@ -284,7 +248,6 @@ func Test_testSFTPConnection(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "192.168.1.1",
-			hostKeyData: "",
 			wantErr:     true,
 			errContains: "SFTP connection failed",
 		},
@@ -293,7 +256,6 @@ func Test_testSFTPConnection(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "192.168.1.1:22",
-			hostKeyData: "",
 			wantErr:     true,
 			errContains: "SFTP connection failed",
 		},
@@ -302,7 +264,6 @@ func Test_testSFTPConnection(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "sftp.example.com",
-			hostKeyData: "",
 			wantErr:     true,
 			errContains: "SFTP connection failed",
 		},
@@ -311,7 +272,6 @@ func Test_testSFTPConnection(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "sftp.example.com:2222",
-			hostKeyData: "",
 			wantErr:     true,
 			errContains: "SFTP connection failed",
 		},
@@ -320,7 +280,6 @@ func Test_testSFTPConnection(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "2001:db8::1",
-			hostKeyData: "",
 			wantErr:     true,
 			errContains: "SFTP connection failed",
 		},
@@ -329,7 +288,6 @@ func Test_testSFTPConnection(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "[2001:db8::1]",
-			hostKeyData: "",
 			wantErr:     true,
 			errContains: "SFTP connection failed",
 		},
@@ -338,25 +296,15 @@ func Test_testSFTPConnection(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "[2001:db8::1]:2222",
-			hostKeyData: "",
 			wantErr:     true,
 			errContains: "SFTP connection failed",
-		},
-		{
-			name:        "invalid host key data",
-			username:    "user",
-			password:    "pass",
-			host:        "sftp.example.com",
-			hostKeyData: "invalid host key",
-			wantErr:     true,
-			errContains: "failed to parse known_hosts data",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			err := testSFTPConnection(ctx, tt.username, tt.password, tt.host, tt.hostKeyData)
+			err := testSFTPConnection(ctx, tt.username, tt.password, tt.host)
 
 			if tt.wantErr {
 				if err == nil {
@@ -402,7 +350,7 @@ func Test_testSFTPConnection_ContextCancellation(t *testing.T) {
 			// Wait for context to be cancelled
 			time.Sleep(10 * time.Millisecond)
 
-			err := testSFTPConnection(ctx, tt.username, tt.password, tt.host, "")
+			err := testSFTPConnection(ctx, tt.username, tt.password, tt.host)
 
 			if tt.wantErr {
 				if err == nil {
@@ -421,7 +369,6 @@ func Test_validateSFTPCredentials(t *testing.T) {
 		username    string
 		password    string
 		host        string
-		hostKeyData string
 		mockDialErr error
 		wantErr     bool
 		errContains string
@@ -431,7 +378,6 @@ func Test_validateSFTPCredentials(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "sftp.example.com",
-			hostKeyData: "",
 			mockDialErr: fmt.Errorf("SFTP connection failed: ssh: handshake failed"),
 			wantErr:     true,
 			errContains: "SFTP connection failed",
@@ -441,7 +387,6 @@ func Test_validateSFTPCredentials(t *testing.T) {
 			username:    "user",
 			password:    "wrongpass",
 			host:        "sftp.example.com",
-			hostKeyData: "",
 			mockDialErr: fmt.Errorf("SFTP connection failed: ssh: unable to authenticate"),
 			wantErr:     true,
 			errContains: "SFTP connection failed",
@@ -451,25 +396,6 @@ func Test_validateSFTPCredentials(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "sftp.example.com",
-			hostKeyData: "",
-			mockDialErr: nil,
-			wantErr:     false,
-		},
-		{
-			name:        "valid credentials with host key",
-			username:    "user",
-			password:    "pass",
-			host:        "sftp.example.com",
-			hostKeyData: "sftp.example.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ...",
-			mockDialErr: nil,
-			wantErr:     false,
-		},
-		{
-			name:        "valid credentials with empty host key",
-			username:    "user",
-			password:    "pass",
-			host:        "sftp.example.com",
-			hostKeyData: "",
 			mockDialErr: nil,
 			wantErr:     false,
 		},
@@ -481,12 +407,12 @@ func Test_validateSFTPCredentials(t *testing.T) {
 			originalDialFunc := sftpDialFunc
 			defer func() { sftpDialFunc = originalDialFunc }()
 
-			sftpDialFunc = func(ctx context.Context, username, password, host, hostKeyData string) error {
+			sftpDialFunc = func(ctx context.Context, username, password, host string) error {
 				return tt.mockDialErr
 			}
 
 			// Run the validation
-			err := validateSFTPCredentials(context.Background(), tt.username, tt.password, tt.host, tt.hostKeyData)
+			err := validateSFTPCredentials(context.Background(), tt.username, tt.password, tt.host)
 
 			if tt.wantErr {
 				if err == nil {
@@ -508,7 +434,7 @@ func Test_validateSFTPCredentials_Timeout(t *testing.T) {
 	originalDialFunc := sftpDialFunc
 	defer func() { sftpDialFunc = originalDialFunc }()
 
-	sftpDialFunc = func(ctx context.Context, username, password, host, hostKeyData string) error {
+	sftpDialFunc = func(ctx context.Context, username, password, host string) error {
 		// Block until context is cancelled
 		<-ctx.Done()
 		return ctx.Err()
@@ -518,7 +444,7 @@ func Test_validateSFTPCredentials_Timeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	err := validateSFTPCredentials(ctx, "user", "pass", "sftp.example.com", "")
+	err := validateSFTPCredentials(ctx, "user", "pass", "sftp.example.com")
 
 	if err == nil {
 		t.Errorf("validateSFTPCredentials() expected timeout error, got nil")
