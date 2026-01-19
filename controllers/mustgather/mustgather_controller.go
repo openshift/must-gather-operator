@@ -67,6 +67,8 @@ const mustGatherFinalizer = "finalizer.mustgathers.operator.openshift.io"
 //+kubebuilder:rbac:groups=apps,resources=deployments;daemonsets;replicasets;statefulsets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=apps,resources=deployments/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=pods;services;services/finalizers;endpoints;persistentvolumeclaims;events;configmaps;secrets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch
+// ServiceAccount read access needed for pre-flight validation before Job creation
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -165,12 +167,35 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			}, userSecret)
 			if err != nil {
 				if errors.IsNotFound(err) {
-					log.Error(err, fmt.Sprintf("The secret %s was not found in namespace %s: Error: %s", secretName, instance.Namespace, err.Error()))
-					return r.ManageError(ctx, instance, fmt.Errorf("secret %s not found in namespace %s: Please create the secret referenced by caseManagementAccountSecretRef", secretName, instance.Namespace))
+					log.Error(err, "secret not found", "name", secretName, "namespace", instance.Namespace)
+					return r.ManageError(ctx, instance, fmt.Errorf("secret %q not found in namespace %q: please create the secret referenced by caseManagementAccountSecretRef: %w", secretName, instance.Namespace, err))
 				}
-				log.Error(err, fmt.Sprintf("Error getting secret (%s): %s", secretName, err.Error()))
+				log.Error(err, "failed to get secret", "name", secretName, "namespace", instance.Namespace)
 				return reconcile.Result{Requeue: true}, err
 			}
+		}
+
+		// Validate that the ServiceAccount exists before creating the Job.
+		// This prevents the Job from being stuck in pending state due to a missing ServiceAccount.
+		// If no ServiceAccount is specified, default to "default" which should exist in all namespaces.
+		// Note: If the "default" SA has been deleted, this validation will catch it and report an error.
+		saName := instance.Spec.ServiceAccountName
+		if saName == "" {
+			saName = "default"
+			log.Info("no serviceAccountName specified, defaulting to 'default'", "namespace", instance.Namespace)
+		}
+		serviceAccount := &corev1.ServiceAccount{}
+		err = r.GetClient().Get(ctx, types.NamespacedName{
+			Namespace: instance.Namespace,
+			Name:      saName,
+		}, serviceAccount)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				log.Error(err, "service account not found", "name", saName, "namespace", instance.Namespace)
+				return r.ManageError(ctx, instance, fmt.Errorf("service account %q not found in namespace %q: please create the service account or specify a different serviceAccountName: %w", saName, instance.Namespace, err))
+			}
+			log.Error(err, "failed to get service account (transient error, will retry)", "name", saName, "namespace", instance.Namespace)
+			return reconcile.Result{Requeue: true}, err
 		}
 
 		// job is not there, create it.
