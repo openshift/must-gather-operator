@@ -4,10 +4,25 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
 )
+
+// mockNetError is a mock implementation of net.Error for testing
+type mockNetError struct {
+	message   string
+	timeout   bool
+	temporary bool
+}
+
+func (e *mockNetError) Error() string   { return e.message }
+func (e *mockNetError) Timeout() bool   { return e.timeout }
+func (e *mockNetError) Temporary() bool { return e.temporary }
+
+// Verify mockNetError implements net.Error
+var _ net.Error = (*mockNetError)(nil)
 
 func Test_containsPort(t *testing.T) {
 	tests := []struct {
@@ -174,6 +189,26 @@ func Test_IsTransientError(t *testing.T) {
 		{
 			name:     "wrapped regular error",
 			err:      fmt.Errorf("wrapped: %w", errors.New("regular")),
+			expected: false,
+		},
+		{
+			name:     "net.Error with timeout true",
+			err:      &mockNetError{message: "connection timed out", timeout: true},
+			expected: true,
+		},
+		{
+			name:     "net.Error with timeout false",
+			err:      &mockNetError{message: "connection refused", timeout: false},
+			expected: false,
+		},
+		{
+			name:     "wrapped net.Error with timeout true",
+			err:      fmt.Errorf("dial failed: %w", &mockNetError{message: "i/o timeout", timeout: true}),
+			expected: true,
+		},
+		{
+			name:     "wrapped net.Error with timeout false",
+			err:      fmt.Errorf("dial failed: %w", &mockNetError{message: "connection refused", timeout: false}),
 			expected: false,
 		},
 	}

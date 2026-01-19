@@ -47,6 +47,12 @@ func IsTransientError(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return true
 	}
+
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+
 	var transientErr *TransientError
 	return errors.As(err, &transientErr)
 }
