@@ -138,7 +138,8 @@ func TestCleanupMustGatherResources(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: targetNamespace},
 					Spec:       mustgatherv1alpha1.MustGatherSpec{},
 				}
-				return []client.Object{mg}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				return []client.Object{mg, sa}
 			},
 			interceptors: func() interceptClient {
 				return interceptClient{
@@ -307,7 +308,8 @@ func TestReconcile(t *testing.T) {
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns"}}
-				return []client.Object{mg}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				return []client.Object{mg, sa}
 			},
 			interceptors:   func() interceptClient { return interceptClient{} },
 			expectError:    false,
@@ -319,7 +321,8 @@ func TestReconcile(t *testing.T) {
 			setupEnv: func(t *testing.T) {},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns"}}
-				return []client.Object{mg}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				return []client.Object{mg, sa}
 			},
 			interceptors: func() interceptClient {
 				return interceptClient{
@@ -420,7 +423,8 @@ func TestReconcile(t *testing.T) {
 						ServiceAccountName: "default",
 					},
 				}
-				return []client.Object{mg}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				return []client.Object{mg, sa}
 			},
 			interceptors:   func() interceptClient { return interceptClient{} },
 			expectError:    true,
@@ -439,7 +443,8 @@ func TestReconcile(t *testing.T) {
 						ServiceAccountName: "default",
 					},
 				}
-				return []client.Object{mg}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				return []client.Object{mg, sa}
 			},
 			interceptors:   func() interceptClient { return interceptClient{} },
 			expectError:    false,
@@ -466,13 +471,14 @@ func TestReconcile(t *testing.T) {
 					},
 				}
 				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: "ns"}}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
 				cv := &configv1.ClusterVersion{
 					ObjectMeta: metav1.ObjectMeta{Name: "version"},
 					Status: configv1.ClusterVersionStatus{
 						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
 					},
 				}
-				return []client.Object{mg, userSecret, cv}
+				return []client.Object{mg, userSecret, sa, cv}
 			},
 			interceptors: func() interceptClient { return interceptClient{} },
 			expectError:  false,
@@ -482,6 +488,158 @@ func TestReconcile(t *testing.T) {
 				job := &batchv1.Job{}
 				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err != nil {
 					t.Fatalf("expected job to be created, got error: %v", err)
+				}
+			},
+		},
+		{
+			name: "reconcile_job_not_found_service_account_not_found_calls_manage_error",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: "non-existent-sa",
+					},
+				}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status: configv1.ClusterVersionStatus{
+						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
+					},
+				}
+				return []client.Object{mg, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  true,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				// Verify the MustGather status was updated with error condition
+				out := &mustgatherv1alpha1.MustGather{}
+				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
+					t.Fatalf("failed to get mustgather: %v", getErr)
+				}
+				// ManageError should have set ReconciliationStatus to "Error"
+				if len(out.Status.Conditions) == 0 {
+					t.Fatalf("expected error condition to be set on mustgather status")
+				}
+			},
+		},
+		{
+			name: "reconcile_empty_service_account_name_defaults_to_default",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						// ServiceAccountName is empty, should validate "default" SA exists
+						ServiceAccountName: "",
+					},
+				}
+				// Create "default" service account that should be validated
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status: configv1.ClusterVersionStatus{
+						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
+					},
+				}
+				return []client.Object{mg, sa, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				// Verify the Job was created successfully, proving the validation passed
+				// When ServiceAccountName is empty, the controller validates "default" SA exists
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err != nil {
+					t.Fatalf("expected job to be created when 'default' service account exists: %v", err)
+				}
+				// The job's ServiceAccountName will match the MustGather spec (empty string)
+				// Kubernetes will implicitly use "default" when the field is empty
+				if job.Spec.Template.Spec.ServiceAccountName != "" {
+					t.Fatalf("expected job ServiceAccountName to be empty (matching spec), got: %q", job.Spec.Template.Spec.ServiceAccountName)
+				}
+			},
+		},
+		{
+			name: "reconcile_empty_service_account_name_default_not_found_calls_manage_error",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						// ServiceAccountName is empty, should try to validate "default" SA
+						ServiceAccountName: "",
+					},
+				}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status: configv1.ClusterVersionStatus{
+						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
+					},
+				}
+				// Note: Not creating "default" SA to simulate it being deleted
+				return []client.Object{mg, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  true,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				// Verify the MustGather status was updated with error condition
+				out := &mustgatherv1alpha1.MustGather{}
+				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
+					t.Fatalf("failed to get mustgather: %v", getErr)
+				}
+				// ManageError should have set error condition
+				if len(out.Status.Conditions) == 0 {
+					t.Fatalf("expected error condition to be set when 'default' service account is missing")
+				}
+				// Verify Job was not created
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err == nil {
+					t.Fatalf("expected job to not be created when 'default' service account is missing")
+				}
+			},
+		},
+		{
+			name: "reconcile_job_not_found_service_account_get_error_returns_requeue",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: "default",
+					},
+				}
+				return []client.Object{mg}
+			},
+			interceptors: func() interceptClient {
+				return interceptClient{
+					onGet: func(ctx context.Context, key client.ObjectKey, obj client.Object) error {
+						// Return a non-NotFound error when getting service account
+						if _, ok := obj.(*corev1.ServiceAccount); ok && key.Name == "default" && key.Namespace == "ns" {
+							return errors.New("API server error - failed to get service account")
+						}
+						return nil
+					},
+				}
+			},
+			expectError:  true,
+			expectResult: reconcile.Result{Requeue: true},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				// Verify job was not created due to error
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err == nil {
+					t.Fatalf("expected job to not be created when service account get fails")
 				}
 			},
 		},
@@ -510,7 +668,8 @@ func TestReconcile(t *testing.T) {
 						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
 					},
 				}
-				return []client.Object{mg, cv}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				return []client.Object{mg, cv, sa}
 			},
 			interceptors: func() interceptClient { return interceptClient{} },
 			expectError:  true,
@@ -552,7 +711,8 @@ func TestReconcile(t *testing.T) {
 						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
 					},
 				}
-				return []client.Object{mg, cv}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				return []client.Object{mg, cv, sa}
 			},
 			interceptors: func() interceptClient {
 				return interceptClient{
@@ -596,7 +756,8 @@ func TestReconcile(t *testing.T) {
 				}
 				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns"}}
 				job.Status.Active = 1
-				return []client.Object{mg, userSecret, cv, job}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				return []client.Object{mg, userSecret, cv, job, sa}
 			},
 			interceptors:   func() interceptClient { return interceptClient{} },
 			expectError:    false,
@@ -703,7 +864,8 @@ func TestReconcile(t *testing.T) {
 						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
 					},
 				}
-				return []client.Object{mg, cv, job}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				return []client.Object{mg, cv, job, sa}
 			},
 			interceptors: func() interceptClient { return interceptClient{} },
 			expectError:  false,
@@ -836,7 +998,8 @@ func TestReconcile(t *testing.T) {
 						ServiceAccountName: "default", // Pre-initialized to skip IsInitialized update
 					},
 				}
-				return []client.Object{mg}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				return []client.Object{mg, sa}
 			},
 			interceptors: func() interceptClient {
 				return interceptClient{
@@ -924,7 +1087,8 @@ func TestReconcile(t *testing.T) {
 						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
 					},
 				}
-				return []client.Object{mg, userSecret, cv}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				return []client.Object{mg, userSecret, cv, sa}
 			},
 			interceptors: func() interceptClient {
 				return interceptClient{
@@ -967,7 +1131,8 @@ func TestReconcile(t *testing.T) {
 						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
 					},
 				}
-				return []client.Object{mg, userSecret, cv}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				return []client.Object{mg, userSecret, cv, sa}
 			},
 			interceptors: func() interceptClient {
 				return interceptClient{
@@ -1052,11 +1217,13 @@ func TestReconcile(t *testing.T) {
 func TestMustGatherController(t *testing.T) {
 	mgObj := createMustGatherObject()
 	secObj := createMustGatherSecretObject()
+	saObj := createServiceAccountObject()
 	t.Setenv("OPERATOR_IMAGE", "test-image")
 
 	objs := []runtime.Object{
 		mgObj,
 		secObj,
+		saObj,
 	}
 	cl, s := generateFakeClient(objs...)
 	eventRec := &record.FakeRecorder{}
@@ -1104,7 +1271,8 @@ func TestMustGatherControllerWithUploadTarget(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("OPERATOR_IMAGE", "test-image")
 			secObj := createMustGatherSecretObject()
-			objs := []runtime.Object{tt.mustGather, secObj}
+			saObj := createServiceAccountObject()
+			objs := []runtime.Object{tt.mustGather, secObj, saObj}
 			cl, s := generateFakeClient(objs...)
 			eventRec := &record.FakeRecorder{}
 			var cfg *rest.Config
@@ -1191,6 +1359,20 @@ func createMustGatherSecretObject() *corev1.Secret {
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "case-management-creds",
+			Namespace: "openshift-must-gather-operator",
+		},
+	}
+}
+
+// createServiceAccountObject creates a default ServiceAccount object for testing purposes.
+// It returns a ServiceAccount named "default" in the openshift-must-gather-operator namespace.
+func createServiceAccountObject() *corev1.ServiceAccount {
+	return &corev1.ServiceAccount{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "ServiceAccount",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "default",
 			Namespace: "openshift-must-gather-operator",
 		},
 	}

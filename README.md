@@ -9,8 +9,7 @@ kind: MustGather
 metadata:
   name: example-mustgather-basic
 spec:
-  serviceAccountRef:
-    name: must-gather-admin
+  serviceAccountName: must-gather-admin
   uploadTarget:
     type: SFTP
     sftp:
@@ -30,8 +29,7 @@ kind: MustGather
 metadata:
   name: example-mustgather-full
 spec:
-  serviceAccountRef:
-    name: must-gather-admin
+  serviceAccountName: must-gather-admin
   uploadTarget:
     type: SFTP
     sftp:
@@ -51,8 +49,7 @@ kind: MustGather
 metadata:
   name: example-mustgather-proxy
 spec:
-  serviceAccountRef:
-    name: must-gather-admin
+  serviceAccountName: must-gather-admin
   uploadTarget:
     type: SFTP
     sftp:

@@ -85,6 +85,14 @@ rules:
       - list
       - watch
   - apiGroups:
+      - ""
+    resources:
+      - serviceaccounts
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
       - "config.openshift.io"
     resources:
       - proxies
