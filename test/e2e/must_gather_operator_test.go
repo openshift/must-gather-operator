@@ -696,24 +696,40 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Attempting to create MustGather with non-existent privileged SA")
 			mg = createMustGatherCR(mustGatherName, ns.Name, "cluster-admin-sa", false, nil) // SA doesn't exist
 
-			ginkgo.By("Verifying Job is created but Pod fails due to missing SA")
-			job := &batchv1.Job{}
-			Eventually(func() error {
-				return nonAdminClient.Get(testCtx, client.ObjectKey{
+			ginkgo.By("Verifying MustGather status has error condition due to missing SA")
+			Eventually(func() bool {
+				fetchedMG := &mustgatherv1alpha1.MustGather{}
+				err := adminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
-				}, job)
-			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+				}, fetchedMG)
+				if err != nil {
+					return false
+				}
+				// Check for error condition with service account message
+				for _, cond := range fetchedMG.Status.Conditions {
+					if cond.Type == "ReconcileError" && cond.Status == metav1.ConditionTrue {
+						if strings.Contains(strings.ToLower(cond.Message), "service account") &&
+							strings.Contains(strings.ToLower(cond.Message), "not found") {
+							ginkgo.GinkgoWriter.Printf("Found expected error condition: %s\n", cond.Message)
+							return true
+						}
+					}
+				}
+				return false
+			}).WithTimeout(1*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
+				"MustGather status should contain error condition about missing ServiceAccount")
 
-			// Job should exist but pods won't be created due to missing SA
-			Consistently(func() int32 {
-				_ = nonAdminClient.Get(testCtx, client.ObjectKey{
-					Name:      mustGatherName,
-					Namespace: ns.Name,
-				}, job)
-				return job.Status.Active
-			}).WithTimeout(30*time.Second).WithPolling(5*time.Second).Should(Equal(int32(0)),
-				"Job should not have active pods due to missing ServiceAccount")
+			ginkgo.By("Verifying Job was not created due to SA validation")
+			job := &batchv1.Job{}
+			err := adminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, job)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue(),
+				"Job should not be created when ServiceAccount is missing (pre-flight validation)")
+
+			ginkgo.GinkgoWriter.Println("ServiceAccount validation correctly prevented Job creation for non-existent privileged SA")
 		})
 
 		ginkgo.It("should report error when ServiceAccount does not exist", func() {

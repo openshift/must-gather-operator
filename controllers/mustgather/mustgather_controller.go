@@ -157,24 +157,6 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			return r.ManageError(ctx, instance, err)
 		}
 
-		// look up user secret
-		if instance.Spec.UploadTarget != nil && instance.Spec.UploadTarget.SFTP != nil && instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name != "" {
-			secretName := instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name
-			userSecret := &corev1.Secret{}
-			err = r.GetClient().Get(ctx, types.NamespacedName{
-				Namespace: instance.Namespace,
-				Name:      secretName,
-			}, userSecret)
-			if err != nil {
-				if errors.IsNotFound(err) {
-					log.Error(err, "secret not found", "name", secretName, "namespace", instance.Namespace)
-					return r.ManageError(ctx, instance, fmt.Errorf("secret %q not found in namespace %q: please create the secret referenced by caseManagementAccountSecretRef: %w", secretName, instance.Namespace, err))
-				}
-				log.Error(err, "failed to get secret", "name", secretName, "namespace", instance.Namespace)
-				return reconcile.Result{Requeue: true}, err
-			}
-		}
-
 		// Validate that the ServiceAccount exists before creating the Job.
 		// This prevents the Job from being stuck in pending state due to a missing ServiceAccount.
 		// If no ServiceAccount is specified, default to "default" which should exist in all namespaces.
@@ -196,6 +178,24 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			}
 			log.Error(err, "failed to get service account (transient error, will retry)", "name", saName, "namespace", instance.Namespace)
 			return reconcile.Result{Requeue: true}, err
+		}
+
+		// look up user secret
+		if instance.Spec.UploadTarget != nil && instance.Spec.UploadTarget.SFTP != nil && instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name != "" {
+			secretName := instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name
+			userSecret := &corev1.Secret{}
+			err = r.GetClient().Get(ctx, types.NamespacedName{
+				Namespace: instance.Namespace,
+				Name:      secretName,
+			}, userSecret)
+			if err != nil {
+				if errors.IsNotFound(err) {
+					log.Error(err, "secret not found", "name", secretName, "namespace", instance.Namespace)
+					return r.ManageError(ctx, instance, fmt.Errorf("secret %q not found in namespace %q: please create the secret referenced by caseManagementAccountSecretRef: %w", secretName, instance.Namespace, err))
+				}
+				log.Error(err, "failed to get secret", "name", secretName, "namespace", instance.Namespace)
+				return reconcile.Result{Requeue: true}, err
+			}
 		}
 
 		// job is not there, create it.
