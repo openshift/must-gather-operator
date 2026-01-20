@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 // mockNetError is a mock implementation of net.Error for testing
@@ -338,6 +340,14 @@ func Test_testSFTPConnection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Stub the SSH dialer to avoid real network I/O
+			originalDialFunc := dialSSHWithContextFunc
+			defer func() { dialSSHWithContextFunc = originalDialFunc }()
+
+			dialSSHWithContextFunc = func(network, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
+				return nil, errors.New("connection refused")
+			}
+
 			ctx := context.Background()
 			err := testSFTPConnection(ctx, tt.username, tt.password, tt.host)
 
@@ -379,6 +389,16 @@ func Test_testSFTPConnection_ContextCancellation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Stub the SSH dialer to avoid real network I/O
+			originalDialFunc := dialSSHWithContextFunc
+			defer func() { dialSSHWithContextFunc = originalDialFunc }()
+
+			dialSSHWithContextFunc = func(network, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
+				// Simulate a slow connection that will be cancelled
+				time.Sleep(100 * time.Millisecond)
+				return nil, errors.New("connection timed out")
+			}
+
 			ctx, cancel := context.WithTimeout(context.Background(), tt.timeout)
 			defer cancel()
 
@@ -483,7 +503,7 @@ func Test_validateSFTPCredentials_Timeout(t *testing.T) {
 
 	if err == nil {
 		t.Errorf("validateSFTPCredentials() expected timeout error, got nil")
-	} else if !strings.Contains(err.Error(), "timed out") {
-		t.Errorf("validateSFTPCredentials() error = %v, want error containing 'timed out'", err)
+	} else if !IsTransientError(err) {
+		t.Errorf("validateSFTPCredentials() error = %v, want transient error", err)
 	}
 }

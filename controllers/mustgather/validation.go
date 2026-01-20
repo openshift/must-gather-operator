@@ -27,6 +27,13 @@ const (
 // It can be overridden in tests to avoid real network calls.
 var sftpDialFunc = testSFTPConnection
 
+// dialSSHWithContextFunc is the function used to dial SSH connections.
+// It can be overridden in tests to avoid real network calls.
+// The signature matches ssh.Dial for easy stubbing.
+var dialSSHWithContextFunc = func(network, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
+	return ssh.Dial(network, addr, config)
+}
+
 // TransientError wraps an error that should trigger a requeue rather than permanent failure
 type TransientError struct {
 	Err error
@@ -176,7 +183,7 @@ func dialSSHWithContext(ctx context.Context, address string, config *ssh.ClientC
 				dialChan <- dialResult{conn: nil, err: fmt.Errorf("ssh dial panicked: %v", r)}
 			}
 		}()
-		conn, err := ssh.Dial("tcp", address, config)
+		conn, err := dialSSHWithContextFunc("tcp", address, config)
 		// Use non-blocking select to avoid leaking connections if ctx is cancelled
 		// after successful dial but before the outer select receives the result
 		select {
