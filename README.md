@@ -39,29 +39,6 @@ spec:
   audit: true
 ```
 
-## Proxy Support
-
-The Must Gather operator supports using a proxy. The proxy setting can be specified in the MustGather object. If not specified, the cluster default proxy setting will be used. Here is an example:
-
-```yaml
-apiVersion: operator.openshift.io/v1alpha1
-kind: MustGather
-metadata:
-  name: example-mustgather-proxy
-spec:
-  serviceAccountName: must-gather-admin
-  uploadTarget:
-    type: SFTP
-    sftp:
-      caseID: '02527285'
-      caseManagementAccountSecretRef:
-        name: case-management-creds
-  proxyConfig:
-    httpProxy: http://myproxy
-    httpsProxy: https://my_http_proxy
-    noProxy: master-api
-```
-
 ## Garbage collection
 
 MustGather instances are cleaned up by the Must Gather operator about 6 hours after completion, regardless of whether they were successful.
