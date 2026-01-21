@@ -56,29 +56,17 @@ func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batch
 
 	var httpProxy, httpsProxy, noProxy string
 
-	// Check if proxy configuration is provided in the CR
-	if mustGather.Spec.ProxyConfig != nil {
-		if mustGather.Spec.ProxyConfig.HTTPProxy != "" || mustGather.Spec.ProxyConfig.HTTPSProxy != "" || mustGather.Spec.ProxyConfig.NoProxy != "" {
-			// Use proxy configuration from CR
-			httpProxy = mustGather.Spec.ProxyConfig.HTTPProxy
-			httpsProxy = mustGather.Spec.ProxyConfig.HTTPSProxy
-			noProxy = mustGather.Spec.ProxyConfig.NoProxy
-		}
-	}
-
-	// Fallback to operator's environment proxy variables only if not provided in the CR
-	if httpProxy == "" && httpsProxy == "" {
-		envVars := proxy.ReadProxyVarsFromEnv()
-		// the below loop should implicitly handle len(envVars) > 0
-		for _, envVar := range envVars {
-			switch envVar.Name {
-			case "HTTP_PROXY":
-				httpProxy = envVar.Value
-			case "HTTPS_PROXY":
-				httpsProxy = envVar.Value
-			case "NO_PROXY":
-				noProxy = envVar.Value
-			}
+	// Use operator's environment proxy variables
+	envVars := proxy.ReadProxyVarsFromEnv()
+	// the below loop should implicitly handle len(envVars) > 0
+	for _, envVar := range envVars {
+		switch envVar.Name {
+		case "HTTP_PROXY":
+			httpProxy = envVar.Value
+		case "HTTPS_PROXY":
+			httpsProxy = envVar.Value
+		case "NO_PROXY":
+			noProxy = envVar.Value
 		}
 	}
 
