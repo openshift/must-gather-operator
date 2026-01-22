@@ -9,5 +9,5 @@ spec:
     sftp:
       caseID: '02527285'
       caseManagementAccountSecretRef:
-        name: case-management-creds-empty-username
+        name: case-management-creds
       internalUser: true
