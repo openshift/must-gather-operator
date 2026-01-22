@@ -3,8 +3,7 @@ kind: MustGather
 metadata:
   name: full-mustgather
 spec:
-  serviceAccountRef:
-    name: must-gather-admin
+  serviceAccountName: must-gather-admin
   uploadTarget:
     type: SFTP
     sftp:
