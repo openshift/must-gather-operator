@@ -180,13 +180,13 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			if !usernameExists || len(username) == 0 {
 				validationErr := fmt.Errorf("sftp credentials secret %q is missing required field 'username'", secretName)
 				reqLogger.Error(validationErr, "sftp credential validation failed")
-				return r.setValidationFailureStatus(ctx, reqLogger, instance, validationErr)
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, "SFTP credentials", validationErr)
 			}
 
 			if !passwordExists || len(password) == 0 {
 				validationErr := fmt.Errorf("sftp credentials secret %q is missing required field 'password'", secretName)
 				reqLogger.Error(validationErr, "sftp credential validation failed")
-				return r.setValidationFailureStatus(ctx, reqLogger, instance, validationErr)
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, "SFTP credentials", validationErr)
 			}
 
 			// Validate SFTP credentials before creating the job
@@ -206,7 +206,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 				// Permanent validation failure - update status and don't requeue
 				reqLogger.Error(validationErr, "SFTP credential validation failed permanently")
-				return r.setValidationFailureStatus(ctx, reqLogger, instance, validationErr)
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, "SFTP", validationErr)
 			}
 
 			reqLogger.Info("SFTP credentials validated successfully")
@@ -296,16 +296,18 @@ func (r *MustGatherReconciler) updateStatus(ctx context.Context, instance *mustg
 }
 
 // setValidationFailureStatus updates the MustGather status to indicate a validation failure.
-// It sets the status to Failed, marks it as completed, updates the reason, and sets the timestamp.
+// It sets the status to Failed, marks it as completed, updates the reason with the validation type, and sets the timestamp.
+// validationType should describe what kind of validation failed (e.g., "SFTP", "Service Account", "Secret").
 func (r *MustGatherReconciler) setValidationFailureStatus(
 	ctx context.Context,
 	reqLogger logr.Logger,
 	instance *mustgatherv1alpha1.MustGather,
+	validationType string,
 	validationErr error,
 ) (reconcile.Result, error) {
 	instance.Status.Status = "Failed"
 	instance.Status.Completed = true
-	instance.Status.Reason = fmt.Sprintf("SFTP validation failed: %v", validationErr)
+	instance.Status.Reason = fmt.Sprintf("%s validation failed: %v", validationType, validationErr)
 	instance.Status.LastUpdate = metav1.Now()
 
 	if statusErr := r.GetClient().Status().Update(ctx, instance); statusErr != nil {
