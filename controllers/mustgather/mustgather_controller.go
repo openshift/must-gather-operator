@@ -180,13 +180,13 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			if !usernameExists || len(username) == 0 {
 				validationErr := fmt.Errorf("sftp credentials secret %q is missing required field 'username'", secretName)
 				reqLogger.Error(validationErr, "sftp credential validation failed")
-				return r.setValidationFailureStatus(ctx, reqLogger, instance, "SFTP credentials", validationErr)
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationSFTPCredentials, validationErr)
 			}
 
 			if !passwordExists || len(password) == 0 {
 				validationErr := fmt.Errorf("sftp credentials secret %q is missing required field 'password'", secretName)
 				reqLogger.Error(validationErr, "sftp credential validation failed")
-				return r.setValidationFailureStatus(ctx, reqLogger, instance, "SFTP credentials", validationErr)
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationSFTPCredentials, validationErr)
 			}
 
 			// Validate SFTP credentials before creating the job
@@ -206,7 +206,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 				// Permanent validation failure - update status and don't requeue
 				reqLogger.Error(validationErr, "SFTP credential validation failed permanently")
-				return r.setValidationFailureStatus(ctx, reqLogger, instance, "SFTP", validationErr)
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, ProtocolSFTP, validationErr)
 			}
 
 			reqLogger.Info("SFTP credentials validated successfully")

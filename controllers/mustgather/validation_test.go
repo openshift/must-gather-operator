@@ -158,16 +158,7 @@ func Test_IsTransientError(t *testing.T) {
 		err      error
 		expected bool
 	}{
-		{
-			name:     "transient error",
-			err:      &TransientError{Err: errors.New("network timeout")},
-			expected: true,
-		},
-		{
-			name:     "wrapped transient error",
-			err:      fmt.Errorf("wrapped: %w", &TransientError{Err: errors.New("timeout")}),
-			expected: true,
-		},
+
 		{
 			name:     "context deadline exceeded",
 			err:      context.DeadlineExceeded,
@@ -225,45 +216,7 @@ func Test_IsTransientError(t *testing.T) {
 	}
 }
 
-func Test_TransientError_Error(t *testing.T) {
-	tests := []struct {
-		name        string
-		err         *TransientError
-		expectedMsg string
-	}{
-		{
-			name:        "simple error message",
-			err:         &TransientError{Err: errors.New("connection timeout")},
-			expectedMsg: "transient error: connection timeout",
-		},
-		{
-			name:        "formatted error message",
-			err:         &TransientError{Err: fmt.Errorf("failed to connect: %w", errors.New("timeout"))},
-			expectedMsg: "transient error: failed to connect: timeout",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tt.err.Error()
-			if got != tt.expectedMsg {
-				t.Errorf("Error() = %q, want %q", got, tt.expectedMsg)
-			}
-		})
-	}
-}
-
-func Test_TransientError_Unwrap(t *testing.T) {
-	originalErr := errors.New("original error")
-	transientErr := &TransientError{Err: originalErr}
-
-	unwrapped := transientErr.Unwrap()
-	if unwrapped != originalErr {
-		t.Errorf("Unwrap() = %v, want %v", unwrapped, originalErr)
-	}
-}
-
-func Test_testSFTPConnection(t *testing.T) {
+func Test_checkSFTPConnection(t *testing.T) {
 	tests := []struct {
 		name        string
 		username    string
@@ -341,32 +294,31 @@ func Test_testSFTPConnection(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Stub the SSH dialer to avoid real network I/O
-			originalDialFunc := dialSSHWithContextFunc
-			defer func() { dialSSHWithContextFunc = originalDialFunc }()
+			originalDialFunc := sshDialFunc
+			defer func() { sshDialFunc = originalDialFunc }()
 
-			dialSSHWithContextFunc = func(network, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
+			sshDialFunc = func(network, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
 				return nil, errors.New("connection refused")
 			}
 
-			ctx := context.Background()
-			err := testSFTPConnection(ctx, tt.username, tt.password, tt.host)
+			err := checkSFTPConnection(tt.username, tt.password, tt.host)
 
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("testSFTPConnection() expected error, got nil")
+					t.Errorf("checkSFTPConnection() expected error, got nil")
 				} else if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
-					t.Errorf("testSFTPConnection() error = %v, want error containing %q", err, tt.errContains)
+					t.Errorf("checkSFTPConnection() error = %v, want error containing %q", err, tt.errContains)
 				}
 			} else {
 				if err != nil {
-					t.Errorf("testSFTPConnection() unexpected error = %v", err)
+					t.Errorf("checkSFTPConnection() unexpected error = %v", err)
 				}
 			}
 		})
 	}
 }
 
-func Test_testSFTPConnection_ContextCancellation(t *testing.T) {
+func Test_checkSFTPConnection_ContextCancellation(t *testing.T) {
 	tests := []struct {
 		name        string
 		username    string
@@ -390,28 +342,22 @@ func Test_testSFTPConnection_ContextCancellation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Stub the SSH dialer to avoid real network I/O
-			originalDialFunc := dialSSHWithContextFunc
-			defer func() { dialSSHWithContextFunc = originalDialFunc }()
+			originalDialFunc := sshDialFunc
+			defer func() { sshDialFunc = originalDialFunc }()
 
-			dialSSHWithContextFunc = func(network, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
+			sshDialFunc = func(network, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
 				// Simulate a slow connection that will be cancelled
 				time.Sleep(100 * time.Millisecond)
 				return nil, errors.New("connection timed out")
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), tt.timeout)
-			defer cancel()
-
-			// Wait for context to be cancelled
-			time.Sleep(10 * time.Millisecond)
-
-			err := testSFTPConnection(ctx, tt.username, tt.password, tt.host)
+			err := checkSFTPConnection(tt.username, tt.password, tt.host)
 
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("testSFTPConnection() expected error, got nil")
+					t.Errorf("checkSFTPConnection() expected error, got nil")
 				} else if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
-					t.Errorf("testSFTPConnection() error = %v, want error containing %q", err, tt.errContains)
+					t.Errorf("checkSFTPConnection() error = %v, want error containing %q", err, tt.errContains)
 				}
 			}
 		})
@@ -462,7 +408,7 @@ func Test_validateSFTPCredentials(t *testing.T) {
 			originalDialFunc := sftpDialFunc
 			defer func() { sftpDialFunc = originalDialFunc }()
 
-			sftpDialFunc = func(ctx context.Context, username, password, host string) error {
+			sftpDialFunc = func(username, password, host string) error {
 				return tt.mockDialErr
 			}
 
@@ -489,17 +435,18 @@ func Test_validateSFTPCredentials_Timeout(t *testing.T) {
 	originalDialFunc := sftpDialFunc
 	defer func() { sftpDialFunc = originalDialFunc }()
 
-	sftpDialFunc = func(ctx context.Context, username, password, host string) error {
-		// Block until context is cancelled
-		<-ctx.Done()
-		return ctx.Err()
+	// Create a channel to capture the context passed to validateSFTPCredentials
+	testCtx, testCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer testCancel()
+
+	sftpDialFunc = func(username, password, host string) error {
+		// Block until test context is cancelled
+		<-testCtx.Done()
+		return testCtx.Err()
 	}
 
 	// Run the validation (should timeout after 10 seconds, but we'll use a shorter context)
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	err := validateSFTPCredentials(ctx, "user", "pass", "sftp.example.com")
+	err := validateSFTPCredentials(testCtx, "user", "pass", "sftp.example.com")
 
 	if err == nil {
 		t.Errorf("validateSFTPCredentials() expected timeout error, got nil")
