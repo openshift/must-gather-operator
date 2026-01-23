@@ -216,13 +216,14 @@ op-generate:
 .PHONY: openapi-generate
 openapi-generate:
 	find ./api -maxdepth 2 -mindepth 1 -type d | xargs -t -I% \
-		$(OPENAPI_GEN) --logtostderr=true \
-			-i % \
-			-o "" \
-			-O zz_generated.openapi \
-			-p % \
-			-h /dev/null \
-			-r "-"
+		$(OPENAPI_GEN) \
+			--logtostderr=true \
+			--output-dir % \
+			--output-pkg % \
+			--output-file zz_generated.openapi.go \
+			--go-header-file /dev/null \
+			--report-filename - \
+			%
 
 .PHONY: manifests
 manifests:
