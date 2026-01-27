@@ -29,6 +29,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -174,8 +175,9 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		if err != nil {
 			if errors.IsNotFound(err) {
 				log.Error(err, "service account not found", "name", saName, "namespace", instance.Namespace)
-				return r.ManageError(ctx, instance, fmt.Errorf("service account %q not found in namespace %q: please create the service account or specify a different serviceAccountName: %w", saName, instance.Namespace, err))
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationServiceAccount, err)
 			}
+
 			log.Error(err, "failed to get service account (transient error, will retry)", "name", saName, "namespace", instance.Namespace)
 			return reconcile.Result{Requeue: true}, err
 		}
@@ -273,6 +275,28 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	return r.updateStatus(ctx, instance, job1)
 
+}
+
+// setValidationFailureStatus updates the MustGather status to indicate a validation failure.
+// It sets the status to Failed, marks it as completed, updates the reason with the validation type, and sets the timestamp.
+// validationType should describe what kind of validation failed (e.g., "SFTP", "Service Account", "Secret").
+func (r *MustGatherReconciler) setValidationFailureStatus(
+	ctx context.Context,
+	reqLogger logr.Logger,
+	instance *mustgatherv1alpha1.MustGather,
+	validationType string,
+	validationErr error,
+) (reconcile.Result, error) {
+	instance.Status.Status = "Failed"
+	instance.Status.Completed = true
+	instance.Status.Reason = fmt.Sprintf("%s validation failed: %v", validationType, validationErr)
+	instance.Status.LastUpdate = metav1.Now()
+
+	if statusErr := r.GetClient().Status().Update(ctx, instance); statusErr != nil {
+		reqLogger.Error(statusErr, "failed to update status after validation error")
+		return r.ManageError(ctx, instance, statusErr)
+	}
+	return reconcile.Result{}, nil
 }
 
 func (r *MustGatherReconciler) updateStatus(ctx context.Context, instance *mustgatherv1alpha1.MustGather, job *batchv1.Job) (reconcile.Result, error) {

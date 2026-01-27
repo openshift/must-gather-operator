@@ -3,6 +3,7 @@ package mustgather
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -512,7 +513,7 @@ func TestReconcile(t *testing.T) {
 				return []client.Object{mg, cv}
 			},
 			interceptors: func() interceptClient { return interceptClient{} },
-			expectError:  true,
+			expectError:  false,
 			expectResult: reconcile.Result{},
 			postTestChecks: func(t *testing.T, cl client.Client) {
 				// Verify the MustGather status was updated with error condition
@@ -520,9 +521,13 @@ func TestReconcile(t *testing.T) {
 				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
 					t.Fatalf("failed to get mustgather: %v", getErr)
 				}
-				// ManageError should have set ReconciliationStatus to "Error"
-				if len(out.Status.Conditions) == 0 {
-					t.Fatalf("expected error condition to be set on mustgather status")
+				// setValidationFailureStatus sets Status to Failed
+				if out.Status.Status != "Failed" {
+					t.Fatalf("expected status to be Failed, got %s", out.Status.Status)
+				}
+				expectedReason := "ServiceAccount validation failed"
+				if !strings.Contains(out.Status.Reason, expectedReason) {
+					t.Fatalf("expected reason to contain %q, got %q", expectedReason, out.Status.Reason)
 				}
 			},
 		},
@@ -589,7 +594,7 @@ func TestReconcile(t *testing.T) {
 				return []client.Object{mg, cv}
 			},
 			interceptors: func() interceptClient { return interceptClient{} },
-			expectError:  true,
+			expectError:  false,
 			expectResult: reconcile.Result{},
 			postTestChecks: func(t *testing.T, cl client.Client) {
 				// Verify the MustGather status was updated with error condition
@@ -597,9 +602,13 @@ func TestReconcile(t *testing.T) {
 				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
 					t.Fatalf("failed to get mustgather: %v", getErr)
 				}
-				// ManageError should have set error condition
-				if len(out.Status.Conditions) == 0 {
-					t.Fatalf("expected error condition to be set when 'default' service account is missing")
+				// setValidationFailureStatus sets Status to Failed
+				if out.Status.Status != "Failed" {
+					t.Fatalf("expected status to be Failed, got %s", out.Status.Status)
+				}
+				expectedReason := "ServiceAccount validation failed"
+				if !strings.Contains(out.Status.Reason, expectedReason) {
+					t.Fatalf("expected reason to contain %q, got %q", expectedReason, out.Status.Reason)
 				}
 				// Verify Job was not created
 				job := &batchv1.Job{}
@@ -1057,7 +1066,7 @@ func TestReconcile(t *testing.T) {
 					},
 				}
 			},
-			expectError:    true,
+			expectError:    false,
 			expectResult:   reconcile.Result{},
 			postTestChecks: func(t *testing.T, cl client.Client) {},
 		},
