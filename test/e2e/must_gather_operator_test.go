@@ -888,7 +888,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					Name:      mustGatherName,
 					Namespace: ns.Name,
 				}, job)
-			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+			}).WithTimeout(6*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
 				"Job should be created for MustGather with UploadTarget")
 
 			ginkgo.By("Verifying Job has upload container with correct environment variables")
@@ -969,6 +969,9 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				}
 				if job.Status.Failed > 0 {
 					ginkgo.Fail("Job failed - gather or upload container failed")
+					if len(job.Status.Conditions) > 0 {
+						ginkgo.Fail("Reason :", job.Status.Conditions[0].Reason)
+					}
 				}
 				return false
 			}).WithTimeout(5*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),

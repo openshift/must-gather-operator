@@ -1,6 +1,6 @@
 package mustgather
 
-// Protocol constants define the supported transfer protocols
+// Constants defining the supported transfer protocols and validation types
 const (
 	// ProtocolSFTP represents the SFTP (SSH File Transfer Protocol)
 	ProtocolSFTP = "SFTP"
