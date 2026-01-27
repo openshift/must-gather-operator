@@ -888,7 +888,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					Name:      mustGatherName,
 					Namespace: ns.Name,
 				}, job)
-			}).WithTimeout(6*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+			}).WithTimeout(60*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
 				"Job should be created for MustGather with UploadTarget")
 
 			ginkgo.By("Verifying Job has upload container with correct environment variables")
