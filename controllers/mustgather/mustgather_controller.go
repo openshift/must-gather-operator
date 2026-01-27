@@ -134,6 +134,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		if err := r.addFinalizer(ctx, reqLogger, instance); err != nil {
 			return reconcile.Result{}, err
 		}
+		return reconcile.Result{}, nil
 	}
 
 	job, err := r.getJobFromInstance(ctx, instance)
