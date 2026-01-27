@@ -292,6 +292,26 @@ func (r *MustGatherReconciler) setValidationFailureStatus(
 	instance.Status.Reason = fmt.Sprintf("%s validation failed: %v", validationType, validationErr)
 	instance.Status.LastUpdate = metav1.Now()
 
+	condition := metav1.Condition{
+		Type:               "ReconcileError",
+		Status:             metav1.ConditionTrue,
+		Reason:             "ReconcileError",
+		Message:            fmt.Sprintf("%s validation failed: %v", validationType, validationErr),
+		LastTransitionTime: metav1.Now(),
+	}
+
+	found := false
+	for i, c := range instance.Status.Conditions {
+		if c.Type == condition.Type {
+			instance.Status.Conditions[i] = condition
+			found = true
+			break
+		}
+	}
+	if !found {
+		instance.Status.Conditions = append(instance.Status.Conditions, condition)
+	}
+
 	if statusErr := r.GetClient().Status().Update(ctx, instance); statusErr != nil {
 		reqLogger.Error(statusErr, "failed to update status after validation error")
 		return r.ManageError(ctx, instance, statusErr)
