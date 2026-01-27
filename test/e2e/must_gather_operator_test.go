@@ -968,10 +968,46 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					return true
 				}
 				if job.Status.Failed > 0 {
-					ginkgo.Fail("Job failed - gather or upload container failed")
-					if len(job.Status.Conditions) > 0 {
-						ginkgo.Fail("Reason :", job.Status.Conditions[0].Reason)
+					var details []string
+
+					// Include job conditions (often contains the failure reason/message)
+					for _, c := range job.Status.Conditions {
+						details = append(details, fmt.Sprintf(
+							"jobCondition[%s]=%s reason=%q message=%q",
+							c.Type, c.Status, c.Reason, c.Message,
+						))
 					}
+
+					// Best-effort include container termination details
+					if mustGatherPod != nil && mustGatherPod.Name != "" {
+						tmpPod := &corev1.Pod{}
+						if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+							Name:      mustGatherPod.Name,
+							Namespace: ns.Name,
+						}, tmpPod); err == nil {
+							for _, cs := range tmpPod.Status.ContainerStatuses {
+								if cs.State.Terminated != nil {
+									details = append(details, fmt.Sprintf(
+										"container[%s] terminated exitCode=%d reason=%q message=%q",
+										cs.Name, cs.State.Terminated.ExitCode, cs.State.Terminated.Reason, cs.State.Terminated.Message,
+									))
+								} else if cs.State.Waiting != nil {
+									details = append(details, fmt.Sprintf(
+										"container[%s] waiting reason=%q message=%q",
+										cs.Name, cs.State.Waiting.Reason, cs.State.Waiting.Message,
+									))
+								}
+							}
+						} else {
+							details = append(details, fmt.Sprintf("failed to get pod %s: %v", mustGatherPod.Name, err))
+						}
+					}
+
+					detailStr := strings.Join(details, "; ")
+					if detailStr == "" {
+						detailStr = "<no failure details available>"
+					}
+					ginkgo.Fail(fmt.Sprintf("Job failed - gather or upload container failed. Details: %s", detailStr))
 				}
 				return false
 			}).WithTimeout(5*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
