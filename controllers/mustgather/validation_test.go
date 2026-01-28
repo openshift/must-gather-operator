@@ -168,6 +168,16 @@ func Test_IsTransientError(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "context canceled",
+			err:      context.Canceled,
+			expected: true,
+		},
+		{
+			name:     "wrapped context canceled",
+			err:      fmt.Errorf("operation aborted: %w", context.Canceled),
+			expected: true,
+		},
+		{
 			name:     "regular error",
 			err:      errors.New("regular error"),
 			expected: false,
