@@ -113,6 +113,14 @@ func buildSSHConfig(username, password string, hostKeyCallback ssh.HostKeyCallba
 		User: username,
 		Auth: []ssh.AuthMethod{
 			ssh.Password(password),
+			ssh.KeyboardInteractive(func(name, instruction string, questions []string, echos []bool) (answers []string, err error) {
+				// Respond to all questions with the password (standard keyboard-interactive behavior)
+				answers = make([]string, len(questions))
+				for i := range questions {
+					answers[i] = password
+				}
+				return answers, nil
+			}),
 		},
 		HostKeyCallback: hostKeyCallback,
 		Timeout:         sshDialTimeout,
