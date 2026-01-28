@@ -22,13 +22,20 @@ const (
 
 // sftpDialFunc is the function used to test SFTP connections.
 // It can be overridden in tests to avoid real network calls.
+// The context parameter allows for cancellation and timeout control.
 var sftpDialFunc = checkSFTPConnection
 
-// sshDialFunc is the function used to dial SSH connections.
+// netDialFunc is the function used to dial TCP connections with context support.
 // It can be overridden in tests to avoid real network calls.
-// The signature matches ssh.Dial for easy stubbing.
-var sshDialFunc = func(network, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
-	return ssh.Dial(network, addr, config)
+var netDialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+	dialer := &net.Dialer{Timeout: sshDialTimeout}
+	return dialer.DialContext(ctx, network, addr)
+}
+
+// sshNewClientConnFunc is the function used to create SSH client connections.
+// It can be overridden in tests to avoid real network calls.
+var sshNewClientConnFunc = func(c net.Conn, addr string, config *ssh.ClientConfig) (ssh.Conn, <-chan ssh.NewChannel, <-chan *ssh.Request, error) {
+	return ssh.NewClientConn(c, addr, config)
 }
 
 // IsTransientError checks if an error is transient and should trigger a requeue
@@ -63,32 +70,44 @@ func validateSFTPCredentials(
 	password string,
 	host string,
 ) error {
-	// Call dial function directly - SSH config timeout will handle timing out the connection
-	return sftpDialFunc(username, password, host)
+	// Call dial function with context for cancellation support
+	return sftpDialFunc(ctx, username, password, host)
 }
 
 // checkSFTPConnection attempts to establish an SFTP connection and authenticate.
 // This is a lightweight test that only checks credentials without transferring files.
 //
+// The ctx parameter allows for cancellation and timeout control during the TCP dial phase.
 // The host parameter accepts:
 // - IPv4: "hostname" or "hostname:port" or "192.0.2.1" or "192.0.2.1:2222"
 // - IPv6: "[2001:db8::1]" or "[2001:db8::1]:2222" or "2001:db8::1" (auto-bracketed)
 // If no port is specified, the default SFTP port (22) is used.
 //
-// The SSH connection timeout is controlled by sshDialTimeout (5 seconds).
-func checkSFTPConnection(username, password, host string) error {
+// The TCP connection respects context cancellation. The SSH handshake timeout is controlled
+// by sshDialTimeout (5 seconds) in the SSH config.
+func checkSFTPConnection(ctx context.Context, username, password, host string) error {
 	address := normalizeHostAddress(host)
 
 	// Skip host key verification to match upload script (StrictHostKeyChecking=no)
 	// #nosec G106 -- Intentional: matches upload script behavior
 	config := buildSSHConfig(username, password, ssh.InsecureIgnoreHostKey())
-	conn, err := sshDialFunc(ProtocolTCP, address, config)
+
+	// Context-aware TCP dial
+	netConn, err := netDialFunc(ctx, ProtocolTCP, address)
 	if err != nil {
 		return fmt.Errorf("SFTP connection failed: %w", err)
 	}
-	defer conn.Close()
 
-	return verifySFTPSubsystem(conn)
+	// Upgrade TCP connection to SSH (NewClientConn handles the handshake)
+	sshConn, chans, reqs, err := sshNewClientConnFunc(netConn, address, config)
+	if err != nil {
+		netConn.Close()
+		return fmt.Errorf("SFTP connection failed: %w", err)
+	}
+	client := ssh.NewClient(sshConn, chans, reqs)
+	defer client.Close()
+
+	return verifySFTPSubsystem(client)
 }
 
 // normalizeHostAddress adds the default SFTP port if not specified.
@@ -113,14 +132,6 @@ func buildSSHConfig(username, password string, hostKeyCallback ssh.HostKeyCallba
 		User: username,
 		Auth: []ssh.AuthMethod{
 			ssh.Password(password),
-			ssh.KeyboardInteractive(func(name, instruction string, questions []string, echos []bool) (answers []string, err error) {
-				// Respond to all questions with the password (standard keyboard-interactive behavior)
-				answers = make([]string, len(questions))
-				for i := range questions {
-					answers[i] = password
-				}
-				return answers, nil
-			}),
 		},
 		HostKeyCallback: hostKeyCallback,
 		Timeout:         sshDialTimeout,

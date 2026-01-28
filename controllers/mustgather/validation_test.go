@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"golang.org/x/crypto/ssh"
 )
 
 // mockNetError is a mock implementation of net.Error for testing
@@ -293,15 +291,15 @@ func Test_checkSFTPConnection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Stub the SSH dialer to avoid real network I/O
-			originalDialFunc := sshDialFunc
-			defer func() { sshDialFunc = originalDialFunc }()
+			// Stub the net dialer to avoid real network I/O
+			originalNetDialFunc := netDialFunc
+			defer func() { netDialFunc = originalNetDialFunc }()
 
-			sshDialFunc = func(network, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
+			netDialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
 				return nil, errors.New("connection refused")
 			}
 
-			err := checkSFTPConnection(tt.username, tt.password, tt.host)
+			err := checkSFTPConnection(context.Background(), tt.username, tt.password, tt.host)
 
 			if tt.wantErr {
 				if err == nil {
@@ -341,17 +339,30 @@ func Test_checkSFTPConnection_ContextCancellation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Stub the SSH dialer to avoid real network I/O
-			originalDialFunc := sshDialFunc
-			defer func() { sshDialFunc = originalDialFunc }()
+			// Stub the net dialer to simulate slow connection
+			originalNetDialFunc := netDialFunc
+			defer func() { netDialFunc = originalNetDialFunc }()
 
-			sshDialFunc = func(network, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
-				// Simulate a slow connection that will be cancelled
-				time.Sleep(100 * time.Millisecond)
-				return nil, errors.New("connection timed out")
+			netDialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+				// Check if context is already cancelled
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				default:
+				}
+				// Simulate a slow connection that respects context cancellation
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(100 * time.Millisecond):
+					return nil, errors.New("connection timed out")
+				}
 			}
 
-			err := checkSFTPConnection(tt.username, tt.password, tt.host)
+			ctx, cancel := context.WithTimeout(context.Background(), tt.timeout)
+			defer cancel()
+
+			err := checkSFTPConnection(ctx, tt.username, tt.password, tt.host)
 
 			if tt.wantErr {
 				if err == nil {
@@ -408,7 +419,7 @@ func Test_validateSFTPCredentials(t *testing.T) {
 			originalDialFunc := sftpDialFunc
 			defer func() { sftpDialFunc = originalDialFunc }()
 
-			sftpDialFunc = func(username, password, host string) error {
+			sftpDialFunc = func(ctx context.Context, username, password, host string) error {
 				return tt.mockDialErr
 			}
 
@@ -431,21 +442,21 @@ func Test_validateSFTPCredentials(t *testing.T) {
 }
 
 func Test_validateSFTPCredentials_Timeout(t *testing.T) {
-	// Mock the dial function to block indefinitely
+	// Mock the dial function to block until context is cancelled
 	originalDialFunc := sftpDialFunc
 	defer func() { sftpDialFunc = originalDialFunc }()
 
-	// Create a channel to capture the context passed to validateSFTPCredentials
+	// Create a context with timeout
 	testCtx, testCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer testCancel()
 
-	sftpDialFunc = func(username, password, host string) error {
-		// Block until test context is cancelled
-		<-testCtx.Done()
-		return testCtx.Err()
+	sftpDialFunc = func(ctx context.Context, username, password, host string) error {
+		// Block until the passed context is cancelled (respecting context cancellation)
+		<-ctx.Done()
+		return ctx.Err()
 	}
 
-	// Run the validation (should timeout after 10 seconds, but we'll use a shorter context)
+	// Run the validation (should timeout based on context)
 	err := validateSFTPCredentials(testCtx, "user", "pass", "sftp.example.com")
 
 	if err == nil {
