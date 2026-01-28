@@ -883,13 +883,25 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.By("Waiting for Job to be created")
 			job := &batchv1.Job{}
-			Eventually(func() error {
-				return nonAdminClient.Get(testCtx, client.ObjectKey{
+			Eventually(func(g Gomega) {
+				// First check if MustGather has failed validation
+				mg := &mustgatherv1alpha1.MustGather{}
+				g.Expect(nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
-				}, job)
-			}).WithTimeout(60*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
-				"Job should be created for MustGather with UploadTarget")
+				}, mg)).To(Succeed())
+
+				// If status is Failed, fail immediately with the reason
+				if mg.Status.Status == "Failed" {
+					ginkgo.Fail(fmt.Sprintf("MustGather validation failed before Job creation: %s", mg.Status.Reason))
+				}
+
+				// Otherwise, check if Job was created
+				g.Expect(nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job)).To(Succeed(), "Job should be created for MustGather with UploadTarget")
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
 			ginkgo.By("Verifying Job has upload container with correct environment variables")
 			var uploadContainer *corev1.Container
