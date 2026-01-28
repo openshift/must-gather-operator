@@ -139,7 +139,7 @@ func TestCleanupMustGatherResources(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: targetNamespace},
 					Spec:       mustgatherv1alpha1.MustGatherSpec{},
 				}
-				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: targetNamespace}}
 				return []client.Object{mg, sa}
 			},
 			interceptors: func() interceptClient {
