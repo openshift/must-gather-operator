@@ -45,16 +45,19 @@ if [ -n "${http_proxy}" ] || [ -n "${https_proxy}" ]; then
     PROXY_USER=""
     PROXY_PASSWORD=""
   fi
-
-  # Extract individual host and port
-  PROXY_HOST=$(echo "${PROXY_HOST_PORT}" | cut -d: -f1)
-  PROXY_PORT=$(echo "${PROXY_HOST_PORT}" | cut -d: -f2)
-
+  
   if [ -n "${PROXY_HOST_PORT}" ]; then
-    if [ -n "${PROXY_USER}" ] && [ -n "${PROXY_PASSWORD}" ]; then
-      PROXY_COMMAND="-o ProxyCommand nc --proxy ${PROXY_HOST_PORT} --proxy-auth ${PROXY_USER}:${PROXY_PASSWORD} --proxy-type http %h %p"
+    if echo "${PROXY_URL}" | grep -q '^https://'; then
+      # HTTPS proxy - use socat based https-proxy-connect-util script
+      export PROXY_HOST_PORT PROXY_USER PROXY_PASSWORD
+      PROXY_COMMAND="-o ProxyCommand https-proxy-connect-util %h %p"
     else
-      PROXY_COMMAND="-o ProxyCommand nc --proxy ${PROXY_HOST_PORT} --proxy-type http %h %p"
+      # HTTP proxy - use netcat
+      if [ -n "${PROXY_USER}" ] && [ -n "${PROXY_PASSWORD}" ]; then
+        PROXY_COMMAND="-o ProxyCommand nc --proxy ${PROXY_HOST_PORT} --proxy-auth ${PROXY_USER}:${PROXY_PASSWORD} --proxy-type http %h %p"
+      else
+        PROXY_COMMAND="-o ProxyCommand nc --proxy ${PROXY_HOST_PORT} --proxy-type http %h %p"
+      fi
     fi
   fi
 fi
@@ -82,12 +85,12 @@ fi
 echo "Uploading ${CSP_FILE}..."
 export SSHPASS=${password}
 if [ -n "${PROXY_COMMAND}" ]; then
-  sshpass -e sftp ${SFTP_OPTIONS} "${PROXY_COMMAND}" ${username}@${FTP_HOST} << EOF
+  sshpass -e sftp ${SFTP_OPTIONS} "${PROXY_COMMAND}" "${username}"@${FTP_HOST} << EOF
     put ${CSP_FILE} ${REMOTE_FILENAME}
     bye
 EOF
 else
-  sshpass -e sftp ${SFTP_OPTIONS} -b - ${username}@${FTP_HOST} << EOF
+  sshpass -e sftp ${SFTP_OPTIONS} -b - "${username}"@${FTP_HOST} << EOF
     put ${CSP_FILE} ${REMOTE_FILENAME}
     bye
 EOF
