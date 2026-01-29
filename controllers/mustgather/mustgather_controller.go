@@ -29,6 +29,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -72,6 +73,8 @@ const mustGatherFinalizer = "finalizer.mustgathers.operator.openshift.io"
 //+kubebuilder:rbac:groups=apps,resources=deployments;daemonsets;replicasets;statefulsets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=apps,resources=deployments/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=pods;services;services/finalizers;endpoints;persistentvolumeclaims;events;configmaps;secrets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch
+// ServiceAccount read access needed for pre-flight validation before Job creation
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -136,6 +139,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		if err := r.addFinalizer(ctx, reqLogger, instance); err != nil {
 			return reconcile.Result{}, err
 		}
+		return reconcile.Result{}, nil
 	}
 
 	// perform CA config map copy, iff set in caller
@@ -168,6 +172,30 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			return r.ManageError(ctx, instance, err)
 		}
 
+		// Validate that the ServiceAccount exists before creating the Job.
+		// This prevents the Job from being stuck in pending state due to a missing ServiceAccount.
+		// If no ServiceAccount is specified, default to "default" which should exist in all namespaces.
+		// Note: If the "default" SA has been deleted, this validation will catch it and report an error.
+		saName := instance.Spec.ServiceAccountName
+		if saName == "" {
+			saName = "default"
+			log.Info("no serviceAccountName specified, defaulting to 'default'", "namespace", instance.Namespace)
+		}
+		serviceAccount := &corev1.ServiceAccount{}
+		err = r.GetClient().Get(ctx, types.NamespacedName{
+			Namespace: instance.Namespace,
+			Name:      saName,
+		}, serviceAccount)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				log.Error(err, "service account not found", "name", saName, "namespace", instance.Namespace)
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationServiceAccount, err)
+			}
+
+			log.Error(err, "failed to get service account (transient error, will retry)", "name", saName, "namespace", instance.Namespace)
+			return reconcile.Result{Requeue: true}, err
+		}
+
 		// look up user secret
 		if instance.Spec.UploadTarget != nil && instance.Spec.UploadTarget.SFTP != nil && instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name != "" {
 			secretName := instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name
@@ -178,10 +206,10 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			}, userSecret)
 			if err != nil {
 				if errors.IsNotFound(err) {
-					log.Error(err, fmt.Sprintf("The secret %s was not found in namespace %s: Error: %s", secretName, instance.Namespace, err.Error()))
-					return r.ManageError(ctx, instance, fmt.Errorf("secret %s not found in namespace %s: Please create the secret referenced by caseManagementAccountSecretRef", secretName, instance.Namespace))
+					log.Error(err, "secret not found", "name", secretName, "namespace", instance.Namespace)
+					return r.ManageError(ctx, instance, fmt.Errorf("secret %q not found in namespace %q: please create the secret referenced by caseManagementAccountSecretRef: %w", secretName, instance.Namespace, err))
 				}
-				log.Error(err, fmt.Sprintf("Error getting secret (%s): %s", secretName, err.Error()))
+				log.Error(err, "failed to get secret", "name", secretName, "namespace", instance.Namespace)
 				return reconcile.Result{Requeue: true}, err
 			}
 		}
@@ -261,6 +289,41 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	return r.updateStatus(ctx, instance, job1)
 
+}
+
+// setValidationFailureStatus updates the MustGather status to indicate a validation failure.
+// It sets the status to Failed, marks it as completed, updates the reason with the validation type, and sets the timestamp.
+// validationType should describe what kind of validation failed (e.g., "SFTP", "Service Account", "Secret").
+func (r *MustGatherReconciler) setValidationFailureStatus(
+	ctx context.Context,
+	reqLogger logr.Logger,
+	instance *mustgatherv1alpha1.MustGather,
+	validationType string,
+	validationErr error,
+) (reconcile.Result, error) {
+	errorMessage := fmt.Sprintf("%s validation failed: %v", validationType, validationErr)
+
+	instance.Status.Status = "Failed"
+	instance.Status.Completed = true
+	instance.Status.Reason = errorMessage
+	instance.Status.LastUpdate = metav1.Now()
+
+	apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+		Type:               "ReconcileError",
+		Status:             metav1.ConditionTrue,
+		Reason:             "ValidationFailed",
+		Message:            errorMessage,
+		ObservedGeneration: instance.GetGeneration(),
+	})
+
+	// Record a warning event for the validation failure
+	r.GetRecorder().Event(instance, "Warning", "ProcessingError", errorMessage)
+
+	if statusErr := r.GetClient().Status().Update(ctx, instance); statusErr != nil {
+		reqLogger.Error(statusErr, "failed to update status after validation error")
+		return r.ManageError(ctx, instance, statusErr)
+	}
+	return reconcile.Result{}, nil
 }
 
 func (r *MustGatherReconciler) updateStatus(ctx context.Context, instance *mustgatherv1alpha1.MustGather, job *batchv1.Job) (reconcile.Result, error) {
