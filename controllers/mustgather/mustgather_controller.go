@@ -56,6 +56,10 @@ type MustGatherReconciler struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
 	util.ReconcilerBase
+	// TrustedCAConfigMap is the name of the ConfigMap containing the trusted CA certificate bundle
+	TrustedCAConfigMap string
+	// OperatorNamespace is the namespace where the operator is running
+	OperatorNamespace string
 }
 
 const mustGatherFinalizer = "finalizer.mustgathers.operator.openshift.io"
@@ -138,7 +142,15 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		return reconcile.Result{}, nil
 	}
 
-	job, err := r.getJobFromInstance(ctx, instance)
+	// perform CA config map copy, iff set in caller
+	if r.TrustedCAConfigMap != "" {
+		if err := r.ensureTrustedCAConfigMap(ctx, reqLogger, instance); err != nil {
+			log.Error(err, "failed to ensure trustedCA ConfigMap exists")
+			return r.ManageError(ctx, instance, err)
+		}
+	}
+
+	job, err := r.getJobFromInstance(instance)
 	if err != nil {
 		log.Error(err, "unable to get job from", "instance", instance)
 		return r.ManageError(ctx, instance, err)
@@ -322,10 +334,15 @@ func (r *MustGatherReconciler) updateStatus(ctx context.Context, instance *mustg
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *MustGatherReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(&mustgatherv1alpha1.MustGather{}, builder.WithPredicates(resourceGenerationOrFinalizerChangedPredicate())).
-		Owns(&batchv1.Job{}, builder.WithPredicates(isStateUpdated())).
-		Complete(r)
+		Owns(&batchv1.Job{}, builder.WithPredicates(isStateUpdated()))
+
+	if r.TrustedCAConfigMap != "" {
+		b = b.Owns(&corev1.ConfigMap{}, builder.WithPredicates(isNameEquals(r.TrustedCAConfigMap)))
+	}
+
+	return b.Complete(r)
 }
 
 // addFinalizer is a function that adds a finalizer for the MustGather CR
@@ -342,7 +359,7 @@ func (r *MustGatherReconciler) addFinalizer(ctx context.Context, reqLogger logr.
 	return nil
 }
 
-func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, instance *mustgatherv1alpha1.MustGather) (*batchv1.Job, error) {
+func (r *MustGatherReconciler) getJobFromInstance(instance *mustgatherv1alpha1.MustGather) (*batchv1.Job, error) {
 	// Inject the operator image URI from the pod's env variables
 	operatorImage, varPresent := os.LookupEnv("OPERATOR_IMAGE")
 	if !varPresent {
@@ -351,7 +368,7 @@ func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, instance 
 		return nil, err
 	}
 
-	return getJobTemplate(operatorImage, *instance), nil
+	return getJobTemplate(operatorImage, *instance, r.TrustedCAConfigMap), nil
 }
 
 // contains is a helper function for finalizer
@@ -427,6 +444,159 @@ func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, r
 	}
 	reqLogger.Info(fmt.Sprintf("deleted job %s", tmpJob.Name))
 
+	if r.TrustedCAConfigMap != "" {
+		if err := r.cleanupTrustedCAConfigMap(ctx, reqLogger, instance); err != nil {
+			reqLogger.Error(err, "failed to cleanup trustedCA ConfigMap")
+			return err
+		}
+	}
+
 	reqLogger.V(4).Info("successfully cleaned up mustgather resources")
+	return nil
+}
+
+// ensureTrustedCAConfigMap copies the trustedCA ConfigMap from operator namespace to the CR namespace,
+// adds/updates the ownerReference to include the MustGather CR.
+func (r *MustGatherReconciler) ensureTrustedCAConfigMap(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather) error {
+	if instance.Namespace == r.OperatorNamespace {
+		reqLogger.V(4).Info("MustGather CR is in the same namespace as the operator, skipping ConfigMap copy")
+		return nil
+	}
+
+	// fetch source config map
+	sourceConfigMap := &corev1.ConfigMap{}
+	err := r.GetClient().Get(ctx, types.NamespacedName{
+		Namespace: r.OperatorNamespace,
+		Name:      r.TrustedCAConfigMap,
+	}, sourceConfigMap)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			reqLogger.V(2).Info("trustedCA ConfigMap not found in operator namespace, skipping copy",
+				"configMapName", r.TrustedCAConfigMap, "operatorNamespace", r.OperatorNamespace)
+		}
+
+		return fmt.Errorf("failed to get trustedCA ConfigMap from operator namespace: %w", err)
+	}
+
+	existingConfigMap := &corev1.ConfigMap{}
+	err = r.GetClient().Get(ctx, types.NamespacedName{
+		Namespace: instance.Namespace,
+		Name:      r.TrustedCAConfigMap,
+	}, existingConfigMap)
+
+	if err != nil {
+		if !errors.IsNotFound(err) {
+			return fmt.Errorf("failed to check for existing ConfigMap in instance namespace: %w", err)
+		}
+
+		// config map doesn't exist, create it with ownerReference
+		newConfigMap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      r.TrustedCAConfigMap,
+				Namespace: instance.Namespace,
+				Labels:    sourceConfigMap.Labels,
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: instance.APIVersion,
+						Kind:       instance.Kind,
+						Name:       instance.Name,
+						UID:        instance.UID,
+					},
+				},
+			},
+			Data: sourceConfigMap.Data,
+		}
+
+		err = r.GetClient().Create(ctx, newConfigMap)
+		if err != nil {
+			return fmt.Errorf("failed to create trustedCA ConfigMap in instance namespace: %w", err)
+		}
+		reqLogger.V(4).Info("successfully copied trustedCA ConfigMap",
+			"configMapName", r.TrustedCAConfigMap)
+		return nil
+	}
+
+	// ConfigMap exists, check if ownerReference for this instance already exists
+	ownerRefExists := false
+	for _, ownerRef := range existingConfigMap.OwnerReferences {
+		if ownerRef.UID == instance.UID {
+			ownerRefExists = true
+			break
+		}
+	}
+
+	// add ownerReference and update config map
+	if !ownerRefExists {
+		existingConfigMap.OwnerReferences = append(existingConfigMap.OwnerReferences, metav1.OwnerReference{
+			APIVersion: instance.APIVersion,
+			Kind:       instance.Kind,
+			Name:       instance.Name,
+			UID:        instance.UID,
+		})
+
+		err = r.GetClient().Update(ctx, existingConfigMap)
+		if err != nil {
+			return fmt.Errorf("failed to update ownerReferences on trustedCA ConfigMap: %w", err)
+		}
+		reqLogger.V(4).Info("added ownerReference to existing trustedCA ConfigMap",
+			"configMapName", r.TrustedCAConfigMap)
+	}
+
+	return nil
+}
+
+// cleanupTrustedCAConfigMap removes the owner reference for the given instance from the trustedCA ConfigMap.
+// If there are other owner references, UPDATE the ConfigMap to remove only this instance's owner reference.
+// If the instance is the only owner, the ConfigMap is DELETEd.
+func (r *MustGatherReconciler) cleanupTrustedCAConfigMap(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather) error {
+	if instance.Namespace == r.OperatorNamespace {
+		return nil
+	}
+
+	existingConfigMap := &corev1.ConfigMap{}
+	err := r.GetClient().Get(ctx, types.NamespacedName{
+		Namespace: instance.Namespace,
+		Name:      r.TrustedCAConfigMap,
+	}, existingConfigMap)
+
+	if err != nil {
+
+		// continue cleanup: in absence of the ConfigMap
+		if errors.IsNotFound(err) {
+			reqLogger.V(4).Info("trustedCA ConfigMap not found, nothing to cleanup",
+				"configMapName", r.TrustedCAConfigMap)
+			return nil
+		}
+		return fmt.Errorf("failed to get trustedCA ConfigMap: %w", err)
+	}
+
+	updatedOwnerRefs := make([]metav1.OwnerReference, 0, len(existingConfigMap.OwnerReferences))
+	for _, ownerRef := range existingConfigMap.OwnerReferences {
+		if ownerRef.UID != instance.UID {
+			updatedOwnerRefs = append(updatedOwnerRefs, ownerRef)
+		}
+	}
+
+	// If no owner references remain, delete the ConfigMap
+	if len(updatedOwnerRefs) == 0 {
+		err = r.GetClient().Delete(ctx, existingConfigMap)
+		if err != nil {
+			return fmt.Errorf("failed to delete trustedCA ConfigMap: %w", err)
+		}
+
+		reqLogger.V(4).Info("deleted trustedCA ConfigMap",
+			"configMapName", r.TrustedCAConfigMap)
+		return nil
+	}
+
+	// Else, update the ConfigMap to remove only this instance's owner reference
+	updatedConfigMap := existingConfigMap.DeepCopy()
+	updatedConfigMap.OwnerReferences = updatedOwnerRefs
+	err = r.GetClient().Update(ctx, updatedConfigMap)
+	if err != nil {
+		return fmt.Errorf("failed to update trustedCA ConfigMap owner references: %w", err)
+	}
+	reqLogger.V(4).Info("removed ownerReference from trustedCA ConfigMap",
+		"configMapName", r.TrustedCAConfigMap, "remainingNumOwners", len(updatedOwnerRefs))
 	return nil
 }

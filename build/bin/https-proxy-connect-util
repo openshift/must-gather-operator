@@ -1,0 +1,29 @@
+#!/bin/sh
+# https-proxy-connect-util
+# 
+# Usage: https-proxy-connect-util <host> <port>
+# Requires: PROXY_HOST_PORT, PROXY_USER, PROXY_PASSWORD
+# Pre-requisite: socat
+
+TARGET_HOST="$1"
+TARGET_PORT="$2"
+
+if [ -n "$PROXY_USER" ] && [ -n "$PROXY_PASSWORD" ]; then
+    # the implicit '\r\n' on the top is important to keep,
+    # otherwise headers are corrupt and keep connection waiting forever.
+    AUTH_HEADER="
+Proxy-Authorization: Basic $(printf '%s' "${PROXY_USER}:${PROXY_PASSWORD}" | base64 -w0)"
+else
+    AUTH_HEADER=""
+fi
+
+(
+printf "CONNECT %s:%s HTTP/1.1\r\nHost: %s:%s\r\nProxy-Connection: Keep-Alive%s\r\n\r\n" \
+    "$TARGET_HOST" "$TARGET_PORT" "$TARGET_HOST" "$TARGET_PORT" "$AUTH_HEADER"
+cat
+) | socat - "OPENSSL:${PROXY_HOST_PORT},cafile=/etc/pki/tls/certs/ca-bundle.crt" | (
+while IFS= read -r line; do
+    [ "$line" = "$(printf '\r')" ] && break
+done
+cat
+)

@@ -1302,7 +1302,7 @@ func TestMustGatherControllerWithUploadTarget(t *testing.T) {
 				t.Fatalf("reconcile: (%v)", err)
 			}
 
-			job, err := r.getJobFromInstance(context.TODO(), tt.mustGather)
+			job, err := r.getJobFromInstance(tt.mustGather)
 			if err != nil {
 				t.Fatalf("getJobFromInstance : (%v)", err)
 			}

@@ -21,8 +21,10 @@ const (
 	infraNodeLabelKey     = "node-role.kubernetes.io/infra"
 	outputVolumeName      = "must-gather-output"
 	uploadVolumeName      = "must-gather-upload"
+	trustedCAVolumeName   = "trusted-ca"
 	volumeMountPath       = "/must-gather"
 	volumeUploadMountPath = "/must-gather-upload"
+	trustedCAMountPath    = "/etc/pki/tls/certs"
 
 	gatherCommandBinaryAudit   = "gather_audit_logs"
 	gatherCommandBinaryNoAudit = "gather"
@@ -51,8 +53,8 @@ const (
 	defaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"
 )
 
-func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batchv1.Job {
-	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, mustGather.Spec.ServiceAccountName, mustGather.Spec.Storage)
+func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather, trustedCAConfigMapName string) *batchv1.Job {
+	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, mustGather.Spec.ServiceAccountName, mustGather.Spec.Storage, trustedCAConfigMapName)
 
 	var httpProxy, httpsProxy, noProxy string
 
@@ -82,7 +84,7 @@ func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batch
 
 	job.Spec.Template.Spec.Containers = append(
 		job.Spec.Template.Spec.Containers,
-		getGatherContainer(audit, timeout, mustGather.Spec.Storage),
+		getGatherContainer(audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName),
 	)
 
 	// Add the upload container only if the upload target is specified
@@ -100,6 +102,7 @@ func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batch
 					httpsProxy,
 					noProxy,
 					s.CaseManagementAccountSecretRef,
+					trustedCAConfigMapName != "",
 				),
 			)
 		}
@@ -108,7 +111,7 @@ func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batch
 	return job
 }
 
-func initializeJobTemplate(name string, namespace string, serviceAccountRef string, storage *v1alpha1.Storage) *batchv1.Job {
+func initializeJobTemplate(name string, namespace string, serviceAccountRef string, storage *v1alpha1.Storage, trustedCAConfigMapName string) *batchv1.Job {
 	outputVolume := corev1.Volume{
 		Name:         outputVolumeName,
 		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
@@ -120,6 +123,28 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 				ClaimName: storage.PersistentVolume.Claim.Name,
 			},
 		}
+	}
+
+	volumes := []corev1.Volume{
+		outputVolume,
+		{
+			Name:         uploadVolumeName,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		},
+	}
+
+	// Add trusted CA volume if configmap name is provided
+	if trustedCAConfigMapName != "" {
+		volumes = append(volumes, corev1.Volume{
+			Name: trustedCAVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: trustedCAConfigMapName,
+					},
+				},
+			},
+		})
 	}
 
 	return &batchv1.Job{
@@ -157,21 +182,15 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 					},
 					RestartPolicy:         corev1.RestartPolicyNever,
 					ShareProcessNamespace: ToPtr(true),
-					Volumes: []corev1.Volume{
-						outputVolume,
-						{
-							Name:         uploadVolumeName,
-							VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-						},
-					},
-					ServiceAccountName: serviceAccountRef,
+					Volumes:               volumes,
+					ServiceAccountName:    serviceAccountRef,
 				},
 			},
 		},
 	}
 }
 
-func getGatherContainer(audit bool, timeout time.Duration, storage *v1alpha1.Storage) corev1.Container {
+func getGatherContainer(audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string) corev1.Container {
 	var commandBinary string
 	if audit {
 		commandBinary = gatherCommandBinaryAudit
@@ -188,17 +207,26 @@ func getGatherContainer(audit bool, timeout time.Duration, storage *v1alpha1.Sto
 		volumeMount.SubPath = storage.PersistentVolume.SubPath
 	}
 
+	volumeMounts := []corev1.VolumeMount{volumeMount}
+
+	// Add trusted CA mount if configmap name is provided
+	if trustedCAConfigMapName != "" {
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      trustedCAVolumeName,
+			MountPath: trustedCAMountPath,
+			ReadOnly:  true,
+		})
+	}
+
 	return corev1.Container{
 		Command: []string{
 			"/bin/bash",
 			"-c",
 			fmt.Sprintf(gatherCommand, math.Ceil(timeout.Seconds()), commandBinary),
 		},
-		Image: strings.TrimSpace(os.Getenv(defaultMustGatherImageEnv)),
-		Name:  gatherContainerName,
-		VolumeMounts: []corev1.VolumeMount{
-			volumeMount,
-		},
+		Image:        strings.TrimSpace(os.Getenv(defaultMustGatherImageEnv)),
+		Name:         gatherContainerName,
+		VolumeMounts: volumeMounts,
 	}
 }
 
@@ -211,10 +239,30 @@ func getUploadContainer(
 	httpsProxy string,
 	noProxy string,
 	secretKeyRefName corev1.LocalObjectReference,
+	shouldMountTrustedCAConfigMap bool,
 ) corev1.Container {
 	// Create the modified upload command that includes SSH setup
 	uploadCommandWithSSH := fmt.Sprintf("mkdir -p %s; touch %s; chmod 700 %s; chmod 600 %s; %s",
 		sshDir, knownHostsFile, sshDir, knownHostsFile, uploadCommand)
+
+	volumeMounts := []corev1.VolumeMount{
+		{
+			MountPath: volumeMountPath,
+			Name:      outputVolumeName,
+		},
+		{
+			MountPath: volumeUploadMountPath,
+			Name:      uploadVolumeName,
+		},
+	}
+
+	if shouldMountTrustedCAConfigMap {
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      trustedCAVolumeName,
+			MountPath: trustedCAMountPath,
+			ReadOnly:  true,
+		})
+	}
 
 	container := corev1.Container{
 		Command: []string{
@@ -222,18 +270,9 @@ func getUploadContainer(
 			"-c",
 			uploadCommandWithSSH,
 		},
-		Image: operatorImage,
-		Name:  uploadContainerName,
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				MountPath: volumeMountPath,
-				Name:      outputVolumeName,
-			},
-			{
-				MountPath: volumeUploadMountPath,
-				Name:      uploadVolumeName,
-			},
-		},
+		Image:        operatorImage,
+		Name:         uploadContainerName,
+		VolumeMounts: volumeMounts,
 		Env: []corev1.EnvVar{
 			{
 				Name: uploadEnvUsername,

@@ -211,6 +211,8 @@ spec:
               containers:
               - command:
                 - must-gather-operator
+                args:
+                - --trusted-ca-configmap=$(TRUSTED_CA_CONFIGMAP_NAME)
                 env:
                 - name: OPERATOR_NAME
                   value: must-gather-operator
@@ -230,6 +232,8 @@ spec:
                   valueFrom:
                     fieldRef:
                       fieldPath: metadata.annotations['olm.targetNamespaces']
+                - name: TRUSTED_CA_CONFIGMAP_NAME
+                  value: trusted-ca-cert
                 image: quay.io/openshift/origin-support-log-gather-operator:latest
                 imagePullPolicy: Always
                 name: must-gather-operator

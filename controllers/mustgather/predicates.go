@@ -33,6 +33,23 @@ func isStateUpdated() predicate.Predicate {
 	}
 }
 
+func isNameEquals(objectName string) predicate.Predicate {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			return e.ObjectOld.GetName() == objectName
+		},
+		CreateFunc: func(e event.CreateEvent) bool {
+			return e.Object.GetName() == objectName
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return e.Object.GetName() == objectName
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			return e.Object.GetName() == objectName
+		},
+	}
+}
+
 func resourceGenerationOrFinalizerChangedPredicate() predicate.Predicate {
 	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
