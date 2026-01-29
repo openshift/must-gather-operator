@@ -29,6 +29,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -295,25 +296,13 @@ func (r *MustGatherReconciler) setValidationFailureStatus(
 	instance.Status.Reason = errorMessage
 	instance.Status.LastUpdate = metav1.Now()
 
-	condition := metav1.Condition{
+	apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
 		Type:               "ReconcileError",
 		Status:             metav1.ConditionTrue,
-		Reason:             "ReconcileError",
+		Reason:             "ValidationFailed",
 		Message:            errorMessage,
-		LastTransitionTime: metav1.Now(),
-	}
-
-	found := false
-	for i, c := range instance.Status.Conditions {
-		if c.Type == condition.Type {
-			instance.Status.Conditions[i] = condition
-			found = true
-			break
-		}
-	}
-	if !found {
-		instance.Status.Conditions = append(instance.Status.Conditions, condition)
-	}
+		ObservedGeneration: instance.GetGeneration(),
+	})
 
 	// Record a warning event for the validation failure
 	r.GetRecorder().Event(instance, "Warning", "ProcessingError", errorMessage)
