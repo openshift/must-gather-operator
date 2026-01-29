@@ -525,7 +525,7 @@ func TestReconcile(t *testing.T) {
 				if out.Status.Status != "Failed" {
 					t.Fatalf("expected status to be Failed, got %s", out.Status.Status)
 				}
-				expectedReason := "ServiceAccount validation failed"
+				expectedReason := "Service Account validation failed"
 				if !strings.Contains(out.Status.Reason, expectedReason) {
 					t.Fatalf("expected reason to contain %q, got %q", expectedReason, out.Status.Reason)
 				}
@@ -606,7 +606,7 @@ func TestReconcile(t *testing.T) {
 				if out.Status.Status != "Failed" {
 					t.Fatalf("expected status to be Failed, got %s", out.Status.Status)
 				}
-				expectedReason := "ServiceAccount validation failed"
+				expectedReason := "Service Account validation failed"
 				if !strings.Contains(out.Status.Reason, expectedReason) {
 					t.Fatalf("expected reason to contain %q, got %q", expectedReason, out.Status.Reason)
 				}
