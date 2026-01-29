@@ -21,11 +21,13 @@ import (
 	goerror "errors"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/go-logr/logr"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
 	"github.com/redhat-cop/operator-utils/pkg/util"
+	"github.com/redhat-cop/operator-utils/pkg/util/apis"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -178,12 +180,54 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			}, userSecret)
 			if err != nil {
 				if errors.IsNotFound(err) {
-					log.Error(err, fmt.Sprintf("The secret %s was not found in namespace %s: Error: %s", secretName, instance.Namespace, err.Error()))
+					log.Error(err, "secret not found", "secret", secretName, "namespace", instance.Namespace)
 					return r.ManageError(ctx, instance, fmt.Errorf("secret %s not found in namespace %s: Please create the secret referenced by caseManagementAccountSecretRef", secretName, instance.Namespace))
 				}
-				log.Error(err, fmt.Sprintf("Error getting secret (%s): %s", secretName, err.Error()))
+				log.Error(err, "error getting secret", "secret", secretName)
 				return reconcile.Result{Requeue: true}, err
 			}
+
+			// Validate and extract required credentials
+			username, usernameExists := userSecret.Data["username"]
+			password, passwordExists := userSecret.Data["password"]
+
+			if !usernameExists || len(username) == 0 {
+				validationErr := fmt.Errorf("sftp credentials secret %q is missing required field 'username'", secretName)
+				reqLogger.Error(validationErr, "sftp credential validation failed")
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationSFTPCredentials, validationErr)
+			}
+
+			if !passwordExists || len(password) == 0 {
+				validationErr := fmt.Errorf("sftp credentials secret %q is missing required field 'password'", secretName)
+				reqLogger.Error(validationErr, "sftp credential validation failed")
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationSFTPCredentials, validationErr)
+			}
+
+			// Validate SFTP credentials before creating the job
+			reqLogger.Info("Validating SFTP credentials before creating must-gather job")
+			validationErr := validateSFTPCredentials(
+				ctx,
+				string(username),
+				string(password),
+				instance.Spec.UploadTarget.SFTP.Host,
+			)
+			if validationErr != nil {
+				// Check if this is a transient error that should trigger requeue
+				if IsTransientError(validationErr) {
+					if shouldRetry, attempt := r.shouldRetryValidation(ctx, instance); shouldRetry {
+						reqLogger.Info("SFTP validation transient error, requeuing",
+							"error", validationErr, "attempt", attempt, "maxRetries", MaxSFTPValidationRetries)
+						return reconcile.Result{Requeue: true}, validationErr
+					}
+					// Max retries exceeded
+					validationErr = fmt.Errorf("validation timed out after %d attempts: %w", MaxSFTPValidationRetries, validationErr)
+				}
+
+				reqLogger.Error(validationErr, "SFTP credential validation failed")
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, ProtocolSFTP, validationErr)
+			}
+
+			reqLogger.Info("SFTP credentials validated successfully")
 		}
 
 		// job is not there, create it.
@@ -267,6 +311,44 @@ func (r *MustGatherReconciler) updateStatus(ctx context.Context, instance *mustg
 	instance.Status.Completed = !job.Status.CompletionTime.IsZero()
 
 	return r.ManageSuccess(ctx, instance)
+}
+
+// setValidationFailureStatus updates the MustGather status to indicate a validation failure.
+// It sets the status to Failed, marks it as completed, updates the reason with the validation type, and sets the timestamp.
+// validationType should describe what kind of validation failed (e.g., "SFTP", "Service Account", "Secret").
+func (r *MustGatherReconciler) setValidationFailureStatus(
+	ctx context.Context,
+	reqLogger logr.Logger,
+	instance *mustgatherv1alpha1.MustGather,
+	validationType string,
+	validationErr error,
+) (reconcile.Result, error) {
+	errorMessage := fmt.Sprintf("%s validation failed: %v", validationType, validationErr)
+
+	instance.Status.Status = "Failed"
+	instance.Status.Completed = true
+	instance.Status.Reason = errorMessage
+	instance.Status.LastUpdate = metav1.Now()
+
+	// Set condition using the same pattern as ManageError
+	condition := metav1.Condition{
+		Type:               "ReconcileError",
+		LastTransitionTime: metav1.Now(),
+		ObservedGeneration: instance.GetGeneration(),
+		Message:            errorMessage,
+		Reason:             "ValidationFailed",
+		Status:             metav1.ConditionTrue,
+	}
+	instance.SetConditions(apis.AddOrReplaceCondition(condition, instance.GetConditions()))
+
+	// Record a warning event for the validation failure
+	r.GetRecorder().Event(instance, "Warning", "ProcessingError", errorMessage)
+
+	if statusErr := r.GetClient().Status().Update(ctx, instance); statusErr != nil {
+		reqLogger.Error(statusErr, "failed to update status after validation error")
+		return r.ManageError(ctx, instance, statusErr)
+	}
+	return reconcile.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -390,6 +472,29 @@ func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, r
 
 	reqLogger.V(4).Info("successfully cleaned up mustgather resources")
 	return nil
+}
+
+// shouldRetryValidation checks if we should retry SFTP validation based on the retry count.
+// Returns true if retries are remaining, false if max retries exceeded.
+// It also increments and persists the retry count when retries remain.
+func (r *MustGatherReconciler) shouldRetryValidation(ctx context.Context, instance *mustgatherv1alpha1.MustGather) (bool, int) {
+	annotations := instance.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+
+	retryCount, _ := strconv.Atoi(annotations[SFTPValidationRetryAnnotation])
+
+	if retryCount >= MaxSFTPValidationRetries {
+		return false, retryCount
+	}
+
+	// Increment and save
+	annotations[SFTPValidationRetryAnnotation] = strconv.Itoa(retryCount + 1)
+	instance.SetAnnotations(annotations)
+	_ = r.GetClient().Update(ctx, instance)
+
+	return true, retryCount + 1
 }
 
 // ensureTrustedCAConfigMap copies the trustedCA ConfigMap from operator namespace to the CR namespace,

@@ -3,6 +3,7 @@ package mustgather
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -456,23 +457,15 @@ func TestReconcile(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
 						ServiceAccountName: "default",
-						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-							Type: mustgatherv1alpha1.UploadTypeSFTP,
-							SFTP: &mustgatherv1alpha1.SFTPSpec{
-								CaseID:                         "12345678",
-								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
-							},
-						},
 					},
 				}
-				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: "ns"}}
 				cv := &configv1.ClusterVersion{
 					ObjectMeta: metav1.ObjectMeta{Name: "version"},
 					Status: configv1.ClusterVersionStatus{
 						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
 					},
 				}
-				return []client.Object{mg, userSecret, cv}
+				return []client.Object{mg, cv}
 			},
 			interceptors: func() interceptClient { return interceptClient{} },
 			expectError:  false,
@@ -868,13 +861,21 @@ func TestReconcile(t *testing.T) {
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
+								Host:                           "sftp.example.com",
 								CaseID:                         "12345678",
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
 							},
 						},
 					},
 				}
-				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: operatorNs}}
+				userSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: operatorNs},
+					Data: map[string][]byte{
+						"username": []byte("testuser"),
+						"password": []byte("testpass"),
+						"host_key": []byte("sftp.example.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC..."),
+					},
+				}
 				cv := &configv1.ClusterVersion{
 					ObjectMeta: metav1.ObjectMeta{Name: "version"},
 					Status: configv1.ClusterVersionStatus{
@@ -1008,6 +1009,16 @@ func TestReconcile(t *testing.T) {
 			if interceptor.onGet != nil || interceptor.onList != nil || interceptor.onDelete != nil || interceptor.onUpdate != nil || interceptor.onCreate != nil || interceptor.status != nil {
 				interceptor.Client = base
 				cl = interceptor
+			}
+
+			// Mock sftpDialFunc to avoid real network calls in tests
+			// Save original and restore after test
+			originalSftpDialFunc := sftpDialFunc
+			defer func() { sftpDialFunc = originalSftpDialFunc }()
+
+			// Mock SFTP dial function to always succeed
+			sftpDialFunc = func(ctx context.Context, username, password, host string) error {
+				return nil // Mock success - allows validation to pass and test job creation logic
 			}
 
 			// Create reconciler
@@ -1201,4 +1212,403 @@ func generateFakeClient(objs ...runtime.Object) (client.Client, *runtime.Scheme)
 	s.AddKnownTypes(mustgatherv1alpha1.GroupVersion, &mustgatherv1alpha1.MustGather{})
 	cl := fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(objs...).WithStatusSubresource(&mustgatherv1alpha1.MustGather{}).Build()
 	return cl, s
+}
+
+// TestSFTPCredentialValidation tests the credential validation logic added in the controller
+func TestSFTPCredentialValidation(t *testing.T) {
+	// Setup scheme
+	s := runtime.NewScheme()
+	_ = corev1.AddToScheme(s)
+	_ = mustgatherv1alpha1.AddToScheme(s)
+	_ = batchv1.AddToScheme(s)
+
+	tests := []struct {
+		name                     string
+		secret                   *corev1.Secret
+		mustgather               *mustgatherv1alpha1.MustGather
+		mockSFTPDialFunc         func(ctx context.Context, username, password, host string) error
+		expectError              bool
+		expectedStatus           string
+		expectedCompleted        bool
+		expectedReasonContains   string
+		checkLastUpdate          bool
+		checkCondition           bool
+		expectedConditionReason  string
+		expectedConditionMessage string
+	}{
+		{
+			name: "missing username field in secret",
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-secret",
+					Namespace: "test-ns",
+				},
+				Data: map[string][]byte{
+					"password": []byte("password123"),
+				},
+			},
+			mustgather: &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test-mg",
+					Namespace:  "test-ns",
+					Finalizers: []string{mustGatherFinalizer},
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+						Type: mustgatherv1alpha1.UploadTypeSFTP,
+						SFTP: &mustgatherv1alpha1.SFTPSpec{
+							CaseID:                         "12345678",
+							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
+							Host:                           "sftp.example.com",
+						},
+					},
+				},
+			},
+			mockSFTPDialFunc:         nil, // Won't be called
+			expectError:              false,
+			expectedStatus:           "Failed",
+			expectedCompleted:        true,
+			expectedReasonContains:   "missing required field 'username'",
+			checkLastUpdate:          true,
+			checkCondition:           true,
+			expectedConditionReason:  "ValidationFailed",
+			expectedConditionMessage: "missing required field 'username'",
+		},
+		{
+			name: "empty username in secret",
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-secret",
+					Namespace: "test-ns",
+				},
+				Data: map[string][]byte{
+					"username": []byte(""),
+					"password": []byte("password123"),
+				},
+			},
+			mustgather: &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test-mg",
+					Namespace:  "test-ns",
+					Finalizers: []string{mustGatherFinalizer},
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+						Type: mustgatherv1alpha1.UploadTypeSFTP,
+						SFTP: &mustgatherv1alpha1.SFTPSpec{
+							CaseID:                         "12345678",
+							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
+							Host:                           "sftp.example.com",
+						},
+					},
+				},
+			},
+			mockSFTPDialFunc:         nil,
+			expectError:              false,
+			expectedStatus:           "Failed",
+			expectedCompleted:        true,
+			expectedReasonContains:   "missing required field 'username'",
+			checkLastUpdate:          true,
+			checkCondition:           true,
+			expectedConditionReason:  "ValidationFailed",
+			expectedConditionMessage: "missing required field 'username'",
+		},
+		{
+			name: "missing password field in secret",
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-secret",
+					Namespace: "test-ns",
+				},
+				Data: map[string][]byte{
+					"username": []byte("testuser"),
+				},
+			},
+			mustgather: &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test-mg",
+					Namespace:  "test-ns",
+					Finalizers: []string{mustGatherFinalizer},
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+						Type: mustgatherv1alpha1.UploadTypeSFTP,
+						SFTP: &mustgatherv1alpha1.SFTPSpec{
+							CaseID:                         "12345678",
+							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
+							Host:                           "sftp.example.com",
+						},
+					},
+				},
+			},
+			mockSFTPDialFunc:         nil,
+			expectError:              false,
+			expectedStatus:           "Failed",
+			expectedCompleted:        true,
+			expectedReasonContains:   "missing required field 'password'",
+			checkLastUpdate:          true,
+			checkCondition:           true,
+			expectedConditionReason:  "ValidationFailed",
+			expectedConditionMessage: "missing required field 'password'",
+		},
+		{
+			name: "empty password in secret",
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-secret",
+					Namespace: "test-ns",
+				},
+				Data: map[string][]byte{
+					"username": []byte("testuser"),
+					"password": []byte(""),
+				},
+			},
+			mustgather: &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test-mg",
+					Namespace:  "test-ns",
+					Finalizers: []string{mustGatherFinalizer},
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+						Type: mustgatherv1alpha1.UploadTypeSFTP,
+						SFTP: &mustgatherv1alpha1.SFTPSpec{
+							CaseID:                         "12345678",
+							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
+							Host:                           "sftp.example.com",
+						},
+					},
+				},
+			},
+			mockSFTPDialFunc:         nil,
+			expectError:              false,
+			expectedStatus:           "Failed",
+			expectedCompleted:        true,
+			expectedReasonContains:   "missing required field 'password'",
+			checkLastUpdate:          true,
+			checkCondition:           true,
+			expectedConditionReason:  "ValidationFailed",
+			expectedConditionMessage: "missing required field 'password'",
+		},
+		{
+			name: "SFTP connection validation fails",
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-secret",
+					Namespace: "test-ns",
+				},
+				Data: map[string][]byte{
+					"username": []byte("testuser"),
+					"password": []byte("password123"),
+				},
+			},
+			mustgather: &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test-mg",
+					Namespace:  "test-ns",
+					Finalizers: []string{mustGatherFinalizer},
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+						Type: mustgatherv1alpha1.UploadTypeSFTP,
+						SFTP: &mustgatherv1alpha1.SFTPSpec{
+							CaseID:                         "12345678",
+							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
+							Host:                           "sftp.example.com",
+						},
+					},
+				},
+			},
+			mockSFTPDialFunc: func(ctx context.Context, username, password, host string) error {
+				return errors.New("SFTP connection failed: authentication failed")
+			},
+			expectError:              false,
+			expectedStatus:           "Failed",
+			expectedCompleted:        true,
+			expectedReasonContains:   "SFTP validation failed",
+			checkLastUpdate:          true,
+			checkCondition:           true,
+			expectedConditionReason:  "ValidationFailed",
+			expectedConditionMessage: "SFTP validation failed",
+		},
+		{
+			name: "SFTP validation transient error triggers requeue",
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-secret",
+					Namespace: "test-ns",
+				},
+				Data: map[string][]byte{
+					"username": []byte("testuser"),
+					"password": []byte("password123"),
+				},
+			},
+			mustgather: &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test-mg",
+					Namespace:  "test-ns",
+					Finalizers: []string{mustGatherFinalizer},
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+						Type: mustgatherv1alpha1.UploadTypeSFTP,
+						SFTP: &mustgatherv1alpha1.SFTPSpec{
+							CaseID:                         "12345678",
+							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
+							Host:                           "sftp.example.com",
+						},
+					},
+				},
+			},
+			mockSFTPDialFunc: func(ctx context.Context, username, password, host string) error {
+				// Use context.DeadlineExceeded to simulate a transient error that triggers requeue
+				return context.DeadlineExceeded
+			},
+			expectError:     true,
+			checkLastUpdate: false,
+		},
+		{
+			name: "valid credentials and successful SFTP validation",
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-secret",
+					Namespace: "test-ns",
+				},
+				Data: map[string][]byte{
+					"username": []byte("testuser"),
+					"password": []byte("password123"),
+				},
+			},
+			mustgather: &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test-mg",
+					Namespace:  "test-ns",
+					Finalizers: []string{mustGatherFinalizer},
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+						Type: mustgatherv1alpha1.UploadTypeSFTP,
+						SFTP: &mustgatherv1alpha1.SFTPSpec{
+							CaseID:                         "12345678",
+							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
+							Host:                           "sftp.example.com",
+						},
+					},
+				},
+			},
+			mockSFTPDialFunc: func(ctx context.Context, username, password, host string) error {
+				return nil // Success
+			},
+			expectError: false,
+			// When validation succeeds, job creation is attempted (not tested here)
+			checkLastUpdate: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup environment
+			t.Setenv("OPERATOR_IMAGE", "test-image")
+
+			// Create fake client with test objects
+			objects := []client.Object{tt.mustgather, tt.secret}
+			cl := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).WithStatusSubresource(&mustgatherv1alpha1.MustGather{}).Build()
+
+			// Create reconciler
+			r := &MustGatherReconciler{
+				ReconcilerBase: util.NewReconcilerBase(cl, s, &rest.Config{}, &record.FakeRecorder{}, nil),
+			}
+
+			// Mock the SFTP dial function if provided
+			originalDialFunc := sftpDialFunc
+			defer func() { sftpDialFunc = originalDialFunc }()
+			if tt.mockSFTPDialFunc != nil {
+				sftpDialFunc = tt.mockSFTPDialFunc
+			} else {
+				// Safety: fail if the dial is called unexpectedly
+				sftpDialFunc = func(ctx context.Context, username, password, host string) error {
+					t.Fatal("sftpDialFunc called unexpectedly")
+					return nil
+				}
+			}
+
+			// Execute reconcile
+			// Result is ignored as we only care about error state for validation tests
+			_, err := r.Reconcile(context.Background(), reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      tt.mustgather.Name,
+					Namespace: tt.mustgather.Namespace,
+				},
+			})
+
+			// Check error expectation
+			if tt.expectError && err == nil {
+				t.Errorf("expected error but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+
+			// Get updated MustGather to check status
+			updatedMG := &mustgatherv1alpha1.MustGather{}
+			if getErr := cl.Get(context.Background(), types.NamespacedName{
+				Name:      tt.mustgather.Name,
+				Namespace: tt.mustgather.Namespace,
+			}, updatedMG); getErr != nil {
+				t.Fatalf("failed to get updated MustGather: %v", getErr)
+			}
+
+			// Check status fields if expected
+			if tt.expectedStatus != "" {
+				if updatedMG.Status.Status != tt.expectedStatus {
+					t.Errorf("expected status %q, got %q", tt.expectedStatus, updatedMG.Status.Status)
+				}
+			}
+
+			if updatedMG.Status.Completed != tt.expectedCompleted {
+				t.Errorf("expected completed %v, got %v", tt.expectedCompleted, updatedMG.Status.Completed)
+			}
+
+			if tt.expectedReasonContains != "" {
+				if !strings.Contains(updatedMG.Status.Reason, tt.expectedReasonContains) {
+					t.Errorf("expected reason to contain %q, got %q", tt.expectedReasonContains, updatedMG.Status.Reason)
+				}
+			}
+
+			// Check LastUpdate was set
+			if tt.checkLastUpdate {
+				if updatedMG.Status.LastUpdate.IsZero() {
+					t.Errorf("expected LastUpdate to be set, but it was zero")
+				}
+			}
+
+			// Check condition was set correctly
+			if tt.checkCondition {
+				if len(updatedMG.Status.Conditions) == 0 {
+					t.Errorf("expected conditions to be set, but none were found")
+				} else {
+					var foundCondition *metav1.Condition
+					for i := range updatedMG.Status.Conditions {
+						if updatedMG.Status.Conditions[i].Type == "ReconcileError" {
+							foundCondition = &updatedMG.Status.Conditions[i]
+							break
+						}
+					}
+					if foundCondition == nil {
+						t.Errorf("expected ReconcileError condition to be set")
+					} else {
+						if foundCondition.Status != metav1.ConditionTrue {
+							t.Errorf("expected condition status to be True, got %v", foundCondition.Status)
+						}
+						if tt.expectedConditionReason != "" && foundCondition.Reason != tt.expectedConditionReason {
+							t.Errorf("expected condition reason %q, got %q", tt.expectedConditionReason, foundCondition.Reason)
+						}
+						if tt.expectedConditionMessage != "" && !strings.Contains(foundCondition.Message, tt.expectedConditionMessage) {
+							t.Errorf("expected condition message to contain %q, got %q", tt.expectedConditionMessage, foundCondition.Message)
+						}
+					}
+				}
+			}
+		})
+	}
 }

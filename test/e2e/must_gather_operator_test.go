@@ -72,9 +72,11 @@ const (
 	jobNameLabelKey     = "job-name"
 
 	// UploadTarget test constants
-	caseManagementSecretNameValid   = "case-management-creds-valid"
-	caseManagementSecretNameInvalid = "case-management-creds-invalid"
-	stageHostName                   = "sftp.access.stage.redhat.com"
+	caseManagementSecretNameValid         = "case-management-creds-valid"
+	caseManagementSecretNameInvalid       = "case-management-creds-invalid"
+	caseManagementSecretNameEmptyUsername = "case-management-creds-empty-username"
+	caseManagementSecretNameEmptyPassword = "case-management-creds-empty-password"
+	stageHostName                         = "sftp.access.stage.redhat.com"
 
 	// PersistentVolume test constants
 	mustGatherPVCName        = "must-gather-pvc"
@@ -881,13 +883,25 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.By("Waiting for Job to be created")
 			job := &batchv1.Job{}
-			Eventually(func() error {
-				return nonAdminClient.Get(testCtx, client.ObjectKey{
+			Eventually(func(g Gomega) {
+				// First check if MustGather has failed validation
+				mg := &mustgatherv1alpha1.MustGather{}
+				g.Expect(nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
-				}, job)
-			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
-				"Job should be created for MustGather with UploadTarget")
+				}, mg)).To(Succeed())
+
+				// If status is Failed, fail immediately with the reason
+				if mg.Status.Status == "Failed" {
+					ginkgo.Fail(fmt.Sprintf("MustGather validation failed before Job creation: %s", mg.Status.Reason))
+				}
+
+				// Otherwise, check if Job was created
+				g.Expect(nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job)).To(Succeed(), "Job should be created for MustGather with UploadTarget")
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
 			ginkgo.By("Verifying Job has upload container with correct environment variables")
 			var uploadContainer *corev1.Container
@@ -966,7 +980,46 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					return true
 				}
 				if job.Status.Failed > 0 {
-					ginkgo.Fail("Job failed - gather or upload container failed")
+					var details []string
+
+					// Include job conditions (often contains the failure reason/message)
+					for _, c := range job.Status.Conditions {
+						details = append(details, fmt.Sprintf(
+							"jobCondition[%s]=%s reason=%q message=%q",
+							c.Type, c.Status, c.Reason, c.Message,
+						))
+					}
+
+					// Best-effort include container termination details
+					if mustGatherPod != nil && mustGatherPod.Name != "" {
+						tmpPod := &corev1.Pod{}
+						if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+							Name:      mustGatherPod.Name,
+							Namespace: ns.Name,
+						}, tmpPod); err == nil {
+							for _, cs := range tmpPod.Status.ContainerStatuses {
+								if cs.State.Terminated != nil {
+									details = append(details, fmt.Sprintf(
+										"container[%s] terminated exitCode=%d reason=%q message=%q",
+										cs.Name, cs.State.Terminated.ExitCode, cs.State.Terminated.Reason, cs.State.Terminated.Message,
+									))
+								} else if cs.State.Waiting != nil {
+									details = append(details, fmt.Sprintf(
+										"container[%s] waiting reason=%q message=%q",
+										cs.Name, cs.State.Waiting.Reason, cs.State.Waiting.Message,
+									))
+								}
+							}
+						} else {
+							details = append(details, fmt.Sprintf("failed to get pod %s: %v", mustGatherPod.Name, err))
+						}
+					}
+
+					detailStr := strings.Join(details, "; ")
+					if detailStr == "" {
+						detailStr = "<no failure details available>"
+					}
+					ginkgo.Fail(fmt.Sprintf("Job failed - gather or upload container failed. Details: %s", detailStr))
 				}
 				return false
 			}).WithTimeout(5*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
@@ -1012,10 +1065,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Creating invalid case management secret")
 			loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "case-management-secret-invalid.yaml"), ns.Name)
 
-			ginkgo.By("Creating MustGather CR with invalid credentials and short timeout")
-			shortTimeout := 10 * time.Second
+			ginkgo.By("Creating MustGather CR with invalid credentials")
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
-				Timeout: &shortTimeout, // Short timeout to speed up test
 				UploadTarget: &UploadTargetOptions{
 					CaseID:       "00000",
 					SecretName:   caseManagementSecretNameInvalid,
@@ -1024,38 +1075,128 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				},
 			})
 
-			ginkgo.By("Waiting for Job to be created")
+			ginkgo.By("Waiting for MustGather status to be updated to Failed")
+			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			Eventually(func(g Gomega) {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, fetchedMG)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(fetchedMG.Status.Status).To(Equal("Failed"),
+					"MustGather should fail fast with invalid SFTP credentials")
+				g.Expect(fetchedMG.Status.Reason).To(ContainSubstring("SFTP"),
+					"Failure reason should mention SFTP validation error")
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+				"MustGather should fail validation before creating Job")
+
+			ginkgo.GinkgoWriter.Printf("MustGather failed with status: %s, reason: %s\n",
+				fetchedMG.Status.Status, fetchedMG.Status.Reason)
+
+			ginkgo.By("Verifying Job is NOT created due to failed validation")
 			job := &batchv1.Job{}
-			Eventually(func() error {
-				return nonAdminClient.Get(testCtx, client.ObjectKey{
+			Consistently(func() bool {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
 				}, job)
-			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
-				"Job should be created for MustGather with invalid credentials")
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(30*time.Second).WithPolling(5*time.Second).Should(BeTrue(),
+				"Job should NOT be created when SFTP credentials fail validation")
 
-			ginkgo.By("Verifying Job has upload container")
-			containerNames := make([]string, len(job.Spec.Template.Spec.Containers))
-			for i, c := range job.Spec.Template.Spec.Containers {
-				containerNames[i] = c.Name
-			}
-			Expect(containerNames).To(ContainElement(uploadContainerName), "Job should have upload container")
+			ginkgo.GinkgoWriter.Println("Verified: No Job created due to invalid SFTP credentials (fail-fast validation)")
+		})
 
-			ginkgo.By("Waiting for Job to fail due to invalid credentials")
-			Eventually(func() bool {
-				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+		ginkgo.It("should fail validation with empty username", func() {
+			ginkgo.By("Creating secret with empty username")
+			loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "case-management-secret-empty-username.yaml"), ns.Name)
+
+			ginkgo.By("Creating MustGather CR with empty username credentials")
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
+				UploadTarget: &UploadTargetOptions{
+					CaseID:       "00000",
+					SecretName:   caseManagementSecretNameEmptyUsername,
+					InternalUser: false,
+					Host:         stageHostName,
+				},
+			})
+
+			ginkgo.By("Waiting for MustGather status to be updated to Failed")
+			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			Eventually(func(g Gomega) {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
-				}, job); err != nil {
-					return false
-				}
-				// Job fails when SFTP authentication fails with invalid credentials
-				return job.Status.Failed > 0
-			}).WithTimeout(5*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
-				"Job should fail due to invalid SFTP credentials")
+				}, fetchedMG)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(fetchedMG.Status.Status).To(Equal("Failed"),
+					"MustGather should fail with empty username")
+				g.Expect(fetchedMG.Status.Reason).To(ContainSubstring("username"),
+					"Failure reason should mention username validation error")
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+				"MustGather should fail validation with empty username")
 
-			ginkgo.GinkgoWriter.Printf("Job failed due to invalid SFTP credentials (Failed count: %d)\n",
-				job.Status.Failed)
+			ginkgo.GinkgoWriter.Printf("MustGather failed with status: %s, reason: %s\n",
+				fetchedMG.Status.Status, fetchedMG.Status.Reason)
+
+			ginkgo.By("Verifying Job is NOT created due to failed validation")
+			job := &batchv1.Job{}
+			Consistently(func() bool {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job)
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(30*time.Second).WithPolling(5*time.Second).Should(BeTrue(),
+				"Job should NOT be created when username is empty")
+
+			ginkgo.GinkgoWriter.Println("Verified: No Job created due to empty username (fail-fast validation)")
+		})
+
+		ginkgo.It("should fail validation with empty password", func() {
+			ginkgo.By("Creating secret with empty password")
+			loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "case-management-secret-empty-password.yaml"), ns.Name)
+
+			ginkgo.By("Creating MustGather CR with empty password credentials")
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
+				UploadTarget: &UploadTargetOptions{
+					CaseID:       "00000",
+					SecretName:   caseManagementSecretNameEmptyPassword,
+					InternalUser: false,
+					Host:         stageHostName,
+				},
+			})
+
+			ginkgo.By("Waiting for MustGather status to be updated to Failed")
+			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			Eventually(func(g Gomega) {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, fetchedMG)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(fetchedMG.Status.Status).To(Equal("Failed"),
+					"MustGather should fail with empty password")
+				g.Expect(fetchedMG.Status.Reason).To(ContainSubstring("password"),
+					"Failure reason should mention password validation error")
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+				"MustGather should fail validation with empty password")
+
+			ginkgo.GinkgoWriter.Printf("MustGather failed with status: %s, reason: %s\n",
+				fetchedMG.Status.Status, fetchedMG.Status.Reason)
+
+			ginkgo.By("Verifying Job is NOT created due to failed validation")
+			job := &batchv1.Job{}
+			Consistently(func() bool {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job)
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(30*time.Second).WithPolling(5*time.Second).Should(BeTrue(),
+				"Job should NOT be created when password is empty")
+
+			ginkgo.GinkgoWriter.Println("Verified: No Job created due to empty password (fail-fast validation)")
 		})
 	})
 
