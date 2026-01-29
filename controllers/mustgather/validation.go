@@ -52,6 +52,68 @@ func IsTransientError(err error) bool {
 	return false
 }
 
+// classifySFTPError analyzes an SFTP/SSH error and returns a user-friendly message.
+// It checks error message patterns to determine the likely cause and provides
+// actionable guidance to help users resolve the issue.
+func classifySFTPError(err error) string {
+	if err == nil {
+		return "SFTP connection failed"
+	}
+
+	errMsg := strings.ToLower(err.Error())
+
+	// Authentication failures
+	if strings.Contains(errMsg, "unable to authenticate") ||
+		strings.Contains(errMsg, "authentication failed") {
+		return "Authentication failed: username or password is incorrect"
+	}
+
+	// Connection refused - server not running or port blocked
+	if strings.Contains(errMsg, "connection refused") {
+		return "Connection refused: SFTP server is not running or port is blocked"
+	}
+
+	// Host unreachable - wrong hostname/IP or routing issue
+	if strings.Contains(errMsg, "no route to host") ||
+		strings.Contains(errMsg, "host is unreachable") ||
+		strings.Contains(errMsg, "host unreachable") {
+		return "Host unreachable: verify the hostname or IP address is correct"
+	}
+
+	// Network unreachable - no network connectivity
+	if strings.Contains(errMsg, "network is unreachable") ||
+		strings.Contains(errMsg, "network unreachable") {
+		return "Network unreachable: check network connectivity"
+	}
+
+	// DNS resolution failure
+	if strings.Contains(errMsg, "no such host") ||
+		strings.Contains(errMsg, "lookup") && strings.Contains(errMsg, "no such host") {
+		return "DNS resolution failed: hostname could not be resolved"
+	}
+
+	// Connection timeout
+	if strings.Contains(errMsg, "i/o timeout") ||
+		strings.Contains(errMsg, "deadline exceeded") ||
+		strings.Contains(errMsg, "connection timed out") {
+		return "Connection timed out: server may be slow or unreachable"
+	}
+
+	// Connection reset by peer
+	if strings.Contains(errMsg, "connection reset") {
+		return "Connection reset: server unexpectedly closed the connection"
+	}
+
+	// SFTP subsystem not available
+	if strings.Contains(errMsg, "failed to create sftp client") ||
+		strings.Contains(errMsg, "subsystem request failed") {
+		return "SFTP subsystem not available on the server"
+	}
+
+	// Default fallback
+	return "SFTP connection failed"
+}
+
 // validateSFTPCredentials tests SFTP connection with the provided credentials.
 //
 // The username and password parameters must be non-empty (validated by caller).
@@ -95,14 +157,14 @@ func checkSFTPConnection(ctx context.Context, username, password, host string) e
 	// Context-aware TCP dial
 	netConn, err := netDialFunc(ctx, ProtocolTCP, address)
 	if err != nil {
-		return fmt.Errorf("SFTP connection failed: %w", err)
+		return fmt.Errorf("%s: %w", classifySFTPError(err), err)
 	}
 
 	// Upgrade TCP connection to SSH (NewClientConn handles the handshake)
 	sshConn, chans, reqs, err := sshNewClientConnFunc(netConn, address, config)
 	if err != nil {
 		netConn.Close()
-		return fmt.Errorf("SFTP connection failed: %w", err)
+		return fmt.Errorf("%s: %w", classifySFTPError(err), err)
 	}
 	client := ssh.NewClient(sshConn, chans, reqs)
 	defer client.Close()
@@ -143,7 +205,7 @@ func buildSSHConfig(username, password string, hostKeyCallback ssh.HostKeyCallba
 func verifySFTPSubsystem(conn *ssh.Client) error {
 	sftpClient, err := sftp.NewClient(conn)
 	if err != nil {
-		return fmt.Errorf("failed to create SFTP client: %w", err)
+		return fmt.Errorf("%s: %w", classifySFTPError(err), err)
 	}
 	defer sftpClient.Close()
 

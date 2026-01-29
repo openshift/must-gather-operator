@@ -1223,15 +1223,18 @@ func TestSFTPCredentialValidation(t *testing.T) {
 	_ = batchv1.AddToScheme(s)
 
 	tests := []struct {
-		name                   string
-		secret                 *corev1.Secret
-		mustgather             *mustgatherv1alpha1.MustGather
-		mockSFTPDialFunc       func(ctx context.Context, username, password, host string) error
-		expectError            bool
-		expectedStatus         string
-		expectedCompleted      bool
-		expectedReasonContains string
-		checkLastUpdate        bool
+		name                     string
+		secret                   *corev1.Secret
+		mustgather               *mustgatherv1alpha1.MustGather
+		mockSFTPDialFunc         func(ctx context.Context, username, password, host string) error
+		expectError              bool
+		expectedStatus           string
+		expectedCompleted        bool
+		expectedReasonContains   string
+		checkLastUpdate          bool
+		checkCondition           bool
+		expectedConditionReason  string
+		expectedConditionMessage string
 	}{
 		{
 			name: "missing username field in secret",
@@ -1261,12 +1264,15 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					},
 				},
 			},
-			mockSFTPDialFunc:       nil, // Won't be called
-			expectError:            false,
-			expectedStatus:         "Failed",
-			expectedCompleted:      true,
-			expectedReasonContains: "missing required field 'username'",
-			checkLastUpdate:        true,
+			mockSFTPDialFunc:         nil, // Won't be called
+			expectError:              false,
+			expectedStatus:           "Failed",
+			expectedCompleted:        true,
+			expectedReasonContains:   "missing required field 'username'",
+			checkLastUpdate:          true,
+			checkCondition:           true,
+			expectedConditionReason:  "ValidationFailed",
+			expectedConditionMessage: "missing required field 'username'",
 		},
 		{
 			name: "empty username in secret",
@@ -1297,12 +1303,15 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					},
 				},
 			},
-			mockSFTPDialFunc:       nil,
-			expectError:            false,
-			expectedStatus:         "Failed",
-			expectedCompleted:      true,
-			expectedReasonContains: "missing required field 'username'",
-			checkLastUpdate:        true,
+			mockSFTPDialFunc:         nil,
+			expectError:              false,
+			expectedStatus:           "Failed",
+			expectedCompleted:        true,
+			expectedReasonContains:   "missing required field 'username'",
+			checkLastUpdate:          true,
+			checkCondition:           true,
+			expectedConditionReason:  "ValidationFailed",
+			expectedConditionMessage: "missing required field 'username'",
 		},
 		{
 			name: "missing password field in secret",
@@ -1332,12 +1341,15 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					},
 				},
 			},
-			mockSFTPDialFunc:       nil,
-			expectError:            false,
-			expectedStatus:         "Failed",
-			expectedCompleted:      true,
-			expectedReasonContains: "missing required field 'password'",
-			checkLastUpdate:        true,
+			mockSFTPDialFunc:         nil,
+			expectError:              false,
+			expectedStatus:           "Failed",
+			expectedCompleted:        true,
+			expectedReasonContains:   "missing required field 'password'",
+			checkLastUpdate:          true,
+			checkCondition:           true,
+			expectedConditionReason:  "ValidationFailed",
+			expectedConditionMessage: "missing required field 'password'",
 		},
 		{
 			name: "empty password in secret",
@@ -1368,12 +1380,15 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					},
 				},
 			},
-			mockSFTPDialFunc:       nil,
-			expectError:            false,
-			expectedStatus:         "Failed",
-			expectedCompleted:      true,
-			expectedReasonContains: "missing required field 'password'",
-			checkLastUpdate:        true,
+			mockSFTPDialFunc:         nil,
+			expectError:              false,
+			expectedStatus:           "Failed",
+			expectedCompleted:        true,
+			expectedReasonContains:   "missing required field 'password'",
+			checkLastUpdate:          true,
+			checkCondition:           true,
+			expectedConditionReason:  "ValidationFailed",
+			expectedConditionMessage: "missing required field 'password'",
 		},
 		{
 			name: "SFTP connection validation fails",
@@ -1407,11 +1422,14 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			mockSFTPDialFunc: func(ctx context.Context, username, password, host string) error {
 				return errors.New("SFTP connection failed: authentication failed")
 			},
-			expectError:            false,
-			expectedStatus:         "Failed",
-			expectedCompleted:      true,
-			expectedReasonContains: "SFTP validation failed",
-			checkLastUpdate:        true,
+			expectError:              false,
+			expectedStatus:           "Failed",
+			expectedCompleted:        true,
+			expectedReasonContains:   "SFTP validation failed",
+			checkLastUpdate:          true,
+			checkCondition:           true,
+			expectedConditionReason:  "ValidationFailed",
+			expectedConditionMessage: "SFTP validation failed",
 		},
 		{
 			name: "SFTP validation transient error triggers requeue",
@@ -1561,6 +1579,34 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			if tt.checkLastUpdate {
 				if updatedMG.Status.LastUpdate.IsZero() {
 					t.Errorf("expected LastUpdate to be set, but it was zero")
+				}
+			}
+
+			// Check condition was set correctly
+			if tt.checkCondition {
+				if len(updatedMG.Status.Conditions) == 0 {
+					t.Errorf("expected conditions to be set, but none were found")
+				} else {
+					var foundCondition *metav1.Condition
+					for i := range updatedMG.Status.Conditions {
+						if updatedMG.Status.Conditions[i].Type == "ReconcileError" {
+							foundCondition = &updatedMG.Status.Conditions[i]
+							break
+						}
+					}
+					if foundCondition == nil {
+						t.Errorf("expected ReconcileError condition to be set")
+					} else {
+						if foundCondition.Status != metav1.ConditionTrue {
+							t.Errorf("expected condition status to be True, got %v", foundCondition.Status)
+						}
+						if tt.expectedConditionReason != "" && foundCondition.Reason != tt.expectedConditionReason {
+							t.Errorf("expected condition reason %q, got %q", tt.expectedConditionReason, foundCondition.Reason)
+						}
+						if tt.expectedConditionMessage != "" && !strings.Contains(foundCondition.Message, tt.expectedConditionMessage) {
+							t.Errorf("expected condition message to contain %q, got %q", tt.expectedConditionMessage, foundCondition.Message)
+						}
+					}
 				}
 			}
 		})

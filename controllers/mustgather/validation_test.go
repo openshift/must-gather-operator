@@ -224,6 +224,141 @@ func Test_IsTransientError(t *testing.T) {
 	}
 }
 
+func Test_classifySFTPError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected string
+	}{
+		// Nil error
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: "SFTP connection failed",
+		},
+		// Authentication failures
+		{
+			name:     "authentication failed - unable to authenticate",
+			err:      errors.New("ssh: handshake failed: ssh: unable to authenticate, attempted methods [none password], no supported methods remain"),
+			expected: "Authentication failed: username or password is incorrect",
+		},
+		{
+			name:     "authentication failed - explicit message",
+			err:      errors.New("authentication failed for user"),
+			expected: "Authentication failed: username or password is incorrect",
+		},
+		// Connection refused
+		{
+			name:     "connection refused",
+			err:      errors.New("dial tcp 192.168.1.1:22: connect: connection refused"),
+			expected: "Connection refused: SFTP server is not running or port is blocked",
+		},
+		// Host unreachable
+		{
+			name:     "no route to host",
+			err:      errors.New("dial tcp 192.168.1.1:22: connect: no route to host"),
+			expected: "Host unreachable: verify the hostname or IP address is correct",
+		},
+		{
+			name:     "host is unreachable",
+			err:      errors.New("dial tcp: host is unreachable"),
+			expected: "Host unreachable: verify the hostname or IP address is correct",
+		},
+		{
+			name:     "host unreachable variant",
+			err:      errors.New("connect: host unreachable"),
+			expected: "Host unreachable: verify the hostname or IP address is correct",
+		},
+		// Network unreachable
+		{
+			name:     "network is unreachable",
+			err:      errors.New("dial tcp: network is unreachable"),
+			expected: "Network unreachable: check network connectivity",
+		},
+		{
+			name:     "network unreachable variant",
+			err:      errors.New("connect: network unreachable"),
+			expected: "Network unreachable: check network connectivity",
+		},
+		// DNS resolution failure
+		{
+			name:     "no such host",
+			err:      errors.New("dial tcp: lookup nonexistent.example.com: no such host"),
+			expected: "DNS resolution failed: hostname could not be resolved",
+		},
+		{
+			name:     "no such host simple",
+			err:      errors.New("no such host"),
+			expected: "DNS resolution failed: hostname could not be resolved",
+		},
+		// Connection timeout
+		{
+			name:     "i/o timeout",
+			err:      errors.New("dial tcp 192.168.1.1:22: i/o timeout"),
+			expected: "Connection timed out: server may be slow or unreachable",
+		},
+		{
+			name:     "deadline exceeded",
+			err:      errors.New("context deadline exceeded"),
+			expected: "Connection timed out: server may be slow or unreachable",
+		},
+		{
+			name:     "connection timed out",
+			err:      errors.New("connection timed out"),
+			expected: "Connection timed out: server may be slow or unreachable",
+		},
+		// Connection reset
+		{
+			name:     "connection reset by peer",
+			err:      errors.New("read tcp: connection reset by peer"),
+			expected: "Connection reset: server unexpectedly closed the connection",
+		},
+		{
+			name:     "connection reset simple",
+			err:      errors.New("connection reset"),
+			expected: "Connection reset: server unexpectedly closed the connection",
+		},
+		// SFTP subsystem not available
+		{
+			name:     "failed to create SFTP client",
+			err:      errors.New("failed to create SFTP client: EOF"),
+			expected: "SFTP subsystem not available on the server",
+		},
+		{
+			name:     "subsystem request failed",
+			err:      errors.New("ssh: subsystem request failed"),
+			expected: "SFTP subsystem not available on the server",
+		},
+		// Unknown error - fallback
+		{
+			name:     "unknown error",
+			err:      errors.New("some unknown error occurred"),
+			expected: "SFTP connection failed",
+		},
+		// Mixed case handling
+		{
+			name:     "mixed case - CONNECTION REFUSED",
+			err:      errors.New("CONNECTION REFUSED"),
+			expected: "Connection refused: SFTP server is not running or port is blocked",
+		},
+		// Wrapped errors
+		{
+			name:     "wrapped authentication error",
+			err:      fmt.Errorf("ssh: handshake failed: %w", errors.New("ssh: unable to authenticate")),
+			expected: "Authentication failed: username or password is incorrect",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := classifySFTPError(tt.err)
+			if got != tt.expected {
+				t.Errorf("classifySFTPError() = %q, want %q for error: %v", got, tt.expected, tt.err)
+			}
+		})
+	}
+}
+
 func Test_checkSFTPConnection(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -239,7 +374,7 @@ func Test_checkSFTPConnection(t *testing.T) {
 			password:    "pass",
 			host:        "",
 			wantErr:     true,
-			errContains: "SFTP connection failed",
+			errContains: "Connection refused",
 		},
 		{
 			name:        "IPv4 without port",
@@ -247,7 +382,7 @@ func Test_checkSFTPConnection(t *testing.T) {
 			password:    "pass",
 			host:        "192.168.1.1",
 			wantErr:     true,
-			errContains: "SFTP connection failed",
+			errContains: "Connection refused",
 		},
 		{
 			name:        "IPv4 with port",
@@ -255,7 +390,7 @@ func Test_checkSFTPConnection(t *testing.T) {
 			password:    "pass",
 			host:        "192.168.1.1:22",
 			wantErr:     true,
-			errContains: "SFTP connection failed",
+			errContains: "Connection refused",
 		},
 		{
 			name:        "hostname without port",
@@ -263,7 +398,7 @@ func Test_checkSFTPConnection(t *testing.T) {
 			password:    "pass",
 			host:        "sftp.example.com",
 			wantErr:     true,
-			errContains: "SFTP connection failed",
+			errContains: "Connection refused",
 		},
 		{
 			name:        "hostname with port",
@@ -271,7 +406,7 @@ func Test_checkSFTPConnection(t *testing.T) {
 			password:    "pass",
 			host:        "sftp.example.com:2222",
 			wantErr:     true,
-			errContains: "SFTP connection failed",
+			errContains: "Connection refused",
 		},
 		{
 			name:        "IPv6 unbracketed without port",
@@ -279,7 +414,7 @@ func Test_checkSFTPConnection(t *testing.T) {
 			password:    "pass",
 			host:        "2001:db8::1",
 			wantErr:     true,
-			errContains: "SFTP connection failed",
+			errContains: "Connection refused",
 		},
 		{
 			name:        "IPv6 bracketed without port",
@@ -287,7 +422,7 @@ func Test_checkSFTPConnection(t *testing.T) {
 			password:    "pass",
 			host:        "[2001:db8::1]",
 			wantErr:     true,
-			errContains: "SFTP connection failed",
+			errContains: "Connection refused",
 		},
 		{
 			name:        "IPv6 bracketed with port",
@@ -295,7 +430,7 @@ func Test_checkSFTPConnection(t *testing.T) {
 			password:    "pass",
 			host:        "[2001:db8::1]:2222",
 			wantErr:     true,
-			errContains: "SFTP connection failed",
+			errContains: "Connection refused",
 		},
 	}
 
@@ -343,7 +478,7 @@ func Test_checkSFTPConnection_ContextCancellation(t *testing.T) {
 			host:        "sftp.example.com",
 			timeout:     1 * time.Nanosecond,
 			wantErr:     true,
-			errContains: "SFTP connection",
+			errContains: "Connection timed out",
 		},
 	}
 
@@ -400,18 +535,18 @@ func Test_validateSFTPCredentials(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "sftp.example.com",
-			mockDialErr: fmt.Errorf("SFTP connection failed: ssh: handshake failed"),
+			mockDialErr: fmt.Errorf("Connection refused: SFTP server is not running or port is blocked: ssh: handshake failed"),
 			wantErr:     true,
-			errContains: "SFTP connection failed",
+			errContains: "Connection refused",
 		},
 		{
 			name:        "valid credentials - auth fails",
 			username:    "user",
 			password:    "wrongpass",
 			host:        "sftp.example.com",
-			mockDialErr: fmt.Errorf("SFTP connection failed: ssh: unable to authenticate"),
+			mockDialErr: fmt.Errorf("Authentication failed: username or password is incorrect: ssh: unable to authenticate"),
 			wantErr:     true,
-			errContains: "SFTP connection failed",
+			errContains: "Authentication failed",
 		},
 		{
 			name:        "valid credentials - success",
