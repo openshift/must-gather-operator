@@ -1,0 +1,17 @@
+apiVersion: operator.openshift.io/v1alpha1
+kind: MustGather
+metadata:
+  name: mustgather-with-sincetime
+spec: 
+  gatherSpec:
+    sinceTime: "2026-02-02T00:00:00Z"
+  audit: false
+  serviceAccountName: must-gather-admin
+  uploadTarget:
+    type: SFTP
+    sftp:
+      caseID: '00000'
+      caseManagementAccountSecretRef:
+        name: case-management-creds
+      internalUser: true
+
