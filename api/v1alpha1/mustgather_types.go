@@ -37,7 +37,8 @@ type MustGatherSpec struct {
 	// +kubebuilder:validation:Optional
 	ImageStreamRef *ImageStreamTagRef `json:"imageStreamRef,omitempty"`
 
-	// GatherSpec allows overriding the command and/or arguments for the custom must-gather image.
+	// GatherSpec allows overriding the command and/or arguments for the custom must-gather image
+	// and configures time-based collection filters.
 	// This field is ignored if ImageStreamRef is not specified.
 	// +kubebuilder:validation:Optional
 	GatherSpec *GatherSpec `json:"gatherSpec,omitempty"`
@@ -66,7 +67,8 @@ type MustGatherSpec struct {
 	Storage *Storage `json:"storage,omitempty"`
 }
 
-// GatherSpec allows specifying the execution details for a must-gather run.
+// GatherSpec allows specifying the execution details for a must-gather run and the collection behavior.
+// +kubebuilder:validation:XValidation:rule="!(has(self.since) && has(self.sinceTime))",message="only one of since or sinceTime may be specified"
 type GatherSpec struct {
 	// +kubebuilder:validation:Optional
 	// Audit specifies whether to collect audit logs. This is translated to a signal
@@ -87,6 +89,20 @@ type GatherSpec struct {
 	// +kubebuilder:validation:MaxItems=256
 	// +kubebuilder:validation:Items:MaxLength=256
 	Args []string `json:"args,omitempty"`
+
+	// Since only returns logs newer than a relative duration like "2h" or "30m".
+	// This is passed to the must-gather script to filter log collection.
+	// Only one of since or sinceTime may be specified.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Format=duration
+	Since *metav1.Duration `json:"since,omitempty"`
+
+	// SinceTime only returns logs after a specific date/time (RFC3339 format).
+	// This is passed to the must-gather script to filter log collection.
+	// Only one of since or sinceTime may be specified.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Format=date-time
+	SinceTime *metav1.Time `json:"sinceTime,omitempty"`
 }
 
 // ImageStreamTagRef provides a structured reference to a specific tag within an ImageStream.

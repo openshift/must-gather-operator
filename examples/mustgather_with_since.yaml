@@ -1,0 +1,17 @@
+apiVersion: operator.openshift.io/v1alpha1
+kind: MustGather
+metadata:
+  name: mustgather-with-since
+spec:
+  # Only collect logs from the last 10 minutes (reduces output size significantly)
+  gatherSpec:
+    since: 10m
+  audit: false
+  serviceAccountName: must-gather-admin
+  uploadTarget:
+    type: SFTP
+    sftp:
+      caseID: '00006'
+      caseManagementAccountSecretRef:
+        name: case-management-creds
+      internalUser: true

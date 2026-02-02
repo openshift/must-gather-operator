@@ -32,6 +32,10 @@ const (
 	gatherCommand              = "timeout %v bash -x -c -- '/usr/bin/%v' 2>&1 | tee /must-gather/must-gather.log\n\nstatus=$?\nif [[ $status -eq 124 || $status -eq 137 ]]; then\n  echo \"Gather timed out.\"\n  exit 0\nfi | tee -a /must-gather/must-gather.log"
 	gatherContainerName        = "gather"
 
+	// Environment variables for time-based log filtering
+	gatherEnvSince     = "MUST_GATHER_SINCE"
+	gatherEnvSinceTime = "MUST_GATHER_SINCE_TIME"
+
 	backoffLimit              = 3
 	uploadContainerName       = "upload"
 	uploadEnvUsername         = "username"
@@ -75,7 +79,18 @@ func podNameEnvVars() []corev1.EnvVar {
 	}
 }
 
-func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.MustGather, trustedCAConfigMapName string) *batchv1.Job {
+// timeNow exists to allow deterministic unit testing of time-based behavior.
+var timeNow = time.Now
+
+// GatherTimeFilter holds the time-based filtering options for log collection
+type GatherTimeFilter struct {
+	// Since is a relative duration (e.g., "2h", "30m")
+	Since time.Duration
+	// SinceTime is an absolute timestamp
+	SinceTime *time.Time
+}
+
+func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.MustGather, trustedCAConfigMapName string, clusterCreationTime *time.Time) *batchv1.Job {
 	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, mustGather.Spec.ServiceAccountName, mustGather.Spec.Storage, trustedCAConfigMapName)
 
 	var httpProxy, httpsProxy, noProxy string
@@ -104,15 +119,27 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 		timeout = mustGather.Spec.MustGatherTimeout.Duration
 	}
 
+	// Build time filter from spec
+	var timeFilter *GatherTimeFilter
 	var command, args []string
 	if mustGather.Spec.GatherSpec != nil {
 		command = mustGather.Spec.GatherSpec.Command
 		args = mustGather.Spec.GatherSpec.Args
+		if mustGather.Spec.GatherSpec.Since != nil || mustGather.Spec.GatherSpec.SinceTime != nil {
+			timeFilter = &GatherTimeFilter{}
+			if mustGather.Spec.GatherSpec.Since != nil {
+				timeFilter.Since = mustGather.Spec.GatherSpec.Since.Duration
+			}
+			if mustGather.Spec.GatherSpec.SinceTime != nil {
+				t := mustGather.Spec.GatherSpec.SinceTime.Time
+				timeFilter.SinceTime = &t
+			}
+		}
 	}
 
 	job.Spec.Template.Spec.Containers = append(
 		job.Spec.Template.Spec.Containers,
-		getGatherContainer(image, audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName, command, args),
+		getGatherContainer(image, audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName, timeFilter, clusterCreationTime, command, args),
 	)
 
 	// Add the upload container only if the upload target is specified
@@ -219,7 +246,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 	}
 }
 
-func getGatherContainer(image string, audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string, command []string, args []string) corev1.Container {
+func getGatherContainer(image string, audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string, timeFilter *GatherTimeFilter, clusterCreationTime *time.Time, command []string, args []string) corev1.Container {
 	var commandBinary string
 	if audit {
 		commandBinary = gatherCommandBinaryAudit
@@ -271,6 +298,43 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 	// Provide pod name env var only when SubPathExpr is used (PVC subPath is set).
 	if hasSubPathExpr {
 		container.Env = append(container.Env, podNameEnvVars()...)
+	}
+	// Add time filter environment variables if specified
+	if timeFilter != nil {
+		// Clamp the time filter so it never precedes cluster creation time.
+		// - For Since (duration): ensure (now - since) >= clusterCreationTime by reducing Since to clusterAge.
+		// - For SinceTime (absolute): ensure sinceTime >= clusterCreationTime by bumping it up.
+		effectiveSince := timeFilter.Since
+		effectiveSinceTime := timeFilter.SinceTime
+		if clusterCreationTime != nil && !clusterCreationTime.IsZero() {
+			now := timeNow()
+			if effectiveSince > 0 {
+				clusterAge := now.Sub(*clusterCreationTime)
+				if clusterAge < 0 {
+					clusterAge = 0
+				}
+				if effectiveSince > clusterAge {
+					effectiveSince = clusterAge
+				}
+			}
+			if effectiveSinceTime != nil && effectiveSinceTime.Before(*clusterCreationTime) {
+				t := *clusterCreationTime
+				effectiveSinceTime = &t
+			}
+		}
+
+		if effectiveSince > 0 {
+			container.Env = append(container.Env, corev1.EnvVar{
+				Name:  gatherEnvSince,
+				Value: effectiveSince.String(),
+			})
+		}
+		if effectiveSinceTime != nil {
+			container.Env = append(container.Env, corev1.EnvVar{
+				Name:  gatherEnvSinceTime,
+				Value: effectiveSinceTime.Format(time.RFC3339),
+			})
+		}
 	}
 
 	return container

@@ -21,8 +21,10 @@ import (
 	goerror "errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/go-logr/logr"
+	configv1 "github.com/openshift/api/config/v1"
 	imagev1 "github.com/openshift/api/image/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
@@ -411,7 +413,25 @@ func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, instance 
 		return nil, err
 	}
 
-	return getJobTemplate(image, operatorImage, *instance, r.TrustedCAConfigMap), nil
+	// Best-effort fetch of cluster creation time (used to clamp since/sinceTime filters).
+	// Errors here must NOT block must-gather execution.
+	var clusterCreationTime *time.Time
+	if t, err := r.getClusterCreationTime(ctx); err != nil {
+		log.V(2).Info("unable to determine cluster creation time; since filters will not be clamped", "err", err)
+	} else {
+		clusterCreationTime = t
+	}
+
+	return getJobTemplate(image, operatorImage, *instance, r.TrustedCAConfigMap, clusterCreationTime), nil
+}
+
+func (r *MustGatherReconciler) getClusterCreationTime(ctx context.Context) (*time.Time, error) {
+	cv := &configv1.ClusterVersion{}
+	if err := r.GetClient().Get(ctx, types.NamespacedName{Name: "version"}, cv); err != nil {
+		return nil, err
+	}
+	t := cv.CreationTimestamp.Time
+	return &t, nil
 }
 
 func (r *MustGatherReconciler) getMustGatherImage(ctx context.Context, instance *mustgatherv1alpha1.MustGather) (string, error) {

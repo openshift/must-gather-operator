@@ -2,6 +2,7 @@ package mustgather
 
 import (
 	"fmt"
+	"math"
 	"path"
 	"reflect"
 	"strconv"
@@ -10,7 +11,10 @@ import (
 	"time"
 
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
+	"github.com/openshift/must-gather-operator/controllers/mustgather"
+	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -106,6 +110,8 @@ func Test_initializeJobTemplate(t *testing.T) {
 }
 
 func Test_getGatherContainer(t *testing.T) {
+	testSinceTime := time.Date(2026, 1, 7, 10, 0, 0, 0, time.UTC)
+
 	tests := []struct {
 		name            string
 		audit           bool
@@ -114,6 +120,9 @@ func Test_getGatherContainer(t *testing.T) {
 		storage         *mustgatherv1alpha1.Storage
 		command         []string
 		args            []string
+		caConfigMap     string
+		timeFilter      *GatherTimeFilter
+		clusterCreation *time.Time
 	}{
 		{
 			name:            "no audit",
@@ -125,6 +134,12 @@ func Test_getGatherContainer(t *testing.T) {
 			audit:           true,
 			timeout:         0 * time.Second,
 			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+		},
+		{
+			name:            "with trusted CA config map",
+			timeout:         5 * time.Second,
+			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+			caConfigMap:     "trusted-ca-cert-001",
 		},
 		{
 			name:    "with PVC",
@@ -174,7 +189,7 @@ func Test_getGatherContainer(t *testing.T) {
 		},
 		{
 			name:            "robust timeout",
-			timeout:         6*time.Hour + 5*time.Minute + 3*time.Second, // 6h5m3s
+			timeout:         1500 * time.Millisecond,
 			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
 		},
 		{
@@ -184,10 +199,58 @@ func Test_getGatherContainer(t *testing.T) {
 			command:         []string{"/usr/bin/custom-gather"},
 			args:            []string{"--verbose", "--subsystem=network"},
 		},
+		{
+			name:            "with since duration",
+			timeout:         5 * time.Second,
+			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+			timeFilter: &GatherTimeFilter{
+				Since: 2 * time.Hour,
+			},
+		},
+		{
+			name:            "with sinceTime",
+			timeout:         5 * time.Second,
+			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+			timeFilter: &GatherTimeFilter{
+				SinceTime: &testSinceTime,
+			},
+		},
+		{
+			name:            "clamp since duration to cluster age",
+			timeout:         5 * time.Second,
+			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+			timeFilter: &GatherTimeFilter{
+				Since: 24 * time.Hour,
+			},
+			clusterCreation: ToPtr(time.Date(2026, 1, 7, 9, 0, 0, 0, time.UTC)),
+		},
+		{
+			name:            "cluster age negative clamps to zero and omits since",
+			timeout:         5 * time.Second,
+			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+			timeFilter: &GatherTimeFilter{
+				Since: 2 * time.Hour,
+			},
+			// Cluster creation time is in the future relative to timeNow() below, forcing a negative age.
+			clusterCreation: ToPtr(time.Date(2026, 1, 7, 11, 0, 0, 0, time.UTC)),
+		},
+		{
+			name:            "clamp sinceTime to cluster creation time",
+			timeout:         5 * time.Second,
+			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+			timeFilter: &GatherTimeFilter{
+				SinceTime: ToPtr(time.Date(2026, 1, 7, 8, 0, 0, 0, time.UTC)),
+			},
+			clusterCreation: ToPtr(time.Date(2026, 1, 7, 9, 0, 0, 0, time.UTC)),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			container := getGatherContainer(tt.mustGatherImage, tt.audit, tt.timeout, tt.storage, "", tt.command, tt.args)
+			// Make time deterministic for clamping tests.
+			origNow := timeNow
+			timeNow = func() time.Time { return time.Date(2026, 1, 7, 10, 0, 0, 0, time.UTC) }
+			t.Cleanup(func() { timeNow = origNow })
+			container := getGatherContainer(tt.mustGatherImage, tt.audit, tt.timeout, tt.storage, tt.caConfigMap, tt.timeFilter, tt.clusterCreation, tt.command, tt.args)
 
 			if len(tt.command) == 0 {
 				containerCommand := container.Command[2]
@@ -196,8 +259,7 @@ func Test_getGatherContainer(t *testing.T) {
 				} else if !tt.audit && !strings.Contains(containerCommand, gatherCommandBinaryNoAudit) {
 					t.Fatalf("gather container command expected with binary %v but it wasn't present", gatherCommandBinaryNoAudit)
 				}
-
-				timeoutInSeconds := int(tt.timeout.Seconds())
+				timeoutInSeconds := int(math.Ceil(tt.timeout.Seconds()))
 				if !strings.HasPrefix(containerCommand, fmt.Sprintf("timeout %d", timeoutInSeconds)) {
 					t.Fatalf("the duration was not properly added to the container command, got %v but wanted %v", strings.Split(containerCommand, " ")[1], timeoutInSeconds)
 				}
@@ -212,6 +274,26 @@ func Test_getGatherContainer(t *testing.T) {
 
 			if container.Image != tt.mustGatherImage {
 				t.Fatalf("expected container image %v but got %v", tt.mustGatherImage, container.Image)
+			}
+
+			// Check trusted CA configmap volume mount behavior
+			foundTrustedCAMount := false
+			for _, vm := range container.VolumeMounts {
+				if vm.Name == trustedCAVolumeName {
+					foundTrustedCAMount = true
+					if vm.MountPath != wellKnownCADirForTest {
+						t.Fatalf("trusted CA volume mount path was not correctly set. got %v, wanted %v", vm.MountPath, wellKnownCADirForTest)
+					}
+					if !vm.ReadOnly {
+						t.Fatalf("trusted CA volume mount expected to be read-only")
+					}
+				}
+			}
+			if tt.caConfigMap != "" && !foundTrustedCAMount {
+				t.Fatalf("expected trusted CA volume mount to be present when caConfigMap is provided")
+			}
+			if tt.caConfigMap == "" && foundTrustedCAMount {
+				t.Fatalf("did not expect trusted CA volume mount when caConfigMap is empty")
 			}
 
 			if tt.storage != nil {
@@ -249,6 +331,34 @@ func Test_getGatherContainer(t *testing.T) {
 			}
 			if !hasPVCStorage && hasPodNameEnv {
 				t.Fatalf("did not expect %s env var when storage is not PVC", podNameEnvVar)
+			}
+
+			// Check time filter environment variables
+			if tt.timeFilter != nil {
+				envMap := envValues(container)
+				if tt.name == "clamp since duration to cluster age" {
+					if envMap[gatherEnvSince] != "1h0m0s" {
+						t.Fatalf("expected %s env var to be clamped to 1h0m0s, got %v", gatherEnvSince, envMap[gatherEnvSince])
+					}
+				} else if tt.name == "cluster age negative clamps to zero and omits since" {
+					if _, ok := envMap[gatherEnvSince]; ok {
+						t.Fatalf("did not expect %s env var when clamped to zero, got %v", gatherEnvSince, envMap[gatherEnvSince])
+					}
+				} else if tt.timeFilter.Since > 0 {
+					if envMap[gatherEnvSince] != tt.timeFilter.Since.String() {
+						t.Fatalf("expected %s env var to be %v, got %v", gatherEnvSince, tt.timeFilter.Since.String(), envMap[gatherEnvSince])
+					}
+				}
+				if tt.name == "clamp sinceTime to cluster creation time" {
+					if envMap[gatherEnvSinceTime] != "2026-01-07T09:00:00Z" {
+						t.Fatalf("expected %s env var to be clamped to %v, got %v", gatherEnvSinceTime, "2026-01-07T09:00:00Z", envMap[gatherEnvSinceTime])
+					}
+				} else if tt.timeFilter.SinceTime != nil {
+					expectedTime := tt.timeFilter.SinceTime.Format(time.RFC3339)
+					if envMap[gatherEnvSinceTime] != expectedTime {
+						t.Fatalf("expected %s env var to be %v, got %v", gatherEnvSinceTime, expectedTime, envMap[gatherEnvSinceTime])
+					}
+				}
 			}
 		})
 	}
@@ -483,4 +593,212 @@ func Test_getUploadContainer(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_getJobTemplate_GatherSpec_BuildsTimeFilter(t *testing.T) {
+	t.Setenv(mustgather.DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
+
+	sinceTime := metav1.NewTime(time.Date(2026, 1, 7, 10, 11, 12, 0, time.UTC))
+
+	tests := []struct {
+		name        string
+		gatherSpec  *mustgatherv1alpha1.GatherSpec
+		wantSince   string
+		wantSinceTs string
+	}{
+		{
+			name: "no gatherSpec means no time filter env vars",
+		},
+		{
+			name:       "gatherSpec with since builds timeFilter.Since",
+			gatherSpec: &mustgatherv1alpha1.GatherSpec{Since: &metav1.Duration{Duration: 2 * time.Hour}},
+			wantSince:  "2h0m0s",
+		},
+		{
+			name:        "gatherSpec with sinceTime builds timeFilter.SinceTime",
+			gatherSpec:  &mustgatherv1alpha1.GatherSpec{SinceTime: &sinceTime},
+			wantSinceTs: "2026-01-07T10:11:12Z",
+		},
+		{
+			name:       "gatherSpec present but with no since/sinceTime means no time filter env vars",
+			gatherSpec: &mustgatherv1alpha1.GatherSpec{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mg := mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
+					GatherSpec:         tt.gatherSpec,
+				},
+			}
+
+			job := getJobTemplate("img", "operator-image", mg, "", nil)
+			gather := findGatherContainerInJob(t, job)
+			got := envValues(gather)
+
+			if tt.wantSince == "" {
+				if _, ok := got[gatherEnvSince]; ok {
+					t.Fatalf("did not expect %s env var, got %v", gatherEnvSince, got[gatherEnvSince])
+				}
+			} else if got[gatherEnvSince] != tt.wantSince {
+				t.Fatalf("expected %s=%s, got %s", gatherEnvSince, tt.wantSince, got[gatherEnvSince])
+			}
+
+			if tt.wantSinceTs == "" {
+				if _, ok := got[gatherEnvSinceTime]; ok {
+					t.Fatalf("did not expect %s env var, got %v", gatherEnvSinceTime, got[gatherEnvSinceTime])
+				}
+			} else if got[gatherEnvSinceTime] != tt.wantSinceTs {
+				t.Fatalf("expected %s=%s, got %s", gatherEnvSinceTime, tt.wantSinceTs, got[gatherEnvSinceTime])
+			}
+		})
+	}
+}
+
+func Test_getJobTemplate_ProxyAuditTimeout(t *testing.T) {
+	t.Setenv(mustgather.DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
+
+	auditTrue := true
+	timeout := metav1.Duration{Duration: 5 * time.Second}
+
+	tests := []struct {
+		name        string
+		audit       *bool
+		timeout     *metav1.Duration
+		httpProxy   string
+		httpsProxy  string
+		noProxy     string
+		wantAudit   bool
+		wantTimeout string
+		wantProxies bool
+	}{
+		{
+			name:        "nil audit and nil timeout default; no proxy env vars",
+			wantAudit:   false,
+			wantTimeout: "timeout 0",
+			wantProxies: false,
+		},
+		{
+			name:        "audit true and timeout set; proxy env vars propagate to upload container",
+			audit:       &auditTrue,
+			timeout:     &timeout,
+			httpProxy:   "http://proxy.example:8080",
+			httpsProxy:  "https://proxy.example:8443",
+			noProxy:     "127.0.0.1,localhost,.cluster.local",
+			wantAudit:   true,
+			wantTimeout: "timeout 5",
+			wantProxies: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.httpProxy != "" {
+				t.Setenv("HTTP_PROXY", tt.httpProxy)
+			}
+			if tt.httpsProxy != "" {
+				t.Setenv("HTTPS_PROXY", tt.httpsProxy)
+			}
+			if tt.noProxy != "" {
+				t.Setenv("NO_PROXY", tt.noProxy)
+			}
+
+			mg := mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
+					GatherSpec: &mustgatherv1alpha1.GatherSpec{
+						Audit: *tt.audit,
+					},
+					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+						Type: mustgatherv1alpha1.UploadTypeSFTP,
+						SFTP: &mustgatherv1alpha1.SFTPSpec{
+							CaseID: "1234",
+							Host:   "sftp.example.com",
+							CaseManagementAccountSecretRef: v1.LocalObjectReference{
+								Name: "case-mgmt-secret",
+							},
+						},
+					},
+				},
+			}
+
+			job := getJobTemplate("image", "operator-image", mg, "", nil)
+
+			gather := findGatherContainerInJob(t, job)
+			gatherCmd := gather.Command[2]
+			if tt.wantAudit {
+				if !strings.Contains(gatherCmd, gatherCommandBinaryAudit) {
+					t.Fatalf("expected gather command to contain %v but got %v", gatherCommandBinaryAudit, gatherCmd)
+				}
+			} else {
+				if !strings.Contains(gatherCmd, gatherCommandBinaryNoAudit) {
+					t.Fatalf("expected gather command to contain %v but got %v", gatherCommandBinaryNoAudit, gatherCmd)
+				}
+			}
+			if !strings.HasPrefix(gatherCmd, tt.wantTimeout) {
+				t.Fatalf("expected gather command to start with %q but got %q", tt.wantTimeout, gatherCmd)
+			}
+
+			upload := findUploadContainerInJob(t, job)
+			uploadEnv := envValues(upload)
+			if tt.wantProxies {
+				if uploadEnv[uploadEnvHttpProxy] != tt.httpProxy {
+					t.Fatalf("expected %s=%v, got %v", uploadEnvHttpProxy, tt.httpProxy, uploadEnv[uploadEnvHttpProxy])
+				}
+				if uploadEnv[uploadEnvHttpsProxy] != tt.httpsProxy {
+					t.Fatalf("expected %s=%v, got %v", uploadEnvHttpsProxy, tt.httpsProxy, uploadEnv[uploadEnvHttpsProxy])
+				}
+				if uploadEnv[uploadEnvNoProxy] != tt.noProxy {
+					t.Fatalf("expected %s=%v, got %v", uploadEnvNoProxy, tt.noProxy, uploadEnv[uploadEnvNoProxy])
+				}
+			} else {
+				if _, ok := uploadEnv[uploadEnvHttpProxy]; ok {
+					t.Fatalf("did not expect %s env var, got %v", uploadEnvHttpProxy, uploadEnv[uploadEnvHttpProxy])
+				}
+				if _, ok := uploadEnv[uploadEnvHttpsProxy]; ok {
+					t.Fatalf("did not expect %s env var, got %v", uploadEnvHttpsProxy, uploadEnv[uploadEnvHttpsProxy])
+				}
+				if _, ok := uploadEnv[uploadEnvNoProxy]; ok {
+					t.Fatalf("did not expect %s env var, got %v", uploadEnvNoProxy, uploadEnv[uploadEnvNoProxy])
+				}
+			}
+		})
+	}
+}
+
+// helper to find gather container in a job
+func findGatherContainerInJob(t *testing.T, job *batchv1.Job) v1.Container {
+	t.Helper()
+	for _, c := range job.Spec.Template.Spec.Containers {
+		if c.Name == gatherContainerName {
+			return c
+		}
+	}
+	t.Fatalf("gather container not found in job")
+	return v1.Container{}
+}
+
+// helper to find upload container in a job
+func findUploadContainerInJob(t *testing.T, job *batchv1.Job) v1.Container {
+	t.Helper()
+	for _, c := range job.Spec.Template.Spec.Containers {
+		if c.Name == uploadContainerName {
+			return c
+		}
+	}
+	t.Fatalf("upload container not found in job")
+	return v1.Container{}
+}
+
+// helper to map env name->value
+func envValues(container v1.Container) map[string]string {
+	m := make(map[string]string)
+	for _, e := range container.Env {
+		m[e.Name] = e.Value
+	}
+	return m
 }
