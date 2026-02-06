@@ -236,6 +236,30 @@ func Test_getGatherContainer(t *testing.T) {
 					t.Fatalf("did not expect volume mount subPath to be set when using subPathExpr, got %q", volumeMount.SubPath)
 				}
 			}
+
+			// POD_NAME env var should be present only when SubPathExpr is used.
+			hasPodNameEnv := false
+			for _, env := range container.Env {
+				if env.Name == podNameEnvVar {
+					hasPodNameEnv = true
+					if env.ValueFrom == nil || env.ValueFrom.FieldRef == nil || env.ValueFrom.FieldRef.FieldPath != "metadata.name" {
+						t.Fatalf("expected %s env var to be sourced from metadata.name via fieldRef, got %#v", podNameEnvVar, env)
+					}
+				}
+			}
+			subPathBase := ""
+			if tt.storage != nil && tt.storage.Type == mustgatherv1alpha1.StorageTypePersistentVolume {
+				subPathBase = strings.Trim(strings.TrimSpace(tt.storage.PersistentVolume.SubPath), "/")
+			}
+			if subPathBase == "" {
+				if hasPodNameEnv {
+					t.Fatalf("did not expect %s env var when PVC subPath is empty", podNameEnvVar)
+				}
+			} else {
+				if !hasPodNameEnv {
+					t.Fatalf("expected %s env var when PVC subPath is set (base=%q)", podNameEnvVar, subPathBase)
+				}
+			}
 		})
 	}
 }
@@ -416,6 +440,30 @@ func Test_getUploadContainer(t *testing.T) {
 				}
 				if outputMount.SubPath != "" {
 					t.Fatalf("did not expect output volume mount subPath to be set when using subPathExpr, got %q", outputMount.SubPath)
+				}
+			}
+
+			// POD_NAME env var should be present only when SubPathExpr is used.
+			hasPodNameEnv := false
+			for _, env := range container.Env {
+				if env.Name == podNameEnvVar {
+					hasPodNameEnv = true
+					if env.ValueFrom == nil || env.ValueFrom.FieldRef == nil || env.ValueFrom.FieldRef.FieldPath != "metadata.name" {
+						t.Fatalf("expected %s env var to be sourced from metadata.name via fieldRef, got %#v", podNameEnvVar, env)
+					}
+				}
+			}
+			subPathBase := ""
+			if tt.storage != nil && tt.storage.Type == mustgatherv1alpha1.StorageTypePersistentVolume {
+				subPathBase = strings.Trim(strings.TrimSpace(tt.storage.PersistentVolume.SubPath), "/")
+			}
+			if subPathBase == "" {
+				if hasPodNameEnv {
+					t.Fatalf("did not expect %s env var when PVC subPath is empty", podNameEnvVar)
+				}
+			} else {
+				if !hasPodNameEnv {
+					t.Fatalf("expected %s env var when PVC subPath is set (base=%q)", podNameEnvVar, subPathBase)
 				}
 			}
 

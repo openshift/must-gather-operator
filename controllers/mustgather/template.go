@@ -73,7 +73,7 @@ func outputSubPathExpr(storage *v1alpha1.Storage) (string, bool) {
 	return path.Join(base, fmt.Sprintf("$(%s)", podNameEnvVar)), true
 }
 
-func podIdentityEnvVars() []corev1.EnvVar {
+func podNameEnvVars() []corev1.EnvVar {
 	return []corev1.EnvVar{
 		{
 			Name: podNameEnvVar,
@@ -241,8 +241,9 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 		Name:      outputVolumeName,
 	}
 
-	if expr, ok := outputSubPathExpr(storage); ok {
-		volumeMount.SubPathExpr = expr
+	subPathExpr, hasSubPathExpr := outputSubPathExpr(storage)
+	if hasSubPathExpr {
+		volumeMount.SubPathExpr = subPathExpr
 	}
 
 	volumeMounts := []corev1.VolumeMount{volumeMount}
@@ -275,8 +276,11 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 	if len(args) > 0 {
 		container.Args = args
 	}
-	// Provide pod name env var for subPathExpr expansion (used when PVC subPath is set).
-	container.Env = append(container.Env, podIdentityEnvVars()...)
+
+	// Provide pod name env var only when SubPathExpr is used (PVC subPath is set).
+	if hasSubPathExpr {
+		container.Env = append(container.Env, podNameEnvVars()...)
+	}
 
 	return container
 }
@@ -301,8 +305,9 @@ func getUploadContainer(
 		MountPath: volumeMountPath,
 		Name:      outputVolumeName,
 	}
-	if expr, ok := outputSubPathExpr(storage); ok {
-		outputMount.SubPathExpr = expr
+	subPathExpr, hasSubPathExpr := outputSubPathExpr(storage)
+	if hasSubPathExpr {
+		outputMount.SubPathExpr = subPathExpr
 	}
 
 	volumeMounts := []corev1.VolumeMount{
@@ -372,8 +377,10 @@ func getUploadContainer(
 		},
 	}
 
-	// Provide Pod identity env vars for subPathExpr expansion (used when PVC subPath is set).
-	container.Env = append(container.Env, podIdentityEnvVars()...)
+	// Provide pod name env var only when SubPathExpr is used (PVC subPath is set).
+	if hasSubPathExpr {
+		container.Env = append(container.Env, podNameEnvVars()...)
+	}
 
 	if httpProxy != "" {
 		container.Env = append(container.Env, corev1.EnvVar{Name: uploadEnvHttpProxy, Value: httpProxy})
