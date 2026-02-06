@@ -139,6 +139,39 @@ func Test_getGatherContainer(t *testing.T) {
 			},
 		},
 		{
+			name:    "with PVC empty subPath does not set subPathExpr",
+			timeout: 5 * time.Second,
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "test-pvc"},
+					SubPath: "",
+				},
+			},
+		},
+		{
+			name:    "with PVC whitespace subPath does not set subPathExpr",
+			timeout: 5 * time.Second,
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "test-pvc"},
+					SubPath: "   ",
+				},
+			},
+		},
+		{
+			name:    "with PVC slash-only subPath does not set subPathExpr",
+			timeout: 5 * time.Second,
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "test-pvc"},
+					SubPath: "/",
+				},
+			},
+		},
+		{
 			name:            "robust timeout",
 			timeout:         6*time.Hour + 5*time.Minute + 3*time.Second, // 6h5m3s
 			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
@@ -188,8 +221,19 @@ func Test_getGatherContainer(t *testing.T) {
 				if volumeMount.Name != outputVolumeName {
 					t.Fatalf("volume mount name was not correctly set. got %v, wanted %v", volumeMount.Name, outputVolumeName)
 				}
-				if volumeMount.SubPath != tt.storage.PersistentVolume.SubPath {
-					t.Fatalf("volume mount subpath was not correctly set. got %v, wanted %v", volumeMount.SubPath, tt.storage.PersistentVolume.SubPath)
+				base := strings.Trim(strings.TrimSpace(tt.storage.PersistentVolume.SubPath), "/")
+				if base == "" {
+					if volumeMount.SubPathExpr != "" {
+						t.Fatalf("did not expect volume mount subPathExpr to be set when base subPath is empty, got %q", volumeMount.SubPathExpr)
+					}
+				} else {
+					wantExpr := fmt.Sprintf("%s/$(POD_NAME)", base)
+					if volumeMount.SubPathExpr != wantExpr {
+						t.Fatalf("volume mount subPathExpr was not correctly set. got %q, wanted %q", volumeMount.SubPathExpr, wantExpr)
+					}
+				}
+				if volumeMount.SubPath != "" {
+					t.Fatalf("did not expect volume mount subPath to be set when using subPathExpr, got %q", volumeMount.SubPath)
 				}
 			}
 		})
@@ -203,6 +247,7 @@ func Test_getUploadContainer(t *testing.T) {
 		caseId           string
 		host             string
 		internalUser     bool
+		storage          *mustgatherv1alpha1.Storage
 		httpProxy        string
 		httpsProxy       string
 		noProxy          string
@@ -262,11 +307,73 @@ func Test_getUploadContainer(t *testing.T) {
 			secretKeyRefName: v1.LocalObjectReference{Name: "testSecretKeyRefName"},
 			mountCAConfigMap: true,
 		},
+		{
+			name:          "With PVC subPath",
+			operatorImage: "testImage",
+			caseId:        "1234",
+			secretKeyRefName: v1.LocalObjectReference{
+				Name: "testSecretKeyRefName",
+			},
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{
+						Name: "test-pvc",
+					},
+					SubPath: "test-path",
+				},
+			},
+		},
+		{
+			name:          "With PVC empty subPath does not set subPathExpr",
+			operatorImage: "testImage",
+			caseId:        "1234",
+			secretKeyRefName: v1.LocalObjectReference{
+				Name: "testSecretKeyRefName",
+			},
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "test-pvc"},
+					SubPath: "",
+				},
+			},
+		},
+		{
+			name:          "With PVC whitespace subPath does not set subPathExpr",
+			operatorImage: "testImage",
+			caseId:        "1234",
+			secretKeyRefName: v1.LocalObjectReference{
+				Name: "testSecretKeyRefName",
+			},
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "test-pvc"},
+					SubPath: "   ",
+				},
+			},
+		},
+		{
+			name:          "With PVC slash-only subPath does not set subPathExpr",
+			operatorImage: "testImage",
+			caseId:        "1234",
+			secretKeyRefName: v1.LocalObjectReference{
+				Name: "testSecretKeyRefName",
+			},
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "test-pvc"},
+					SubPath: "/",
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testFailed := false
-			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.host, tt.internalUser, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName, tt.mountCAConfigMap)
+			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.host, tt.internalUser, tt.storage, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName, tt.mountCAConfigMap)
 
 			if container.Image != tt.operatorImage {
 				t.Fatalf("expected container image %v but got %v", tt.operatorImage, container.Image)
@@ -282,6 +389,33 @@ func Test_getUploadContainer(t *testing.T) {
 
 				if !mountedCAExists {
 					t.Fatalf("expected a CA cert volumeMount in upload container")
+				}
+			}
+
+			if tt.storage != nil && tt.storage.Type == mustgatherv1alpha1.StorageTypePersistentVolume {
+				var outputMount *v1.VolumeMount
+				for i := range container.VolumeMounts {
+					if container.VolumeMounts[i].Name == outputVolumeName {
+						outputMount = &container.VolumeMounts[i]
+						break
+					}
+				}
+				if outputMount == nil {
+					t.Fatalf("expected output volume mount %q to be present", outputVolumeName)
+				}
+				base := strings.Trim(strings.TrimSpace(tt.storage.PersistentVolume.SubPath), "/")
+				if base == "" {
+					if outputMount.SubPathExpr != "" {
+						t.Fatalf("did not expect output volume mount subPathExpr to be set when base subPath is empty, got %q", outputMount.SubPathExpr)
+					}
+				} else {
+					wantExpr := fmt.Sprintf("%s/$(POD_NAME)", base)
+					if outputMount.SubPathExpr != wantExpr {
+						t.Fatalf("expected output volume mount subPathExpr %q but got %q", wantExpr, outputMount.SubPathExpr)
+					}
+				}
+				if outputMount.SubPath != "" {
+					t.Fatalf("did not expect output volume mount subPath to be set when using subPathExpr, got %q", outputMount.SubPath)
 				}
 			}
 
