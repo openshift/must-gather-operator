@@ -25,16 +25,22 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // MustGatherSpec defines the desired state of MustGather
+// +kubebuilder:validation:XValidation:rule="!(has(self.gatherSpec) && (size(self.gatherSpec.command) > 0 || size(self.gatherSpec.args) > 0)) || has(self.imageStreamRef)",message="command and args in gatherSpec can only be set when imageStreamRef is specified"
 type MustGatherSpec struct {
 	// the service account to use to run the must gather job pod, defaults to default
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:="default"
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 
-	// A flag to specify if audit logs must be collected
-	// See documentation for further information.
-	// +kubebuilder:default:=false
-	Audit *bool `json:"audit,omitempty"`
+	// ImageStreamRef specifies a custom image from the allowlist to be used for the
+	// must-gather run.
+	// +kubebuilder:validation:Optional
+	ImageStreamRef *ImageStreamTagRef `json:"imageStreamRef,omitempty"`
+
+	// GatherSpec allows overriding the command and/or arguments for the custom must-gather image.
+	// This field is ignored if ImageStreamRef is not specified.
+	// +kubebuilder:validation:Optional
+	GatherSpec *GatherSpec `json:"gatherSpec,omitempty"`
 
 	// A time limit for gather command to complete a floating point number with a suffix:
 	// "s" for seconds, "m" for minutes, "h" for hours.
@@ -58,6 +64,40 @@ type MustGatherSpec struct {
 	// the tar archive on the cluster.
 	// +optional
 	Storage *Storage `json:"storage,omitempty"`
+}
+
+// GatherSpec allows specifying the execution details for a must-gather run.
+type GatherSpec struct {
+	// +kubebuilder:validation:Optional
+	// Audit specifies whether to collect audit logs. This is translated to a signal
+	// or command that can be respected by the default image
+	// or any custom image designed to do so.
+	Audit bool `json:"audit,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	// Command is a string array representing the entrypoint for the custom image.
+	// This field is only honored when a custom image IS specified via imageStreamRef.
+	// +kubebuilder:validation:MaxItems=256
+	// +kubebuilder:validation:Items:MaxLength=256
+	Command []string `json:"command,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	// Args is a string array of arguments passed to the custom image's command.
+	// This field is only honored when a custom image IS specified via imageStreamRef.
+	// +kubebuilder:validation:MaxItems=256
+	// +kubebuilder:validation:Items:MaxLength=256
+	Args []string `json:"args,omitempty"`
+}
+
+// ImageStreamTagRef provides a structured reference to a specific tag within an ImageStream.
+type ImageStreamTagRef struct {
+	// +kubebuilder:validation:Required
+	// Name is the name of the ImageStream resource in the operator's namespace.
+	Name string `json:"name"`
+
+	// +kubebuilder:validation:Required
+	// Tag is the name of the tag within the ImageStream.
+	Tag string `json:"tag"`
 }
 
 // SFTPSpec defines the desired state of SFTPSpec

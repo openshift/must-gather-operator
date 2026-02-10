@@ -43,6 +43,7 @@ import (
 	"github.com/redhat-cop/operator-utils/pkg/util"
 
 	v1 "github.com/openshift/api/config/v1"
+	imagev1 "github.com/openshift/api/image/v1"
 	managedv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 	"github.com/openshift/must-gather-operator/controllers/mustgather"
 	"github.com/openshift/must-gather-operator/pkg/k8sutil"
@@ -81,6 +82,7 @@ func printVersion() {
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1.AddToScheme(scheme))
+	utilruntime.Must(imagev1.AddToScheme(scheme))
 	utilruntime.Must(managedv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
@@ -150,10 +152,18 @@ func main() {
 		operatorNamespace = mustgather.DefaultMustGatherNamespace
 	}
 
+	// Get default must-gather image from environment
+	defaultMustGatherImage, varPresent := os.LookupEnv(mustgather.DefaultMustGatherImageEnv)
+	if !varPresent {
+		setupLog.Error(fmt.Errorf("environment variable %s not found", mustgather.DefaultMustGatherImageEnv), "unable to start manager")
+		os.Exit(1)
+	}
+
 	if err = (&mustgather.MustGatherReconciler{
-		ReconcilerBase:     util.NewReconcilerBase(mgr.GetClient(), mgr.GetScheme(), mgr.GetConfig(), mgr.GetEventRecorderFor("must-gather-controller"), mgr.GetAPIReader()),
-		TrustedCAConfigMap: trustedCAConfigMapName,
-		OperatorNamespace:  operatorNamespace,
+		ReconcilerBase:         util.NewReconcilerBase(mgr.GetClient(), mgr.GetScheme(), mgr.GetConfig(), mgr.GetEventRecorderFor("must-gather-controller"), mgr.GetAPIReader()),
+		TrustedCAConfigMap:     trustedCAConfigMapName,
+		OperatorNamespace:      operatorNamespace,
+		DefaultMustGatherImage: defaultMustGatherImage,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MustGather")
 		os.Exit(1)

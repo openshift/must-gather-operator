@@ -39,12 +39,50 @@ spec:
           spec:
             description: MustGatherSpec defines the desired state of MustGather
             properties:
-              audit:
-                default: false
+              gatherSpec:
                 description: |-
-                  A flag to specify if audit logs must be collected
-                  See documentation for further information.
-                type: boolean
+                  GatherSpec allows overriding the command and/or arguments for the custom must-gather image.
+                  This field is ignored if ImageStreamRef is not specified.
+                properties:
+                  args:
+                    description: |-
+                      Args is a string array of arguments passed to the custom image's command.
+                      This field is only honored when a custom image IS specified via imageStreamRef.
+                    items:
+                      type: string
+                    maxItems: 256
+                    type: array
+                  audit:
+                    description: |-
+                      Audit specifies whether to collect audit logs. This is translated to a signal
+                      or command that can be respected by the default image
+                      or any custom image designed to do so.
+                    type: boolean
+                  command:
+                    description: |-
+                      Command is a string array representing the entrypoint for the custom image.
+                      This field is only honored when a custom image IS specified via imageStreamRef.
+                    items:
+                      type: string
+                    maxItems: 256
+                    type: array
+                type: object
+              imageStreamRef:
+                description: |-
+                  ImageStreamRef specifies a custom image from the allowlist to be used for the
+                  must-gather run.
+                properties:
+                  name:
+                    description: Name is the name of the ImageStream resource in the
+                      operator's namespace.
+                    type: string
+                  tag:
+                    description: Tag is the name of the tag within the ImageStream.
+                    type: string
+                required:
+                - name
+                - tag
+                type: object
               mustGatherTimeout:
                 description: |-
                   A time limit for gather command to complete a floating point number with a suffix:
@@ -172,6 +210,11 @@ spec:
                   rule: 'has(self.type) && self.type == ''SFTP'' ? has(self.sftp)
                     : !has(self.sftp)'
             type: object
+            x-kubernetes-validations:
+            - message: command and args in gatherSpec can only be set when imageStreamRef
+                is specified
+              rule: '!(has(self.gatherSpec) && (size(self.gatherSpec.command) > 0
+                || size(self.gatherSpec.args) > 0)) || has(self.imageStreamRef)'
           status:
             description: MustGatherStatus defines the observed state of MustGather
             properties:

@@ -3,9 +3,8 @@ package mustgather
 import (
 	"fmt"
 	"math"
-	"os"
 	"strconv"
-	"strings"
+
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -48,12 +47,9 @@ const (
 	// SSH directory and known hosts file
 	sshDir         = "/tmp/must-gather-operator/.ssh"
 	knownHostsFile = "/tmp/must-gather-operator/.ssh/known_hosts"
-
-	// Environment variable specifying the must-gather image
-	defaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"
 )
 
-func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather, trustedCAConfigMapName string) *batchv1.Job {
+func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.MustGather, trustedCAConfigMapName string) *batchv1.Job {
 	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, mustGather.Spec.ServiceAccountName, mustGather.Spec.Storage, trustedCAConfigMapName)
 
 	var httpProxy, httpsProxy, noProxy string
@@ -72,9 +68,9 @@ func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather, truste
 		}
 	}
 
-	audit := false
-	if mustGather.Spec.Audit != nil {
-		audit = *mustGather.Spec.Audit
+	var audit bool
+	if mustGather.Spec.GatherSpec != nil {
+		audit = mustGather.Spec.GatherSpec.Audit
 	}
 
 	timeout := time.Duration(0)
@@ -82,9 +78,15 @@ func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather, truste
 		timeout = mustGather.Spec.MustGatherTimeout.Duration
 	}
 
+	var command, args []string
+	if mustGather.Spec.GatherSpec != nil {
+		command = mustGather.Spec.GatherSpec.Command
+		args = mustGather.Spec.GatherSpec.Args
+	}
+
 	job.Spec.Template.Spec.Containers = append(
 		job.Spec.Template.Spec.Containers,
-		getGatherContainer(audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName),
+		getGatherContainer(image, audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName, command, args),
 	)
 
 	// Add the upload container only if the upload target is specified
@@ -190,7 +192,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 	}
 }
 
-func getGatherContainer(audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string) corev1.Container {
+func getGatherContainer(image string, audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string, command []string, args []string) corev1.Container {
 	var commandBinary string
 	if audit {
 		commandBinary = gatherCommandBinaryAudit
@@ -218,16 +220,27 @@ func getGatherContainer(audit bool, timeout time.Duration, storage *v1alpha1.Sto
 		})
 	}
 
-	return corev1.Container{
-		Command: []string{
-			"/bin/bash",
-			"-c",
-			fmt.Sprintf(gatherCommand, math.Ceil(timeout.Seconds()), commandBinary),
-		},
-		Image:        strings.TrimSpace(os.Getenv(defaultMustGatherImageEnv)),
+	container := corev1.Container{
+		Image:        image,
 		Name:         gatherContainerName,
 		VolumeMounts: volumeMounts,
 	}
+
+	if len(command) > 0 {
+		container.Command = command
+	} else {
+		container.Command = []string{
+			"/bin/bash",
+			"-c",
+			fmt.Sprintf(gatherCommand, math.Ceil(timeout.Seconds()), commandBinary),
+		}
+	}
+
+	if len(args) > 0 {
+		container.Args = args
+	}
+
+	return container
 }
 
 func getUploadContainer(

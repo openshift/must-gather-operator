@@ -23,6 +23,7 @@ import (
 	"os"
 
 	"github.com/go-logr/logr"
+	imagev1 "github.com/openshift/api/image/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
 	"github.com/redhat-cop/operator-utils/pkg/util"
@@ -60,6 +61,8 @@ type MustGatherReconciler struct {
 	TrustedCAConfigMap string
 	// OperatorNamespace is the namespace where the operator is running
 	OperatorNamespace string
+	// DefaultMustGatherImage is the default must-gather image
+	DefaultMustGatherImage string
 }
 
 const mustGatherFinalizer = "finalizer.mustgathers.operator.openshift.io"
@@ -72,6 +75,7 @@ const mustGatherFinalizer = "finalizer.mustgathers.operator.openshift.io"
 //+kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=get;create
 //+kubebuilder:rbac:groups=apps,resources=deployments;daemonsets;replicasets;statefulsets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=apps,resources=deployments/finalizers,verbs=update
+//+kubebuilder:rbac:groups=image.openshift.io,resources=imagestreams,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods;services;services/finalizers;endpoints;persistentvolumeclaims;events;configmaps;secrets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch
 // ServiceAccount read access needed for pre-flight validation before Job creation
@@ -147,7 +151,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		}
 	}
 
-	job, err := r.getJobFromInstance(instance)
+	job, err := r.getJobFromInstance(ctx, instance)
 	if err != nil {
 		log.Error(err, "unable to get job from", "instance", instance)
 		return r.ManageError(ctx, instance, err)
@@ -388,7 +392,17 @@ func (r *MustGatherReconciler) addFinalizer(ctx context.Context, reqLogger logr.
 	return nil
 }
 
-func (r *MustGatherReconciler) getJobFromInstance(instance *mustgatherv1alpha1.MustGather) (*batchv1.Job, error) {
+func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, instance *mustgatherv1alpha1.MustGather) (*batchv1.Job, error) {
+
+	image, err := r.getMustGatherImage(ctx, instance)
+	if err != nil {
+		_, validationErr := r.setValidationFailureStatus(ctx, log, instance, ValidationImageStream, err)
+		if validationErr != nil {
+			return nil, fmt.Errorf("failed to set validation failure status: %w, %w", err, validationErr)
+		}
+		return nil, err
+	}
+
 	// Inject the operator image URI from the pod's env variables
 	operatorImage, varPresent := os.LookupEnv("OPERATOR_IMAGE")
 	if !varPresent {
@@ -397,7 +411,44 @@ func (r *MustGatherReconciler) getJobFromInstance(instance *mustgatherv1alpha1.M
 		return nil, err
 	}
 
-	return getJobTemplate(operatorImage, *instance, r.TrustedCAConfigMap), nil
+	return getJobTemplate(image, operatorImage, *instance, r.TrustedCAConfigMap), nil
+}
+
+func (r *MustGatherReconciler) getMustGatherImage(ctx context.Context, instance *mustgatherv1alpha1.MustGather) (string, error) {
+	if instance.Spec.ImageStreamRef == nil {
+		// Use default image
+		return r.DefaultMustGatherImage, nil
+	}
+
+	// Use custom image from ImageStream
+	imageStream := &imagev1.ImageStream{}
+	if err := r.GetClient().Get(ctx, types.NamespacedName{Name: instance.Spec.ImageStreamRef.Name, Namespace: r.OperatorNamespace}, imageStream); err != nil {
+		return "", fmt.Errorf("failed to get imagestream %s in namespace %s: %w", instance.Spec.ImageStreamRef.Name, r.OperatorNamespace, err)
+	}
+
+	var foundTag bool
+	var pullable bool
+	var image string
+	for _, tag := range imageStream.Status.Tags {
+		if tag.Tag == instance.Spec.ImageStreamRef.Tag {
+			foundTag = true
+			if len(tag.Items) > 0 && tag.Items[0].DockerImageReference != "" {
+				pullable = true
+				image = tag.Items[0].DockerImageReference
+			}
+			break
+		}
+	}
+
+	if !foundTag {
+		return "", fmt.Errorf("imagestream tag %s not found in imagestream %s", instance.Spec.ImageStreamRef.Tag, instance.Spec.ImageStreamRef.Name)
+	}
+
+	if !pullable {
+		return "", fmt.Errorf("imagestream tag %s in imagestream %s is not pullable", instance.Spec.ImageStreamRef.Tag, instance.Spec.ImageStreamRef.Name)
+	}
+
+	return image, nil
 }
 
 // contains is a helper function for finalizer

@@ -18,6 +18,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	imagev1 "github.com/openshift/api/image/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -38,6 +39,8 @@ type MustGatherCROptions struct {
 	UploadTarget     *UploadTargetOptions
 	PersistentVolume *PersistentVolumeOptions
 	Timeout          *time.Duration
+	ImageStreamRef   *mustgatherv1alpha1.ImageStreamTagRef
+	GatherSpec       *mustgatherv1alpha1.GatherSpec
 }
 
 // UploadTargetOptions configures SFTP upload target
@@ -107,6 +110,7 @@ func init() {
 	utilruntime.Must(corev1.AddToScheme(testScheme))
 	utilruntime.Must(rbacv1.AddToScheme(testScheme))
 	utilruntime.Must(batchv1.AddToScheme(testScheme))
+	utilruntime.Must(imagev1.AddToScheme(testScheme))
 }
 
 var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
@@ -1233,6 +1237,146 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		})
 	})
 
+	ginkgo.Context("Custom Image", func() {
+		var mustGatherName string
+		var mustGatherCR *mustgatherv1alpha1.MustGather
+		var imageStreamName string
+		var customImage = "quay.io/kubevirt/must-gather"
+
+		ginkgo.BeforeEach(func() {
+			mustGatherName = fmt.Sprintf("mg-custom-image-e2e-test-%d", time.Now().UnixNano())
+			imageStreamName = fmt.Sprintf("custom-image-stream-%d", time.Now().UnixNano())
+		})
+
+		ginkgo.AfterEach(func() {
+			if mustGatherCR != nil {
+				ginkgo.By("Cleaning up MustGather CR")
+				_ = nonAdminClient.Delete(testCtx, mustGatherCR)
+
+				Eventually(func() bool {
+					err := nonAdminClient.Get(testCtx, client.ObjectKey{
+						Name:      mustGatherName,
+						Namespace: ns.Name,
+					}, &mustgatherv1alpha1.MustGather{})
+					return apierrors.IsNotFound(err)
+				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+
+				mustGatherCR = nil
+			}
+			if imageStreamName != "" {
+				ginkgo.By("Cleaning up ImageStream")
+				deleteImageStream(imageStreamName)
+				imageStreamName = ""
+			}
+		})
+
+		ginkgo.It("should successfully run must-gather with a valid ImageStreamRef", func() {
+			ginkgo.By("Creating a valid ImageStream")
+			createImageStream(imageStreamName, customImage, "latest")
+
+			ginkgo.By("Creating MustGather CR with ImageStreamRef")
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
+				ImageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{
+					Name: imageStreamName,
+					Tag:  "latest",
+				},
+			})
+
+			ginkgo.By("Waiting for Job to be created")
+			job := &batchv1.Job{}
+			Eventually(func() error {
+				return nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			ginkgo.By("Verifying Job uses the custom image from ImageStream")
+			Expect(job.Spec.Template.Spec.Containers[0].Image).To(ContainSubstring(customImage))
+		})
+
+		ginkgo.It("should fail if the referenced ImageStream does not exist", func() {
+			ginkgo.By("Creating MustGather CR with a non-existent ImageStreamRef")
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
+				ImageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{
+					Name: "non-existent-imagestream",
+					Tag:  "latest",
+				},
+			})
+
+			ginkgo.By("Verifying MustGather CR status is updated to Failed")
+			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			Eventually(func() string {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, fetchedMG)
+				if err != nil {
+					return ""
+				}
+				return fetchedMG.Status.Status
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Equal("Failed"))
+		})
+
+		ginkgo.It("should fail if the referenced ImageStreamTag does not exist", func() {
+			ginkgo.By("Creating a valid ImageStream with a specific tag")
+			createImageStream(imageStreamName, customImage, "v1.0")
+
+			ginkgo.By("Creating MustGather CR with a non-existent ImageStreamTag")
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
+				ImageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{
+					Name: imageStreamName,
+					Tag:  "non-existent-tag",
+				},
+			})
+
+			ginkgo.By("Verifying MustGather CR status is updated to Failed")
+			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			Eventually(func() string {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, fetchedMG)
+				if err != nil {
+					return ""
+				}
+				return fetchedMG.Status.Status
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Equal("Failed"))
+		})
+
+		ginkgo.It("should successfully run with command and args override", func() {
+			ginkgo.By("Creating a valid ImageStream")
+			createImageStream(imageStreamName, customImage, "latest")
+
+			ginkgo.By("Creating MustGather CR with command and args override")
+			command := []string{"/bin/bash"}
+			args := []string{"-c", "echo 'Custom command executed'"}
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
+				ImageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{
+					Name: imageStreamName,
+					Tag:  "latest",
+				},
+				GatherSpec: &mustgatherv1alpha1.GatherSpec{
+					Command: command,
+					Args:    args,
+				},
+			})
+
+			ginkgo.By("Waiting for Job to be created")
+			job := &batchv1.Job{}
+			Eventually(func() error {
+				return nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			ginkgo.By("Verifying Job has the command and args override")
+			Expect(job.Spec.Template.Spec.Containers[0].Command).To(Equal(command))
+			Expect(job.Spec.Template.Spec.Containers[0].Args).To(Equal(args))
+		})
+	})
+
 	ginkgo.Context("PersistentVolume Storage Configuration Tests", func() {
 		var mustGatherName string
 		var mustGatherCR *mustgatherv1alpha1.MustGather
@@ -1562,6 +1706,14 @@ func createMustGatherCR(name, namespace, serviceAccountName string, retainResour
 		if opts.Timeout != nil {
 			mg.Spec.MustGatherTimeout = &metav1.Duration{Duration: *opts.Timeout}
 		}
+
+		if opts.ImageStreamRef != nil {
+			mg.Spec.ImageStreamRef = opts.ImageStreamRef
+		}
+
+		if opts.GatherSpec != nil {
+			mg.Spec.GatherSpec = opts.GatherSpec
+		}
 	}
 
 	err := nonAdminClient.Create(testCtx, mg)
@@ -1783,4 +1935,45 @@ EOF
 	found := strings.Contains(logs, filePattern)
 
 	return found, logs, nil
+}
+
+func createImageStream(name, imageName, tagName string) {
+	imageStream := &imagev1.ImageStream{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: operatorNamespace,
+		},
+		Spec: imagev1.ImageStreamSpec{
+			LookupPolicy: imagev1.ImageLookupPolicy{
+				Local: false,
+			},
+			Tags: []imagev1.TagReference{
+				{
+					Name: tagName,
+					From: &corev1.ObjectReference{
+						Kind: "DockerImage",
+						Name: imageName,
+					},
+					ImportPolicy: imagev1.TagImportPolicy{
+						Scheduled: true,
+					},
+				},
+			},
+		},
+	}
+	err := adminClient.Create(testCtx, imageStream)
+	Expect(err).NotTo(HaveOccurred(), "Failed to create ImageStream")
+}
+
+func deleteImageStream(name string) {
+	imageStream := &imagev1.ImageStream{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: operatorNamespace,
+		},
+	}
+	err := adminClient.Delete(testCtx, imageStream)
+	if err != nil && !apierrors.IsNotFound(err) {
+		Expect(err).NotTo(HaveOccurred(), "Failed to delete ImageStream")
+	}
 }

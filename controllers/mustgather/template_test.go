@@ -111,6 +111,8 @@ func Test_getGatherContainer(t *testing.T) {
 		timeout         time.Duration
 		mustGatherImage string
 		storage         *mustgatherv1alpha1.Storage
+		command         []string
+		args            []string
 	}{
 		{
 			name:            "no audit",
@@ -141,28 +143,41 @@ func Test_getGatherContainer(t *testing.T) {
 			timeout:         6*time.Hour + 5*time.Minute + 3*time.Second, // 6h5m3s
 			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
 		},
+		{
+			name:            "custom command and args",
+			timeout:         5 * time.Second,
+			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+			command:         []string{"/usr/bin/custom-gather"},
+			args:            []string{"--verbose", "--subsystem=network"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(defaultMustGatherImageEnv, tt.mustGatherImage)
-			expectedImage := tt.mustGatherImage
+			container := getGatherContainer(tt.mustGatherImage, tt.audit, tt.timeout, tt.storage, "", tt.command, tt.args)
 
-			container := getGatherContainer(tt.audit, tt.timeout, tt.storage, "")
+			if len(tt.command) == 0 {
+				containerCommand := container.Command[2]
+				if tt.audit && !strings.Contains(containerCommand, gatherCommandBinaryAudit) {
+					t.Fatalf("gather container command expected with binary %v but it wasn't present", gatherCommandBinaryAudit)
+				} else if !tt.audit && !strings.Contains(containerCommand, gatherCommandBinaryNoAudit) {
+					t.Fatalf("gather container command expected with binary %v but it wasn't present", gatherCommandBinaryNoAudit)
+				}
 
-			containerCommand := container.Command[2]
-			if tt.audit && !strings.Contains(containerCommand, gatherCommandBinaryAudit) {
-				t.Fatalf("gather container command expected with binary %v but it wasn't present", gatherCommandBinaryAudit)
-			} else if !tt.audit && !strings.Contains(containerCommand, gatherCommandBinaryNoAudit) {
-				t.Fatalf("gather container command expected with binary %v but it wasn't present", gatherCommandBinaryNoAudit)
+				timeoutInSeconds := int(tt.timeout.Seconds())
+				if !strings.HasPrefix(containerCommand, fmt.Sprintf("timeout %d", timeoutInSeconds)) {
+					t.Fatalf("the duration was not properly added to the container command, got %v but wanted %v", strings.Split(containerCommand, " ")[1], timeoutInSeconds)
+				}
+			} else {
+				if !reflect.DeepEqual(container.Command, tt.command) {
+					t.Fatalf("expected container command %v but got %v", tt.command, container.Command)
+				}
+				if !reflect.DeepEqual(container.Args, tt.args) {
+					t.Fatalf("expected container args %v but got %v", tt.args, container.Args)
+				}
 			}
 
-			timeoutInSeconds := int(tt.timeout.Seconds())
-			if !strings.HasPrefix(containerCommand, fmt.Sprintf("timeout %d", timeoutInSeconds)) {
-				t.Fatalf("the duration was not properly added to the container command, got %v but wanted %v", strings.Split(containerCommand, " ")[1], timeoutInSeconds)
-			}
-
-			if container.Image != expectedImage {
-				t.Fatalf("expected container image %v but got %v", expectedImage, container.Image)
+			if container.Image != tt.mustGatherImage {
+				t.Fatalf("expected container image %v but got %v", tt.mustGatherImage, container.Image)
 			}
 
 			if tt.storage != nil {
