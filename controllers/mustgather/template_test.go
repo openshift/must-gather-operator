@@ -10,7 +10,6 @@ import (
 	"time"
 
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
-	"github.com/openshift/must-gather-operator/controllers/mustgather"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -436,7 +435,7 @@ func Test_getUploadContainer(t *testing.T) {
 }
 
 func Test_getJobTemplate_GatherSpec_BuildsTimeFilter(t *testing.T) {
-	t.Setenv(mustgather.DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
+	t.Setenv(DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
 
 	sinceTime := metav1.NewTime(time.Date(2026, 1, 7, 10, 11, 12, 0, time.UTC))
 
@@ -499,14 +498,13 @@ func Test_getJobTemplate_GatherSpec_BuildsTimeFilter(t *testing.T) {
 }
 
 func Test_getJobTemplate_ProxyAuditTimeout(t *testing.T) {
-	t.Setenv(mustgather.DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
+	t.Setenv(DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
 
-	auditTrue := true
 	timeout := metav1.Duration{Duration: 5 * time.Second}
 
 	tests := []struct {
 		name        string
-		audit       *bool
+		audit       bool
 		timeout     *metav1.Duration
 		httpProxy   string
 		httpsProxy  string
@@ -516,14 +514,14 @@ func Test_getJobTemplate_ProxyAuditTimeout(t *testing.T) {
 		wantProxies bool
 	}{
 		{
-			name:        "nil audit and nil timeout default; no proxy env vars",
+			name:        "audit false and nil timeout default; no proxy env vars",
 			wantAudit:   false,
 			wantTimeout: "timeout 0",
 			wantProxies: false,
 		},
 		{
 			name:        "audit true and timeout set; proxy env vars propagate to upload container",
-			audit:       &auditTrue,
+			audit:       true,
 			timeout:     &timeout,
 			httpProxy:   "http://proxy.example:8080",
 			httpsProxy:  "https://proxy.example:8443",
@@ -536,22 +534,18 @@ func Test_getJobTemplate_ProxyAuditTimeout(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.httpProxy != "" {
-				t.Setenv("HTTP_PROXY", tt.httpProxy)
-			}
-			if tt.httpsProxy != "" {
-				t.Setenv("HTTPS_PROXY", tt.httpsProxy)
-			}
-			if tt.noProxy != "" {
-				t.Setenv("NO_PROXY", tt.noProxy)
-			}
+			// Always set proxy vars per test case to avoid leakage from host env.
+			t.Setenv("HTTP_PROXY", tt.httpProxy)
+			t.Setenv("HTTPS_PROXY", tt.httpsProxy)
+			t.Setenv("NO_PROXY", tt.noProxy)
 
 			mg := mustgatherv1alpha1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
 					ServiceAccountName: "default",
+					MustGatherTimeout:  tt.timeout,
 					GatherSpec: &mustgatherv1alpha1.GatherSpec{
-						Audit: *tt.audit,
+						Audit: tt.audit,
 					},
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
