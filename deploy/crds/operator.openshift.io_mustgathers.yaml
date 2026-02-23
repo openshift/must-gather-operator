@@ -232,7 +232,7 @@ spec:
             - message: command and args in gatherSpec can only be set when imageStreamRef
                 is specified
               rule: '!(has(self.gatherSpec) && (size(self.gatherSpec.command) > 0
-                || size(self.gatherSpec.args) > 0)) || has(self.imageStreamRef)'  
+                || size(self.gatherSpec.args) > 0)) || has(self.imageStreamRef)' 
           status:
             description: MustGatherStatus defines the observed state of MustGather
             properties:
