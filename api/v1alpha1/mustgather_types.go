@@ -25,7 +25,7 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // MustGatherSpec defines the desired state of MustGather
-// +kubebuilder:validation:XValidation:rule="!(has(self.gatherSpec) && (size(self.gatherSpec.command) > 0 || size(self.gatherSpec.args) > 0)) || has(self.imageStreamRef)",message="command and args in gatherSpec can only be set when imageStreamRef is specified"
+// +kubebuilder:validation:XValidation:rule="!(has(self.gatherSpec) && ((has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0) || (has(self.gatherSpec.args) && size(self.gatherSpec.args) > 0))) || has(self.imageStreamRef)",message="command and args in gatherSpec can only be set when imageStreamRef is specified"
 type MustGatherSpec struct {
 	// the service account to use to run the must gather job pod, defaults to default
 	// +kubebuilder:validation:Optional
