@@ -663,8 +663,8 @@ def extract_deployment_selector() -> str | None:
                 selector = spec["clusterDeploymentSelector"]
                 # Dump with proper indentation for inserting into template
                 selector_yaml = yaml.dump(selector, default_flow_style=False, sort_keys=False)
-                # Indent each line by 8 spaces (to be a child of clusterDeploymentSelector:)
-                indented_lines = ["        " + line for line in selector_yaml.splitlines()]
+                # Indent each line by 6 spaces (to match template indentation)
+                indented_lines = ["      " + line for line in selector_yaml.splitlines()]
                 return "\n".join(indented_lines)
 
         return None
@@ -695,10 +695,10 @@ def write_clusterpackage_template():
         )
         with open(clusterpackage_file, "w") as f:
             f.write(template_with_selector.format(operator_name=operator_name))
-        print("Please review this file and ensure the deployment targets match your expectation")
+        print(f"Please review this file and ensure the deployment targets match your expectation")
     else:
         print("⚠ Using default clusterDeploymentSelector (hack/olm-registry/olm-artifacts-template.yaml not found)")
-        print("Please review this file and ensure the deployment targets match your expectation")
+        print(f"Please review this file and ensure the deployment targets match your expectation")
         with open(clusterpackage_file, "w") as f:
             f.write(CLUSTERPACKAGE_TEMPLATE.format(operator_name=operator_name))
 
