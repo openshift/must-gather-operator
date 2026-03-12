@@ -28,6 +28,8 @@ import (
 )
 
 // interceptClient allows injecting failures for specific CRUD operations
+//
+//nolint:kubeapilinter // not an API type
 type interceptClient struct {
 	client.Client
 	onGet    func(ctx context.Context, key client.ObjectKey, obj client.Object) error
@@ -86,6 +88,8 @@ func (c interceptClient) Status() client.StatusWriter {
 }
 
 // failingStatusWriter wraps a client.StatusWriter and forces Status().Update to return an error
+//
+//nolint:kubeapilinter // not an API type
 type failingStatusWriter struct{ client.StatusWriter }
 
 func (w failingStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
@@ -111,7 +115,7 @@ func TestCleanupMustGatherResources(t *testing.T) {
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
-								CaseID:                         "12345678",
+								CaseID:                         ToPtr("12345678"),
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "case-management-creds"},
 							},
 						},
@@ -348,11 +352,11 @@ func TestReconcile(t *testing.T) {
 						DeletionTimestamp: &metav1.Time{Time: time.Now()},
 					},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName: "default",
+						ServiceAccountName: ToPtr("default"),
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
-								CaseID:                         "12345678",
+								CaseID:                         ToPtr("12345678"),
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "s"},
 							},
 						},
@@ -381,11 +385,11 @@ func TestReconcile(t *testing.T) {
 						DeletionTimestamp: &metav1.Time{Time: time.Now()},
 					},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName: "default",
+						ServiceAccountName: ToPtr("default"),
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
-								CaseID:                         "12345678",
+								CaseID:                         ToPtr("12345678"),
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "s"},
 							},
 						},
@@ -414,7 +418,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName: "default",
+						ServiceAccountName: ToPtr("default"),
 					},
 				}
 				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
@@ -431,7 +435,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName: "default",
+						ServiceAccountName: ToPtr("default"),
 					},
 				}
 				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
@@ -448,7 +452,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName: "default",
+						ServiceAccountName: ToPtr("default"),
 					},
 				}
 				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: "ns"}}
@@ -481,7 +485,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName: "non-existent-sa",
+						ServiceAccountName: ToPtr("non-existent-sa"),
 					},
 				}
 				cv := &configv1.ClusterVersion{
@@ -521,7 +525,7 @@ func TestReconcile(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
 						// ServiceAccountName is empty, should validate "default" SA exists
-						ServiceAccountName: "",
+						ServiceAccountName: ToPtr(""),
 					},
 				}
 				// Create "default" service account that should be validated
@@ -561,7 +565,7 @@ func TestReconcile(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
 						// ServiceAccountName is empty, should try to validate "default" SA
-						ServiceAccountName: "",
+						ServiceAccountName: ToPtr(""),
 					},
 				}
 				cv := &configv1.ClusterVersion{
@@ -606,7 +610,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName: "default",
+						ServiceAccountName: ToPtr("default"),
 					},
 				}
 				return []client.Object{mg}
@@ -638,11 +642,11 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName: "default",
+						ServiceAccountName: ToPtr("default"),
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
-								CaseID:                         "12345678",
+								CaseID:                         ToPtr("12345678"),
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "sec"},
 							},
 						},
@@ -678,11 +682,11 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName: "default",
+						ServiceAccountName: ToPtr("default"),
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
-								CaseID:                         "12345678",
+								CaseID:                         ToPtr("12345678"),
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "sec"},
 							},
 						},
@@ -724,7 +728,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName: "default",
+						ServiceAccountName: ToPtr("default"),
 					},
 				}
 				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "sec", Namespace: "ns"}}
@@ -750,7 +754,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName:          "default",
+						ServiceAccountName:          ToPtr("default"),
 						RetainResourcesOnCompletion: ToPtr(true),
 					},
 				}
@@ -781,11 +785,11 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName: "default",
+						ServiceAccountName: ToPtr("default"),
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
-								CaseID:                         "12345678",
+								CaseID:                         ToPtr("12345678"),
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "sec"},
 							},
 						},
@@ -822,7 +826,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName:          "default",
+						ServiceAccountName:          ToPtr("default"),
 						RetainResourcesOnCompletion: ToPtr(true),
 					},
 				}
@@ -856,7 +860,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName: "default",
+						ServiceAccountName: ToPtr("default"),
 					},
 				}
 				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "sec", Namespace: operatorNs}}
@@ -885,7 +889,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName: "default",
+						ServiceAccountName: ToPtr("default"),
 					},
 				}
 				userSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "sec", Namespace: operatorNs}}
@@ -920,11 +924,11 @@ func TestReconcile(t *testing.T) {
 						DeletionTimestamp: &metav1.Time{Time: time.Now()},
 					},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName: "default",
+						ServiceAccountName: ToPtr("default"),
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
-								CaseID:                         "12345678",
+								CaseID:                         ToPtr("12345678"),
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
 							},
 						},
@@ -957,7 +961,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns"},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName: "default", // Pre-initialized to skip IsInitialized update
+						ServiceAccountName: ToPtr("default"), // Pre-initialized to skip IsInitialized update
 					},
 				}
 				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
@@ -986,12 +990,12 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName: "default",
+						ServiceAccountName: ToPtr("default"),
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
-								Host:                           "sftp.example.com",
-								CaseID:                         "12345678",
+								Host:                           ToPtr("sftp.example.com"),
+								CaseID:                         ToPtr("12345678"),
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
 							},
 						},
@@ -1034,11 +1038,11 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName: "default",
+						ServiceAccountName: ToPtr("default"),
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
-								CaseID:                         "12345678",
+								CaseID:                         ToPtr("12345678"),
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
 							},
 						},
@@ -1075,11 +1079,11 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ServiceAccountName: "default",
+						ServiceAccountName: ToPtr("default"),
 						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 							Type: mustgatherv1alpha1.UploadTypeSFTP,
 							SFTP: &mustgatherv1alpha1.SFTPSpec{
-								CaseID:                         "12345678",
+								CaseID:                         ToPtr("12345678"),
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
 							},
 						},
@@ -1318,12 +1322,12 @@ func createMustGatherObjectWithUploadTarget() *mustgatherv1alpha1.MustGather {
 	mg.Spec.UploadTarget = &mustgatherv1alpha1.UploadTargetSpec{
 		Type: mustgatherv1alpha1.UploadTypeSFTP,
 		SFTP: &mustgatherv1alpha1.SFTPSpec{
-			CaseID: "01234567",
+			CaseID: ToPtr("01234567"),
 			CaseManagementAccountSecretRef: corev1.LocalObjectReference{
 				Name: "case-management-creds",
 			},
-			InternalUser: true,
-			Host:         "sftp.example.com",
+			InternalUser: ToPtr(true),
+			Host:         ToPtr("sftp.example.com"),
 		},
 	}
 	return mg
@@ -1411,9 +1415,9 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
-							CaseID:                         "12345678",
+							CaseID:                         ToPtr("12345678"),
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
-							Host:                           "sftp.example.com",
+							Host:                           ToPtr("sftp.example.com"),
 						},
 					},
 				},
@@ -1450,9 +1454,9 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
-							CaseID:                         "12345678",
+							CaseID:                         ToPtr("12345678"),
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
-							Host:                           "sftp.example.com",
+							Host:                           ToPtr("sftp.example.com"),
 						},
 					},
 				},
@@ -1488,9 +1492,9 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
-							CaseID:                         "12345678",
+							CaseID:                         ToPtr("12345678"),
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
-							Host:                           "sftp.example.com",
+							Host:                           ToPtr("sftp.example.com"),
 						},
 					},
 				},
@@ -1527,9 +1531,9 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
-							CaseID:                         "12345678",
+							CaseID:                         ToPtr("12345678"),
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
-							Host:                           "sftp.example.com",
+							Host:                           ToPtr("sftp.example.com"),
 						},
 					},
 				},
@@ -1566,9 +1570,9 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
-							CaseID:                         "12345678",
+							CaseID:                         ToPtr("12345678"),
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
-							Host:                           "sftp.example.com",
+							Host:                           ToPtr("sftp.example.com"),
 						},
 					},
 				},
@@ -1607,9 +1611,9 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
-							CaseID:                         "12345678",
+							CaseID:                         ToPtr("12345678"),
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
-							Host:                           "sftp.example.com",
+							Host:                           ToPtr("sftp.example.com"),
 						},
 					},
 				},
@@ -1650,9 +1654,9 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
-							CaseID:                         "12345678",
+							CaseID:                         ToPtr("12345678"),
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
-							Host:                           "sftp.example.com",
+							Host:                           ToPtr("sftp.example.com"),
 						},
 					},
 				},

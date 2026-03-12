@@ -53,6 +53,8 @@ var log = logf.Log.WithName(ControllerName)
 var _ reconcile.Reconciler = &MustGatherReconciler{}
 
 // MustGatherReconciler reconciles a MustGather object
+//
+//nolint:kubeapilinter // not an API type, json tags not applicable
 type MustGatherReconciler struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
@@ -177,9 +179,10 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		// This prevents the Job from being stuck in pending state due to a missing ServiceAccount.
 		// If no ServiceAccount is specified, default to "default" which should exist in all namespaces.
 		// Note: If the "default" SA has been deleted, this validation will catch it and report an error.
-		saName := instance.Spec.ServiceAccountName
-		if saName == "" {
-			saName = "default"
+		saName := "default"
+		if instance.Spec.ServiceAccountName != nil && *instance.Spec.ServiceAccountName != "" {
+			saName = *instance.Spec.ServiceAccountName
+		} else {
 			log.Info("no serviceAccountName specified, defaulting to 'default'", "namespace", instance.Namespace)
 		}
 		serviceAccount := &corev1.ServiceAccount{}
@@ -232,12 +235,16 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 			// Validate SFTP credentials before creating the job
 			reqLogger.Info("Validating SFTP credentials before creating must-gather job")
+			sftpHost := "sftp.access.redhat.com"
+			if instance.Spec.UploadTarget.SFTP.Host != nil {
+				sftpHost = *instance.Spec.UploadTarget.SFTP.Host
+			}
 			validationErr := validateSFTPWithRetry(
 				ctx,
 				reqLogger,
 				string(username),
 				string(password),
-				instance.Spec.UploadTarget.SFTP.Host,
+				sftpHost,
 			)
 			if validationErr != nil {
 				reqLogger.Error(validationErr, "SFTP credential validation failed")
@@ -421,16 +428,22 @@ func (r *MustGatherReconciler) getMustGatherImage(ctx context.Context, instance 
 	}
 
 	// Use custom image from ImageStream
+	if instance.Spec.ImageStreamRef.Name == nil || instance.Spec.ImageStreamRef.Tag == nil {
+		return "", fmt.Errorf("imageStreamRef name and tag must be specified")
+	}
+	isName := *instance.Spec.ImageStreamRef.Name
+	isTag := *instance.Spec.ImageStreamRef.Tag
+
 	imageStream := &imagev1.ImageStream{}
-	if err := r.GetClient().Get(ctx, types.NamespacedName{Name: instance.Spec.ImageStreamRef.Name, Namespace: r.OperatorNamespace}, imageStream); err != nil {
-		return "", fmt.Errorf("failed to get imagestream %s in namespace %s: %w", instance.Spec.ImageStreamRef.Name, r.OperatorNamespace, err)
+	if err := r.GetClient().Get(ctx, types.NamespacedName{Name: isName, Namespace: r.OperatorNamespace}, imageStream); err != nil {
+		return "", fmt.Errorf("failed to get imagestream %s in namespace %s: %w", isName, r.OperatorNamespace, err)
 	}
 
 	var foundTag bool
 	var pullable bool
 	var image string
 	for _, tag := range imageStream.Status.Tags {
-		if tag.Tag == instance.Spec.ImageStreamRef.Tag {
+		if tag.Tag == isTag {
 			foundTag = true
 			if len(tag.Items) > 0 && tag.Items[0].DockerImageReference != "" {
 				pullable = true
@@ -441,11 +454,11 @@ func (r *MustGatherReconciler) getMustGatherImage(ctx context.Context, instance 
 	}
 
 	if !foundTag {
-		return "", fmt.Errorf("imagestream tag %s not found in imagestream %s", instance.Spec.ImageStreamRef.Tag, instance.Spec.ImageStreamRef.Name)
+		return "", fmt.Errorf("imagestream tag %s not found in imagestream %s", isTag, isName)
 	}
 
 	if !pullable {
-		return "", fmt.Errorf("imagestream tag %s in imagestream %s is not pullable", instance.Spec.ImageStreamRef.Tag, instance.Spec.ImageStreamRef.Name)
+		return "", fmt.Errorf("imagestream tag %s in imagestream %s is not pullable", isTag, isName)
 	}
 
 	return image, nil

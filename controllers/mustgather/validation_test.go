@@ -13,6 +13,8 @@ import (
 )
 
 // mockNetError is a mock implementation of net.Error for testing
+//
+//nolint:kubeapilinter // not an API type
 type mockNetError struct {
 	message   string
 	timeout   bool

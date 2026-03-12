@@ -185,11 +185,11 @@ func checkSFTPConnection(ctx context.Context, username, password, host string) e
 	// Upgrade TCP connection to SSH (NewClientConn handles the handshake)
 	sshConn, chans, reqs, err := sshNewClientConnFunc(netConn, address, config)
 	if err != nil {
-		netConn.Close()
+		_ = netConn.Close()
 		return fmt.Errorf("%s: %w", classifySFTPError(err), err)
 	}
 	client := ssh.NewClient(sshConn, chans, reqs)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	return verifySFTPSubsystem(client)
 }
@@ -229,7 +229,7 @@ func verifySFTPSubsystem(conn *ssh.Client) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", classifySFTPError(err), err)
 	}
-	defer sftpClient.Close()
+	defer func() { _ = sftpClient.Close() }()
 
 	return nil
 }
