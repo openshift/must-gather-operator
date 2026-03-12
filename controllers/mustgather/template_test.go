@@ -41,9 +41,9 @@ func Test_initializeJobTemplate(t *testing.T) {
 				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
 				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
 					Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{
-						Name: pvcClaimName,
+						Name: ToPtr(pvcClaimName),
 					},
-					SubPath: pvcSubPath,
+					SubPath: ToPtr(pvcSubPath),
 				},
 			},
 		},
@@ -79,8 +79,8 @@ func Test_initializeJobTemplate(t *testing.T) {
 				if v.Name == knownStorageVolumeMountNameForTest {
 					foundStorageVolume = true
 
-					if tt.storage != nil && v.PersistentVolumeClaim.ClaimName != tt.storage.PersistentVolume.Claim.Name {
-						t.Fatalf("pvc claim name from initializeJobTemplate() was not correctly set. got %v, wanted %v", v.PersistentVolumeClaim.ClaimName, tt.storage.PersistentVolume.Claim.Name)
+					if tt.storage != nil && tt.storage.PersistentVolume.Claim.Name != nil && v.PersistentVolumeClaim.ClaimName != *tt.storage.PersistentVolume.Claim.Name {
+						t.Fatalf("pvc claim name from initializeJobTemplate() was not correctly set. got %v, wanted %v", v.PersistentVolumeClaim.ClaimName, *tt.storage.PersistentVolume.Claim.Name)
 					}
 				}
 
@@ -132,9 +132,9 @@ func Test_getGatherContainer(t *testing.T) {
 				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
 				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
 					Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{
-						Name: "test-pvc",
+						Name: ToPtr("test-pvc"),
 					},
-					SubPath: "test-path",
+					SubPath: ToPtr("test-path"),
 				},
 			},
 		},
@@ -188,8 +188,12 @@ func Test_getGatherContainer(t *testing.T) {
 				if volumeMount.Name != outputVolumeName {
 					t.Fatalf("volume mount name was not correctly set. got %v, wanted %v", volumeMount.Name, outputVolumeName)
 				}
-				if volumeMount.SubPath != tt.storage.PersistentVolume.SubPath {
-					t.Fatalf("volume mount subpath was not correctly set. got %v, wanted %v", volumeMount.SubPath, tt.storage.PersistentVolume.SubPath)
+				expectedSubPath := ""
+				if tt.storage.PersistentVolume.SubPath != nil {
+					expectedSubPath = *tt.storage.PersistentVolume.SubPath
+				}
+				if volumeMount.SubPath != expectedSubPath {
+					t.Fatalf("volume mount subpath was not correctly set. got %v, wanted %v", volumeMount.SubPath, expectedSubPath)
 				}
 			}
 		})
