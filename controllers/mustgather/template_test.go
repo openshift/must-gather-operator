@@ -121,7 +121,6 @@ func Test_getGatherContainer(t *testing.T) {
 		args            []string
 		caConfigMap     string
 		timeFilter      *GatherTimeFilter
-		clusterCreation *time.Time
 	}{
 		{
 			name:            "no audit",
@@ -214,42 +213,10 @@ func Test_getGatherContainer(t *testing.T) {
 				SinceTime: &testSinceTime,
 			},
 		},
-		{
-			name:            "clamp since duration to cluster age",
-			timeout:         5 * time.Second,
-			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
-			timeFilter: &GatherTimeFilter{
-				Since: 24 * time.Hour,
-			},
-			clusterCreation: ToPtr(time.Date(2026, 1, 7, 9, 0, 0, 0, time.UTC)),
-		},
-		{
-			name:            "cluster age negative clamps to zero and omits since",
-			timeout:         5 * time.Second,
-			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
-			timeFilter: &GatherTimeFilter{
-				Since: 2 * time.Hour,
-			},
-			// Cluster creation time is in the future relative to timeNow() below, forcing a negative age.
-			clusterCreation: ToPtr(time.Date(2026, 1, 7, 11, 0, 0, 0, time.UTC)),
-		},
-		{
-			name:            "clamp sinceTime to cluster creation time",
-			timeout:         5 * time.Second,
-			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
-			timeFilter: &GatherTimeFilter{
-				SinceTime: ToPtr(time.Date(2026, 1, 7, 8, 0, 0, 0, time.UTC)),
-			},
-			clusterCreation: ToPtr(time.Date(2026, 1, 7, 9, 0, 0, 0, time.UTC)),
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Make time deterministic for clamping tests.
-			origNow := timeNow
-			timeNow = func() time.Time { return time.Date(2026, 1, 7, 10, 0, 0, 0, time.UTC) }
-			t.Cleanup(func() { timeNow = origNow })
-			container := getGatherContainer(tt.mustGatherImage, tt.audit, tt.timeout, tt.storage, tt.caConfigMap, tt.timeFilter, tt.clusterCreation, tt.command, tt.args)
+			container := getGatherContainer(tt.mustGatherImage, tt.audit, tt.timeout, tt.storage, tt.caConfigMap, tt.timeFilter, tt.command, tt.args)
 
 			if len(tt.command) == 0 {
 				containerCommand := container.Command[2]
@@ -335,24 +302,12 @@ func Test_getGatherContainer(t *testing.T) {
 			// Check time filter environment variables
 			if tt.timeFilter != nil {
 				envMap := envValues(container)
-				if tt.name == "clamp since duration to cluster age" {
-					if envMap[gatherEnvSince] != "1h0m0s" {
-						t.Fatalf("expected %s env var to be clamped to 1h0m0s, got %v", gatherEnvSince, envMap[gatherEnvSince])
-					}
-				} else if tt.name == "cluster age negative clamps to zero and omits since" {
-					if _, ok := envMap[gatherEnvSince]; ok {
-						t.Fatalf("did not expect %s env var when clamped to zero, got %v", gatherEnvSince, envMap[gatherEnvSince])
-					}
-				} else if tt.timeFilter.Since > 0 {
+				if tt.timeFilter.Since > 0 {
 					if envMap[gatherEnvSince] != tt.timeFilter.Since.String() {
 						t.Fatalf("expected %s env var to be %v, got %v", gatherEnvSince, tt.timeFilter.Since.String(), envMap[gatherEnvSince])
 					}
 				}
-				if tt.name == "clamp sinceTime to cluster creation time" {
-					if envMap[gatherEnvSinceTime] != "2026-01-07T09:00:00Z" {
-						t.Fatalf("expected %s env var to be clamped to %v, got %v", gatherEnvSinceTime, "2026-01-07T09:00:00Z", envMap[gatherEnvSinceTime])
-					}
-				} else if tt.timeFilter.SinceTime != nil {
+				if tt.timeFilter.SinceTime != nil {
 					expectedTime := tt.timeFilter.SinceTime.Format(time.RFC3339)
 					if envMap[gatherEnvSinceTime] != expectedTime {
 						t.Fatalf("expected %s env var to be %v, got %v", gatherEnvSinceTime, expectedTime, envMap[gatherEnvSinceTime])
@@ -634,7 +589,7 @@ func Test_getJobTemplate_GatherSpec_BuildsTimeFilter(t *testing.T) {
 				},
 			}
 
-			job := getJobTemplate("img", "operator-image", mg, "", nil)
+			job := getJobTemplate("img", "operator-image", mg, "")
 			gather := findGatherContainerInJob(t, job)
 			got := envValues(gather)
 
@@ -720,7 +675,7 @@ func Test_getJobTemplate_ProxyAuditTimeout(t *testing.T) {
 				},
 			}
 
-			job := getJobTemplate("image", "operator-image", mg, "", nil)
+			job := getJobTemplate("image", "operator-image", mg, "")
 
 			gather := findGatherContainerInJob(t, job)
 			gatherCmd := gather.Command[2]
