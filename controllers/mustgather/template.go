@@ -53,9 +53,6 @@ const (
 	knownHostsFile = "/tmp/must-gather-operator/.ssh/known_hosts"
 )
 
-// timeNow exists to allow deterministic unit testing of time-based behavior.
-var timeNow = time.Now
-
 // GatherTimeFilter holds the time-based filtering options for log collection
 type GatherTimeFilter struct {
 	// Since is a relative duration (e.g., "2h", "30m")
@@ -64,7 +61,7 @@ type GatherTimeFilter struct {
 	SinceTime *time.Time
 }
 
-func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.MustGather, trustedCAConfigMapName string, clusterCreationTime *time.Time) *batchv1.Job {
+func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.MustGather, trustedCAConfigMapName string) *batchv1.Job {
 	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, mustGather.Spec.ServiceAccountName, mustGather.Spec.Storage, trustedCAConfigMapName)
 
 	var httpProxy, httpsProxy, noProxy string
@@ -113,7 +110,7 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 
 	job.Spec.Template.Spec.Containers = append(
 		job.Spec.Template.Spec.Containers,
-		getGatherContainer(image, audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName, timeFilter, clusterCreationTime, command, args),
+		getGatherContainer(image, audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName, timeFilter, command, args),
 	)
 
 	// Add the upload container only if the upload target is specified
@@ -219,7 +216,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 	}
 }
 
-func getGatherContainer(image string, audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string, timeFilter *GatherTimeFilter, clusterCreationTime *time.Time, command []string, args []string) corev1.Container {
+func getGatherContainer(image string, audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string, timeFilter *GatherTimeFilter, command []string, args []string) corev1.Container {
 	var commandBinary string
 	if audit {
 		commandBinary = gatherCommandBinaryAudit
@@ -269,38 +266,16 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 
 	// Add time filter environment variables if specified
 	if timeFilter != nil {
-		// Clamp the time filter so it never precedes cluster creation time.
-		// - For Since (duration): ensure (now - since) >= clusterCreationTime by reducing Since to clusterAge.
-		// - For SinceTime (absolute): ensure sinceTime >= clusterCreationTime by bumping it up.
-		effectiveSince := timeFilter.Since
-		effectiveSinceTime := timeFilter.SinceTime
-		if clusterCreationTime != nil && !clusterCreationTime.IsZero() {
-			now := timeNow()
-			if effectiveSince > 0 {
-				clusterAge := now.Sub(*clusterCreationTime)
-				if clusterAge < 0 {
-					clusterAge = 0
-				}
-				if effectiveSince > clusterAge {
-					effectiveSince = clusterAge
-				}
-			}
-			if effectiveSinceTime != nil && effectiveSinceTime.Before(*clusterCreationTime) {
-				t := *clusterCreationTime
-				effectiveSinceTime = &t
-			}
-		}
-
-		if effectiveSince > 0 {
+		if timeFilter.Since > 0 {
 			container.Env = append(container.Env, corev1.EnvVar{
 				Name:  gatherEnvSince,
-				Value: effectiveSince.String(),
+				Value: timeFilter.Since.String(),
 			})
 		}
-		if effectiveSinceTime != nil {
+		if timeFilter.SinceTime != nil {
 			container.Env = append(container.Env, corev1.EnvVar{
 				Name:  gatherEnvSinceTime,
-				Value: effectiveSinceTime.Format(time.RFC3339),
+				Value: timeFilter.SinceTime.Format(time.RFC3339),
 			})
 		}
 	}
