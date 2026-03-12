@@ -10,8 +10,9 @@ rules:
       - clusterversions
       - clusterversions/status
     verbs:
-      - list
       - get
+      - list
+      - watch
   # leader election
   - apiGroups:
       - ""
