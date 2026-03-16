@@ -49,12 +49,6 @@ const (
 	// SSH directory and known hosts file
 	sshDir         = "/tmp/must-gather-operator/.ssh"
 	knownHostsFile = "/tmp/must-gather-operator/.ssh/known_hosts"
-
-	// Environment variable specifying the must-gather image
-	defaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"
-
-	// Downward API environment variables used for subPathExpr expansion.
-	podNameEnvVar = "POD_NAME"
 )
 
 func outputSubPathExpr(storage *v1alpha1.Storage) (string, bool) {
@@ -64,12 +58,9 @@ func outputSubPathExpr(storage *v1alpha1.Storage) (string, bool) {
 
 	base := strings.TrimSpace(storage.PersistentVolume.SubPath)
 	base = strings.Trim(base, "/")
-	if base == "" {
-		return "", false
-	}
 
-	// Use user-provided base path, but isolate each run using the pod name
-	// to avoid overwriting prior collections on the PVC.
+	// Isolate each run using the pod name to avoid overwriting prior collections on the PVC.
+	// When base is empty, path.Join("", ...) yields just the pod name expr, giving per-run isolation at PVC root.
 	return path.Join(base, fmt.Sprintf("$(%s)", podNameEnvVar)), true
 }
 
