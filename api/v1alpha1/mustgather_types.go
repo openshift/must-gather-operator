@@ -39,7 +39,8 @@ type MustGatherSpec struct {
 
 	// GatherSpec allows overriding the command and/or arguments for the custom must-gather image
 	// and configures time-based collection filters.
-	// This field is ignored if ImageStreamRef is not specified.
+	// The command and args fields are only honored when ImageStreamRef is specified.
+	// Time-based filters (since, sinceTime) and audit apply regardless of ImageStreamRef.
 	// +kubebuilder:validation:Optional
 	GatherSpec *GatherSpec `json:"gatherSpec,omitempty"`
 
