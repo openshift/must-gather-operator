@@ -2,6 +2,7 @@ package mustgather
 
 import (
 	"fmt"
+	"path"
 	"reflect"
 	"strconv"
 	"strings"
@@ -139,7 +140,7 @@ func Test_getGatherContainer(t *testing.T) {
 			},
 		},
 		{
-			name:    "with PVC empty subPath does not set subPathExpr",
+			name:    "with PVC empty subPath sets subPathExpr to POD_NAME only",
 			timeout: 5 * time.Second,
 			storage: &mustgatherv1alpha1.Storage{
 				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
@@ -150,7 +151,7 @@ func Test_getGatherContainer(t *testing.T) {
 			},
 		},
 		{
-			name:    "with PVC whitespace subPath does not set subPathExpr",
+			name:    "with PVC whitespace subPath sets subPathExpr to POD_NAME only",
 			timeout: 5 * time.Second,
 			storage: &mustgatherv1alpha1.Storage{
 				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
@@ -161,7 +162,7 @@ func Test_getGatherContainer(t *testing.T) {
 			},
 		},
 		{
-			name:    "with PVC slash-only subPath does not set subPathExpr",
+			name:    "with PVC slash-only subPath sets subPathExpr to POD_NAME only",
 			timeout: 5 * time.Second,
 			storage: &mustgatherv1alpha1.Storage{
 				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
@@ -222,15 +223,9 @@ func Test_getGatherContainer(t *testing.T) {
 					t.Fatalf("volume mount name was not correctly set. got %v, wanted %v", volumeMount.Name, outputVolumeName)
 				}
 				base := strings.Trim(strings.TrimSpace(tt.storage.PersistentVolume.SubPath), "/")
-				if base == "" {
-					if volumeMount.SubPathExpr != "" {
-						t.Fatalf("did not expect volume mount subPathExpr to be set when base subPath is empty, got %q", volumeMount.SubPathExpr)
-					}
-				} else {
-					wantExpr := fmt.Sprintf("%s/$(POD_NAME)", base)
-					if volumeMount.SubPathExpr != wantExpr {
-						t.Fatalf("volume mount subPathExpr was not correctly set. got %q, wanted %q", volumeMount.SubPathExpr, wantExpr)
-					}
+				wantExpr := path.Join(base, fmt.Sprintf("$(%s)", podNameEnvVar))
+				if volumeMount.SubPathExpr != wantExpr {
+					t.Fatalf("volume mount subPathExpr was not correctly set. got %q, wanted %q", volumeMount.SubPathExpr, wantExpr)
 				}
 				if volumeMount.SubPath != "" {
 					t.Fatalf("did not expect volume mount subPath to be set when using subPathExpr, got %q", volumeMount.SubPath)
@@ -247,18 +242,13 @@ func Test_getGatherContainer(t *testing.T) {
 					}
 				}
 			}
-			subPathBase := ""
-			if tt.storage != nil && tt.storage.Type == mustgatherv1alpha1.StorageTypePersistentVolume {
-				subPathBase = strings.Trim(strings.TrimSpace(tt.storage.PersistentVolume.SubPath), "/")
+			// SubPathExpr is always set for PVC storage (for per-pod isolation), so POD_NAME env is always present.
+			hasPVCStorage := tt.storage != nil && tt.storage.Type == mustgatherv1alpha1.StorageTypePersistentVolume
+			if hasPVCStorage && !hasPodNameEnv {
+				t.Fatalf("expected %s env var when PVC storage is used (SubPathExpr is set)", podNameEnvVar)
 			}
-			if subPathBase == "" {
-				if hasPodNameEnv {
-					t.Fatalf("did not expect %s env var when PVC subPath is empty", podNameEnvVar)
-				}
-			} else {
-				if !hasPodNameEnv {
-					t.Fatalf("expected %s env var when PVC subPath is set (base=%q)", podNameEnvVar, subPathBase)
-				}
+			if !hasPVCStorage && hasPodNameEnv {
+				t.Fatalf("did not expect %s env var when storage is not PVC", podNameEnvVar)
 			}
 		})
 	}
@@ -349,7 +339,7 @@ func Test_getUploadContainer(t *testing.T) {
 			},
 		},
 		{
-			name:          "With PVC empty subPath does not set subPathExpr",
+			name:          "With PVC empty subPath sets subPathExpr to POD_NAME only",
 			operatorImage: "testImage",
 			caseId:        "1234",
 			secretKeyRefName: v1.LocalObjectReference{
@@ -364,7 +354,7 @@ func Test_getUploadContainer(t *testing.T) {
 			},
 		},
 		{
-			name:          "With PVC whitespace subPath does not set subPathExpr",
+			name:          "With PVC whitespace subPath sets subPathExpr to POD_NAME only",
 			operatorImage: "testImage",
 			caseId:        "1234",
 			secretKeyRefName: v1.LocalObjectReference{
@@ -379,7 +369,7 @@ func Test_getUploadContainer(t *testing.T) {
 			},
 		},
 		{
-			name:          "With PVC slash-only subPath does not set subPathExpr",
+			name:          "With PVC slash-only subPath sets subPathExpr to POD_NAME only",
 			operatorImage: "testImage",
 			caseId:        "1234",
 			secretKeyRefName: v1.LocalObjectReference{
@@ -428,22 +418,16 @@ func Test_getUploadContainer(t *testing.T) {
 					t.Fatalf("expected output volume mount %q to be present", outputVolumeName)
 				}
 				base := strings.Trim(strings.TrimSpace(tt.storage.PersistentVolume.SubPath), "/")
-				if base == "" {
-					if outputMount.SubPathExpr != "" {
-						t.Fatalf("did not expect output volume mount subPathExpr to be set when base subPath is empty, got %q", outputMount.SubPathExpr)
-					}
-				} else {
-					wantExpr := fmt.Sprintf("%s/$(POD_NAME)", base)
-					if outputMount.SubPathExpr != wantExpr {
-						t.Fatalf("expected output volume mount subPathExpr %q but got %q", wantExpr, outputMount.SubPathExpr)
-					}
+				wantExpr := path.Join(base, fmt.Sprintf("$(%s)", podNameEnvVar))
+				if outputMount.SubPathExpr != wantExpr {
+					t.Fatalf("expected output volume mount subPathExpr %q but got %q", wantExpr, outputMount.SubPathExpr)
 				}
 				if outputMount.SubPath != "" {
 					t.Fatalf("did not expect output volume mount subPath to be set when using subPathExpr, got %q", outputMount.SubPath)
 				}
 			}
 
-			// POD_NAME env var should be present only when SubPathExpr is used.
+			// POD_NAME env var is present when SubPathExpr is used (always for PVC storage).
 			hasPodNameEnv := false
 			for _, env := range container.Env {
 				if env.Name == podNameEnvVar {
@@ -453,18 +437,12 @@ func Test_getUploadContainer(t *testing.T) {
 					}
 				}
 			}
-			subPathBase := ""
-			if tt.storage != nil && tt.storage.Type == mustgatherv1alpha1.StorageTypePersistentVolume {
-				subPathBase = strings.Trim(strings.TrimSpace(tt.storage.PersistentVolume.SubPath), "/")
+			hasPVCStorage := tt.storage != nil && tt.storage.Type == mustgatherv1alpha1.StorageTypePersistentVolume
+			if hasPVCStorage && !hasPodNameEnv {
+				t.Fatalf("expected %s env var when PVC storage is used (SubPathExpr is set)", podNameEnvVar)
 			}
-			if subPathBase == "" {
-				if hasPodNameEnv {
-					t.Fatalf("did not expect %s env var when PVC subPath is empty", podNameEnvVar)
-				}
-			} else {
-				if !hasPodNameEnv {
-					t.Fatalf("expected %s env var when PVC subPath is set (base=%q)", podNameEnvVar, subPathBase)
-				}
+			if !hasPVCStorage && hasPodNameEnv {
+				t.Fatalf("did not expect %s env var when storage is not PVC", podNameEnvVar)
 			}
 
 			for _, env := range container.Env {
