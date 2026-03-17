@@ -50,7 +50,11 @@ const (
 )
 
 func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.MustGather, trustedCAConfigMapName string) *batchv1.Job {
-	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, mustGather.Spec.ServiceAccountName, mustGather.Spec.Storage, trustedCAConfigMapName)
+	saName := "default"
+	if mustGather.Spec.ServiceAccountName != nil {
+		saName = *mustGather.Spec.ServiceAccountName
+	}
+	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, saName, mustGather.Spec.Storage, trustedCAConfigMapName)
 
 	var httpProxy, httpsProxy, noProxy string
 
@@ -69,8 +73,8 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 	}
 
 	var audit bool
-	if mustGather.Spec.GatherSpec != nil {
-		audit = mustGather.Spec.GatherSpec.Audit
+	if mustGather.Spec.GatherSpec != nil && mustGather.Spec.GatherSpec.Audit != nil {
+		audit = *mustGather.Spec.GatherSpec.Audit
 	}
 
 	timeout := time.Duration(0)
@@ -92,14 +96,22 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 	// Add the upload container only if the upload target is specified
 	if mustGather.Spec.UploadTarget != nil && mustGather.Spec.UploadTarget.Type == v1alpha1.UploadTypeSFTP {
 		s := mustGather.Spec.UploadTarget.SFTP
-		if s != nil && s.CaseID != "" && s.CaseManagementAccountSecretRef.Name != "" {
+		if s != nil && s.CaseID != nil && *s.CaseID != "" && s.CaseManagementAccountSecretRef.Name != "" {
+			sftpHost := "sftp.access.redhat.com"
+			if s.Host != nil {
+				sftpHost = *s.Host
+			}
+			internalUser := false
+			if s.InternalUser != nil {
+				internalUser = *s.InternalUser
+			}
 			job.Spec.Template.Spec.Containers = append(
 				job.Spec.Template.Spec.Containers,
 				getUploadContainer(
 					operatorImage,
-					s.CaseID,
-					s.Host,
-					s.InternalUser,
+					*s.CaseID,
+					sftpHost,
+					internalUser,
 					httpProxy,
 					httpsProxy,
 					noProxy,
@@ -119,10 +131,10 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 	}
 
-	if storage != nil && storage.Type == v1alpha1.StorageTypePersistentVolume {
+	if storage != nil && storage.Type == v1alpha1.StorageTypePersistentVolume && storage.PersistentVolume.Claim.Name != nil {
 		outputVolume.VolumeSource = corev1.VolumeSource{
 			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-				ClaimName: storage.PersistentVolume.Claim.Name,
+				ClaimName: *storage.PersistentVolume.Claim.Name,
 			},
 		}
 	}
@@ -205,8 +217,8 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 		Name:      outputVolumeName,
 	}
 
-	if storage != nil && storage.Type == v1alpha1.StorageTypePersistentVolume && storage.PersistentVolume.SubPath != "" {
-		volumeMount.SubPath = storage.PersistentVolume.SubPath
+	if storage != nil && storage.Type == v1alpha1.StorageTypePersistentVolume && storage.PersistentVolume.SubPath != nil && *storage.PersistentVolume.SubPath != "" {
+		volumeMount.SubPath = *storage.PersistentVolume.SubPath
 	}
 
 	volumeMounts := []corev1.VolumeMount{volumeMount}

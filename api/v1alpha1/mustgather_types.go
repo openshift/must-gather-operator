@@ -27,39 +27,40 @@ import (
 // MustGatherSpec defines the desired state of MustGather
 // +kubebuilder:validation:XValidation:rule="!(has(self.gatherSpec) && (size(self.gatherSpec.command) > 0 || size(self.gatherSpec.args) > 0)) || has(self.imageStreamRef)",message="command and args in gatherSpec can only be set when imageStreamRef is specified"
 type MustGatherSpec struct {
-	// the service account to use to run the must gather job pod, defaults to default
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:="default"
-	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+	// serviceAccountName is the service account to use to run the must gather job pod, defaults to default
+	// +optional
+	// +default="default"
+	ServiceAccountName *string `json:"serviceAccountName,omitempty"`
 
-	// ImageStreamRef specifies a custom image from the allowlist to be used for the
+	// imageStreamRef specifies a custom image from the allowlist to be used for the
 	// must-gather run.
-	// +kubebuilder:validation:Optional
+	// +optional
 	ImageStreamRef *ImageStreamTagRef `json:"imageStreamRef,omitempty"`
 
-	// GatherSpec allows overriding the command and/or arguments for the custom must-gather image.
+	// gatherSpec allows overriding the command and/or arguments for the custom must-gather image.
 	// This field is ignored if ImageStreamRef is not specified.
-	// +kubebuilder:validation:Optional
+	// +optional
 	GatherSpec *GatherSpec `json:"gatherSpec,omitempty"`
 
-	// A time limit for gather command to complete a floating point number with a suffix:
+	// mustGatherTimeout is a time limit for gather command to complete a floating point number with a suffix:
 	// "s" for seconds, "m" for minutes, "h" for hours.
 	// Will default to no time limit.
-	// +kubebuilder:validation:Optional
+	// +optional
 	// +kubebuilder:validation:Format=duration
-	MustGatherTimeout *metav1.Duration `json:"mustGatherTimeout,omitempty"`
+	MustGatherTimeout *metav1.Duration `json:"mustGatherTimeout,omitempty"` //nolint:kubeapilinter // existing API field, changing type would break compatibility
 
-	// The target location for the must-gather bundle to be uploaded to.
+	// uploadTarget is the target location for the must-gather bundle to be uploaded to.
 	// If not specified, the bundle will not be uploaded.
-	// +kubebuilder:validation:Optional
+	// +optional
 	UploadTarget *UploadTargetSpec `json:"uploadTarget,omitempty"`
 
-	// A flag to specify if resources (secret, job, pods) should be retained when the MustGather completes.
+	// retainResourcesOnCompletion is a flag to specify if resources (secret, job, pods) should be retained when the MustGather completes.
 	// If set to true, resources will be retained. If false or not set, resources will be deleted (default behavior).
-	// +kubebuilder:default:=false
+	// +optional
+	// +default=false
 	RetainResourcesOnCompletion *bool `json:"retainResourcesOnCompletion,omitempty"`
 
-	// The storage configuration for persisting the collected must-gather tar archive.
+	// storage is the storage configuration for persisting the collected must-gather tar archive.
 	// If not specified, an ephemeral volume is used which will not persist
 	// the tar archive on the cluster.
 	// +optional
@@ -68,22 +69,24 @@ type MustGatherSpec struct {
 
 // GatherSpec allows specifying the execution details for a must-gather run.
 type GatherSpec struct {
-	// +kubebuilder:validation:Optional
-	// Audit specifies whether to collect audit logs. This is translated to a signal
+	// audit specifies whether to collect audit logs. This is translated to a signal
 	// or command that can be respected by the default image
 	// or any custom image designed to do so.
-	Audit bool `json:"audit,omitempty"`
+	// +optional
+	Audit *bool `json:"audit,omitempty"`
 
-	// +kubebuilder:validation:Optional
-	// Command is a string array representing the entrypoint for the custom image.
+	// command is a string array representing the entrypoint for the custom image.
 	// This field is only honored when a custom image IS specified via imageStreamRef.
+	// +optional
+	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=256
 	// +kubebuilder:validation:Items:MaxLength=256
 	Command []string `json:"command,omitempty"`
 
-	// +kubebuilder:validation:Optional
-	// Args is a string array of arguments passed to the custom image's command.
+	// args is a string array of arguments passed to the custom image's command.
 	// This field is only honored when a custom image IS specified via imageStreamRef.
+	// +optional
+	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=256
 	// +kubebuilder:validation:Items:MaxLength=256
 	Args []string `json:"args,omitempty"`
@@ -91,37 +94,38 @@ type GatherSpec struct {
 
 // ImageStreamTagRef provides a structured reference to a specific tag within an ImageStream.
 type ImageStreamTagRef struct {
-	// +kubebuilder:validation:Required
-	// Name is the name of the ImageStream resource in the operator's namespace.
-	Name string `json:"name"`
+	// name is the name of the ImageStream resource in the operator's namespace.
+	// +required
+	Name *string `json:"name,omitempty"`
 
-	// +kubebuilder:validation:Required
-	// Tag is the name of the tag within the ImageStream.
-	Tag string `json:"tag"`
+	// tag is the name of the tag within the ImageStream.
+	// +required
+	Tag *string `json:"tag,omitempty"`
 }
 
 // SFTPSpec defines the desired state of SFTPSpec
 // +kubebuilder:validation:XValidation:rule="size(self.caseID) > 0",message="caseID must not be empty"
 // +kubebuilder:validation:XValidation:rule="size(self.caseManagementAccountSecretRef.name) > 0",message="caseManagementAccountSecretRef.name must not be empty"
 type SFTPSpec struct {
-	// The ID of the case this must gather will be uploaded to
-	// +kubebuilder:validation:Required
-	CaseID string `json:"caseID"`
+	// caseID is the ID of the case this must gather will be uploaded to
+	// +required
+	CaseID *string `json:"caseID,omitempty"`
 
-	// the secret container a username and password field to be used to authenticate with red hat case management systems
-	// +kubebuilder:validation:Required
-	CaseManagementAccountSecretRef corev1.LocalObjectReference `json:"caseManagementAccountSecretRef"`
+	// caseManagementAccountSecretRef is the secret containing a username and password field to be used to authenticate with red hat case management systems
+	// +required
+	CaseManagementAccountSecretRef corev1.LocalObjectReference `json:"caseManagementAccountSecretRef,omitempty"`
 
-	// A flag to specify if the upload user provided in the caseManagementAccountSecret is a RH internal user.
+	// internalUser is a flag to specify if the upload user provided in the caseManagementAccountSecret is a RH internal user.
 	// See documentation for further information.
-	// +kubebuilder:default:=false
-	InternalUser bool `json:"internalUser,omitempty"`
+	// +optional
+	// +default=false
+	InternalUser *bool `json:"internalUser,omitempty"`
 
 	// host specifies the SFTP server hostname.
 	// The host name of the SFTP server
-	// +kubebuilder:default:="sftp.access.redhat.com"
+	// +default="sftp.access.redhat.com"
 	// +optional
-	Host string `json:"host,omitempty"`
+	Host *string `json:"host,omitempty"`
 }
 
 // UploadType defines the type of upload target.
@@ -138,12 +142,11 @@ const (
 type UploadTargetSpec struct {
 	// type defines the method used for uploading to a specific target.
 	// +unionDiscriminator
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Enum=SFTP
 	// +required
-	Type UploadType `json:"type"`
+	Type UploadType `json:"type,omitempty"`
 
-	// SFTP details for the upload.
+	// sftp details for the upload.
 	// +unionMember
 	// +optional
 	SFTP *SFTPSpec `json:"sftp,omitempty"`
@@ -163,20 +166,20 @@ type Storage struct {
 	// type defines the type of storage to use.
 	// Available storage types are PersistentVolume only.
 	// +required
-	Type StorageType `json:"type"`
+	Type StorageType `json:"type,omitempty"`
 	// persistentVolume defines the configuration for a PersistentVolume.
 	// +required
-	PersistentVolume PersistentVolumeConfig `json:"persistentVolume"`
+	PersistentVolume PersistentVolumeConfig `json:"persistentVolume,omitzero"`
 }
 
 // PersistentVolumeConfig defines the configuration for a PersistentVolume.
 type PersistentVolumeConfig struct {
 	// claim defines the PersistentVolumeClaim to use.
 	// +required
-	Claim PersistentVolumeClaimReference `json:"claim"`
+	Claim PersistentVolumeClaimReference `json:"claim,omitzero"`
 	// subPath defines the path to a sub directory within the PersistentVolume to use.
 	// +optional
-	SubPath string `json:"subPath,omitempty"`
+	SubPath *string `json:"subPath,omitempty"`
 }
 
 // PersistentVolumeClaimReference defines the reference to a PersistentVolumeClaim.
@@ -186,16 +189,30 @@ type PersistentVolumeClaimReference struct {
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:XValidation:rule="!format.dns1123Subdomain().validate(self).hasValue()",message="a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character."
 	// +required
-	Name string `json:"name"`
+	Name *string `json:"name,omitempty"`
 }
 
 // MustGatherStatus defines the observed state of MustGather
 type MustGatherStatus struct {
-	Status     string             `json:"status,omitempty"`
-	LastUpdate metav1.Time        `json:"lastUpdate,omitempty"`
-	Reason     string             `json:"reason,omitempty"`
-	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
-	Completed  bool               `json:"completed"`
+	// conditions represent the latest available observations of the must-gather's state.
+	// +listType=map
+	// +listMapKey=type
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+	// status is the current status of the must-gather operation.
+	// +optional
+	Status string `json:"status,omitempty"` //nolint:kubeapilinter // existing API field, changing to pointer would break compatibility
+	// lastUpdate is the time of the last status update.
+	// +optional
+	LastUpdate metav1.Time `json:"lastUpdate,omitempty"` //nolint:kubeapilinter // existing API field, changing to pointer would break compatibility
+	// reason provides additional detail about the current status.
+	// +optional
+	Reason string `json:"reason,omitempty"` //nolint:kubeapilinter // existing API field, changing to pointer would break compatibility
+	// completed indicates whether the must-gather operation has finished.
+	// +optional
+	Completed bool `json:"completed"` //nolint:kubeapilinter // existing API field, changing to pointer would break compatibility
 }
 
 func (m *MustGather) GetConditions() []metav1.Condition {
@@ -212,11 +229,17 @@ func (m *MustGather) SetConditions(conditions []metav1.Condition) {
 // MustGather is the Schema for the mustgathers API
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec) || self.spec == oldSelf.spec",message="spec values are immutable once set"
 type MustGather struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// metadata is the standard object metadata.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   MustGatherSpec   `json:"spec,omitempty"`
-	Status MustGatherStatus `json:"status,omitempty"`
+	// spec defines the desired state of the must-gather operation.
+	// +optional
+	Spec MustGatherSpec `json:"spec,omitempty"` //nolint:kubeapilinter // Spec is conventionally not a pointer in Kubernetes API types
+	// status defines the observed state of the must-gather operation.
+	// +optional
+	Status MustGatherStatus `json:"status,omitempty"` //nolint:kubeapilinter // Status is conventionally not a pointer in Kubernetes API types
 }
 
 //+kubebuilder:object:root=true
