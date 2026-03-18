@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: must-gather-pvc-test
+spec:
+  containers:
+  - name: test-container
+    image: busybox:1.36
+    command: ["/bin/sh"]
+    args: ["-c", "while true; do echo \"Test write to must-gather-pvc at $(date)\" >> /data/must-gather-test.txt; sleep 30; done"]
+    volumeMounts:
+    - mountPath: /data
+      name: must-gather-storage
+  volumes:
+  - name: must-gather-storage
+    persistentVolumeClaim:
+      claimName: must-gather-pvc

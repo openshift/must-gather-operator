@@ -4,7 +4,7 @@ package mustgather
 const (
 	// ValidationServiceAccount represents the validation type for Service account
 	ValidationServiceAccount = "Service Account"
-  
+
 	// ProtocolSFTP represents the SFTP (SSH File Transfer Protocol)
 	ProtocolSFTP = "SFTP"
 
@@ -22,4 +22,7 @@ const (
 
 	// DefaultMustGatherImageEnv represents the environment variable for the default must-gather image
 	DefaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"
+
+	// podNameEnvVar is the environment variable name for the current pod's name
+	podNameEnvVar = "POD_NAME"
 )

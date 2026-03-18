@@ -1473,7 +1473,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				}
 			}
 			Expect(outputMount).NotTo(BeNil(), "Gather container should have output volume mount")
-			Expect(outputMount.SubPath).To(Equal(subPath), "Volume mount should have subPath configured")
+			Expect(outputMount.SubPathExpr).To(Equal(subPath+"/$(POD_NAME)"), "Volume mount should have subPathExpr configured")
+			Expect(outputMount.SubPath).To(BeEmpty(), "Volume mount subPath should be empty when using subPathExpr")
 		})
 
 		ginkgo.It("should create MustGather with PVC storage, configure Job correctly, and persist data", func() {

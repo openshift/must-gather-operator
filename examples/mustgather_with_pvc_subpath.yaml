@@ -1,0 +1,19 @@
+apiVersion: operator.openshift.io/v1alpha1
+kind: MustGather
+metadata:
+  name: example-mustgather-pvc-subpath
+spec:
+  serviceAccountName: must-gather-admin
+  storage:
+    type: PersistentVolume
+    persistentVolume:
+      claim:
+        name: must-gather-pvc
+      subPath: must-gather-data
+  uploadTarget:
+    type: SFTP
+    sftp:
+      caseID: '04230315'
+      caseManagementAccountSecretRef:
+        name: case-management-creds
+      internalUser: true
