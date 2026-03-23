@@ -118,7 +118,7 @@ func Test_getGatherContainer(t *testing.T) {
 			t.Setenv(defaultMustGatherImageEnv, tt.mustGatherImage)
 			expectedImage := tt.mustGatherImage
 
-			container := getGatherContainer(tt.audit, tt.timeout, tt.storage)
+			container := getGatherContainer(tt.audit, tt.timeout, tt.storage, nil)
 
 			containerCommand := container.Command[2]
 			if tt.audit && !strings.Contains(containerCommand, gatherCommandBinaryAudit) {
@@ -146,6 +146,87 @@ func Test_getGatherContainer(t *testing.T) {
 				}
 				if volumeMount.SubPath != tt.storage.PersistentVolume.SubPath {
 					t.Fatalf("volume mount subpath was not correctly set. got %v, wanted %v", volumeMount.SubPath, tt.storage.PersistentVolume.SubPath)
+				}
+			}
+		})
+	}
+}
+
+func Test_getGatherContainer_withGatherSpec(t *testing.T) {
+	tests := []struct {
+		name            string
+		gatherSpec      *mustgatherv1alpha1.GatherSpec
+		expectedEnvVars map[string]string
+	}{
+		{
+			name:            "nil gatherSpec",
+			gatherSpec:      nil,
+			expectedEnvVars: map[string]string{},
+		},
+		{
+			name: "gatherSpec with since duration",
+			gatherSpec: &mustgatherv1alpha1.GatherSpec{
+				Since: &metav1.Duration{Duration: 2 * time.Hour},
+			},
+			expectedEnvVars: map[string]string{
+				"MUST_GATHER_SINCE": "2h0m0s",
+			},
+		},
+		{
+			name: "gatherSpec with sinceTime",
+			gatherSpec: &mustgatherv1alpha1.GatherSpec{
+				SinceTime: &metav1.Time{Time: time.Date(2026, 1, 10, 14, 0, 0, 0, time.UTC)},
+			},
+			expectedEnvVars: map[string]string{
+				"MUST_GATHER_SINCE_TIME": "2026-01-10T14:00:00Z",
+			},
+		},
+		{
+			name: "gatherSpec with both since and sinceTime",
+			gatherSpec: &mustgatherv1alpha1.GatherSpec{
+				Since:     &metav1.Duration{Duration: 2 * time.Hour},
+				SinceTime: &metav1.Time{Time: time.Date(2026, 1, 10, 14, 0, 0, 0, time.UTC)},
+			},
+			expectedEnvVars: map[string]string{
+				"MUST_GATHER_SINCE":      "2h0m0s",
+				"MUST_GATHER_SINCE_TIME": "2026-01-10T14:00:00Z",
+			},
+		},
+		{
+			name: "gatherSpec with since in minutes",
+			gatherSpec: &mustgatherv1alpha1.GatherSpec{
+				Since: &metav1.Duration{Duration: 30 * time.Minute},
+			},
+			expectedEnvVars: map[string]string{
+				"MUST_GATHER_SINCE": "30m0s",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(defaultMustGatherImageEnv, "test-image:latest")
+
+			container := getGatherContainer(false, 0, nil, tt.gatherSpec)
+
+			// Verify environment variables
+			envMap := make(map[string]string)
+			for _, env := range container.Env {
+				envMap[env.Name] = env.Value
+			}
+
+			if len(envMap) != len(tt.expectedEnvVars) {
+				t.Fatalf("expected %d env vars, got %d. Expected: %v, Got: %v",
+					len(tt.expectedEnvVars), len(envMap), tt.expectedEnvVars, envMap)
+			}
+
+			for key, expectedValue := range tt.expectedEnvVars {
+				actualValue, exists := envMap[key]
+				if !exists {
+					t.Fatalf("expected env var %s to exist but it doesn't. Got: %v", key, envMap)
+				}
+				if actualValue != expectedValue {
+					t.Fatalf("env var %s: expected %s, got %s", key, expectedValue, actualValue)
 				}
 			}
 		})

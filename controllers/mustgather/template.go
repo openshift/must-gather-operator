@@ -94,7 +94,7 @@ func getJobTemplate(operatorImage string, mustGather v1alpha1.MustGather) *batch
 
 	job.Spec.Template.Spec.Containers = append(
 		job.Spec.Template.Spec.Containers,
-		getGatherContainer(audit, timeout, mustGather.Spec.Storage),
+		getGatherContainer(audit, timeout, mustGather.Spec.Storage, mustGather.Spec.GatherSpec),
 	)
 
 	// Add the upload container only if the upload target is specified
@@ -183,7 +183,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 	}
 }
 
-func getGatherContainer(audit bool, timeout time.Duration, storage *v1alpha1.Storage) corev1.Container {
+func getGatherContainer(audit bool, timeout time.Duration, storage *v1alpha1.Storage, gatherSpec *v1alpha1.GatherSpec) corev1.Container {
 	var commandBinary string
 	if audit {
 		commandBinary = gatherCommandBinaryAudit
@@ -200,7 +200,7 @@ func getGatherContainer(audit bool, timeout time.Duration, storage *v1alpha1.Sto
 		volumeMount.SubPath = storage.PersistentVolume.SubPath
 	}
 
-	return corev1.Container{
+	container := corev1.Container{
 		Command: []string{
 			"/bin/bash",
 			"-c",
@@ -211,7 +211,29 @@ func getGatherContainer(audit bool, timeout time.Duration, storage *v1alpha1.Sto
 		VolumeMounts: []corev1.VolumeMount{
 			volumeMount,
 		},
+		Env: []corev1.EnvVar{},
 	}
+
+	// Add time-based filtering environment variables if gatherSpec is provided
+	if gatherSpec != nil {
+		// Add MUST_GATHER_SINCE if since duration is specified
+		if gatherSpec.Since != nil {
+			container.Env = append(container.Env, corev1.EnvVar{
+				Name:  "MUST_GATHER_SINCE",
+				Value: gatherSpec.Since.Duration.String(),
+			})
+		}
+
+		// Add MUST_GATHER_SINCE_TIME if sinceTime is specified
+		if gatherSpec.SinceTime != nil {
+			container.Env = append(container.Env, corev1.EnvVar{
+				Name:  "MUST_GATHER_SINCE_TIME",
+				Value: gatherSpec.SinceTime.Format(time.RFC3339),
+			})
+		}
+	}
+
+	return container
 }
 
 func getUploadContainer(
