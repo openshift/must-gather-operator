@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.4
+    controller-gen.kubebuilder.io/version: v0.19.0
   name: mustgathers.operator.openshift.io
 spec:
   group: operator.openshift.io
@@ -41,8 +41,10 @@ spec:
             properties:
               gatherSpec:
                 description: |-
-                  GatherSpec allows overriding the command and/or arguments for the custom must-gather image.
-                  This field is ignored if ImageStreamRef is not specified.
+                  GatherSpec allows overriding the command and/or arguments for the custom must-gather image
+                  and configures time-based collection filters.
+                  The command and args fields are only honored when ImageStreamRef is specified.
+                  Time-based filters (since, sinceTime) and audit apply regardless of ImageStreamRef.
                 properties:
                   args:
                     description: |-
@@ -66,7 +68,24 @@ spec:
                       type: string
                     maxItems: 256
                     type: array
+                  since:
+                    description: |-
+                      Since only returns logs newer than a relative duration like "2h" or "30m".
+                      This is passed to the must-gather script to filter log collection.
+                      Only one of since or sinceTime may be specified.
+                    format: duration
+                    type: string
+                  sinceTime:
+                    description: |-
+                      SinceTime only returns logs after a specific date/time (RFC3339 format).
+                      This is passed to the must-gather script to filter log collection.
+                      Only one of since or sinceTime may be specified.
+                    format: date-time
+                    type: string
                 type: object
+                x-kubernetes-validations:
+                - message: only one of since or sinceTime may be specified
+                  rule: '!(has(self.since) && has(self.sinceTime))'
               imageStreamRef:
                 description: |-
                   ImageStreamRef specifies a custom image from the allowlist to be used for the
@@ -213,8 +232,9 @@ spec:
             x-kubernetes-validations:
             - message: command and args in gatherSpec can only be set when imageStreamRef
                 is specified
-              rule: '!(has(self.gatherSpec) && (size(self.gatherSpec.command) > 0
-                || size(self.gatherSpec.args) > 0)) || has(self.imageStreamRef)'
+              rule: '!(has(self.gatherSpec) && ((has(self.gatherSpec.command) && size(self.gatherSpec.command)
+                > 0) || (has(self.gatherSpec.args) && size(self.gatherSpec.args) >
+                0))) || has(self.imageStreamRef)'
           status:
             description: MustGatherStatus defines the observed state of MustGather
             properties:

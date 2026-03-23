@@ -32,6 +32,10 @@ const (
 	gatherCommand              = "timeout %v bash -x -c -- '/usr/bin/%v' 2>&1 | tee /must-gather/must-gather.log\n\nstatus=$?\nif [[ $status -eq 124 || $status -eq 137 ]]; then\n  echo \"Gather timed out.\"\n  exit 0\nfi | tee -a /must-gather/must-gather.log"
 	gatherContainerName        = "gather"
 
+	// Environment variables for time-based log filtering
+	gatherEnvSince     = "MUST_GATHER_SINCE"
+	gatherEnvSinceTime = "MUST_GATHER_SINCE_TIME"
+
 	backoffLimit              = 3
 	uploadContainerName       = "upload"
 	uploadEnvUsername         = "username"
@@ -75,6 +79,14 @@ func podNameEnvVars() []corev1.EnvVar {
 	}
 }
 
+// GatherTimeFilter holds the time-based filtering options for log collection
+type GatherTimeFilter struct {
+	// Since is a relative duration (e.g., "2h", "30m")
+	Since time.Duration
+	// SinceTime is an absolute timestamp
+	SinceTime *time.Time
+}
+
 func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.MustGather, trustedCAConfigMapName string) *batchv1.Job {
 	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, mustGather.Spec.ServiceAccountName, mustGather.Spec.Storage, trustedCAConfigMapName)
 
@@ -104,15 +116,27 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 		timeout = mustGather.Spec.MustGatherTimeout.Duration
 	}
 
+	// Build time filter from spec
+	var timeFilter *GatherTimeFilter
 	var command, args []string
 	if mustGather.Spec.GatherSpec != nil {
 		command = mustGather.Spec.GatherSpec.Command
 		args = mustGather.Spec.GatherSpec.Args
+		if mustGather.Spec.GatherSpec.Since != nil || mustGather.Spec.GatherSpec.SinceTime != nil {
+			timeFilter = &GatherTimeFilter{}
+			if mustGather.Spec.GatherSpec.Since != nil {
+				timeFilter.Since = mustGather.Spec.GatherSpec.Since.Duration
+			}
+			if mustGather.Spec.GatherSpec.SinceTime != nil {
+				t := mustGather.Spec.GatherSpec.SinceTime.Time
+				timeFilter.SinceTime = &t
+			}
+		}
 	}
 
 	job.Spec.Template.Spec.Containers = append(
 		job.Spec.Template.Spec.Containers,
-		getGatherContainer(image, audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName, command, args),
+		getGatherContainer(image, audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName, timeFilter, command, args),
 	)
 
 	// Add the upload container only if the upload target is specified
@@ -219,7 +243,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 	}
 }
 
-func getGatherContainer(image string, audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string, command []string, args []string) corev1.Container {
+func getGatherContainer(image string, audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string, timeFilter *GatherTimeFilter, command []string, args []string) corev1.Container {
 	var commandBinary string
 	if audit {
 		commandBinary = gatherCommandBinaryAudit
@@ -271,6 +295,21 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 	// Provide pod name env var only when SubPathExpr is used (PVC subPath is set).
 	if hasSubPathExpr {
 		container.Env = append(container.Env, podNameEnvVars()...)
+	}
+	// Add time filter environment variables if specified
+	if timeFilter != nil {
+		if timeFilter.Since > 0 {
+			container.Env = append(container.Env, corev1.EnvVar{
+				Name:  gatherEnvSince,
+				Value: timeFilter.Since.String(),
+			})
+		}
+		if timeFilter.SinceTime != nil {
+			container.Env = append(container.Env, corev1.EnvVar{
+				Name:  gatherEnvSinceTime,
+				Value: timeFilter.SinceTime.Format(time.RFC3339),
+			})
+		}
 	}
 
 	return container
