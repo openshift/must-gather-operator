@@ -62,6 +62,11 @@ type MustGatherSpec struct {
 	// the tar archive on the cluster.
 	// +optional
 	Storage *Storage `json:"storage,omitempty"`
+
+	// gatherSpec holds optional gather configuration that is passed through to the gather container.
+	// This allows time-based filtering and other gather-time options.
+	// +optional
+	GatherSpec *GatherSpec `json:"gatherSpec,omitempty"`
 }
 
 // SFTPSpec defines the desired state of SFTPSpec
@@ -166,6 +171,28 @@ type ProxySpec struct {
 	// noProxy is the list of domains for which the proxy should not be used.  Empty means unset and will not result in an env var.
 	// +optional
 	NoProxy string `json:"noProxy,omitempty"`
+}
+
+// GatherSpec holds optional gather configuration that is passed through to the gather container.
+// This enables time-based log filtering and other gather-time options to reduce must-gather archive size.
+type GatherSpec struct {
+	// since restricts log collection to entries newer than the specified duration.
+	// Accepts a duration string (e.g., "1h", "30m", "24h") relative to the current time.
+	// When set, only logs within this time window are collected, reducing archive size.
+	// When omitted, all available logs are collected (default behavior).
+	// This is passed to the gather container via the MUST_GATHER_SINCE environment variable.
+	// +optional
+	// +kubebuilder:validation:Format=duration
+	Since *metav1.Duration `json:"since,omitempty"`
+
+	// sinceTime restricts log collection to entries newer than the specified RFC3339 timestamp.
+	// Accepts an RFC3339 compatible date time (e.g., "2024-01-01T00:00:00Z").
+	// When set, only logs after this timestamp are collected, reducing archive size.
+	// When omitted, all available logs are collected (default behavior).
+	// This is passed to the gather container via the MUST_GATHER_SINCE_TIME environment variable.
+	// If both since and sinceTime are specified, sinceTime takes precedence (matching CLI behavior).
+	// +optional
+	SinceTime *metav1.Time `json:"sinceTime,omitempty"`
 }
 
 // MustGatherStatus defines the observed state of MustGather

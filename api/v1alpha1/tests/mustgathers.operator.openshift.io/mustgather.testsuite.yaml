@@ -1,0 +1,260 @@
+apiVersion: apiextensions.k8s.io/v1
+name: "MustGather API Tests"
+crdName: mustgathers.operator.openshift.io
+tests:
+  onCreate:
+    - name: Should be able to create a minimal MustGather without gatherSpec
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-minimal
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-minimal
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+
+    - name: Should be able to create a MustGather with gatherSpec.since duration
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-since
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+          gatherSpec:
+            since: 2h
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-since
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+          gatherSpec:
+            since: 2h0m0s
+
+    - name: Should be able to create a MustGather with gatherSpec.since in minutes
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-since-minutes
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+          gatherSpec:
+            since: 30m
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-since-minutes
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+          gatherSpec:
+            since: 30m0s
+
+    - name: Should be able to create a MustGather with gatherSpec.since in seconds
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-since-seconds
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+          gatherSpec:
+            since: 300s
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-since-seconds
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+          gatherSpec:
+            since: 5m0s
+
+    - name: Should be able to create a MustGather with gatherSpec.sinceTime timestamp
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-sincetime
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+          gatherSpec:
+            sinceTime: "2026-01-10T14:00:00Z"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-sincetime
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+          gatherSpec:
+            sinceTime: "2026-01-10T14:00:00Z"
+
+    - name: Should be able to create a MustGather with both since and sinceTime
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-both
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+          gatherSpec:
+            since: 2h
+            sinceTime: "2026-01-10T14:00:00Z"
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-both
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+          gatherSpec:
+            since: 2h0m0s
+            sinceTime: "2026-01-10T14:00:00Z"
+
+    - name: Should reject MustGather with invalid duration format for since
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-invalid-since
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+          gatherSpec:
+            since: invalid-duration
+      expectedError: "invalid duration"
+
+    - name: Should reject MustGather with negative duration for since
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-negative-since
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+          gatherSpec:
+            since: -2h
+      expectedError: "invalid duration"
+
+    - name: Should be able to create a MustGather with gatherSpec and upload target
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-with-upload
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+          gatherSpec:
+            since: 2h
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "01234567"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expected: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-with-upload
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+          gatherSpec:
+            since: 2h0m0s
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "01234567"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+              host: sftp.access.redhat.com
+              internalUser: false
+
+  onUpdate:
+    - name: Should reject update to immutable spec field serviceAccountName
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-immutable
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-immutable
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: custom-account
+      expectedError: "spec values are immutable"
+
+    - name: Should reject update to add gatherSpec after creation
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-add-gatherspec
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-add-gatherspec
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+          gatherSpec:
+            since: 2h
+      expectedError: "spec values are immutable"
+
+    - name: Should reject update to modify gatherSpec.since
+      initial: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-modify-since
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+          gatherSpec:
+            since: 2h
+      updated: |
+        apiVersion: operator.openshift.io/v1alpha1
+        kind: MustGather
+        metadata:
+          name: test-mustgather-modify-since
+          namespace: openshift-must-gather-operator
+        spec:
+          serviceAccountName: default
+          gatherSpec:
+            since: 4h
+      expectedError: "spec values are immutable"

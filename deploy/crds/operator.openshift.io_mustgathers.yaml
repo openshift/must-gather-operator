@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.18.1-0.20250818134112-b624019bbe8d
+    controller-gen.kubebuilder.io/version: v0.16.4
   name: mustgathers.operator.openshift.io
 spec:
   group: operator.openshift.io
@@ -45,6 +45,31 @@ spec:
                   A flag to specify if audit logs must be collected
                   See documentation for further information.
                 type: boolean
+              gatherSpec:
+                description: |-
+                  gatherSpec holds optional gather configuration that is passed through to the gather container.
+                  This allows time-based filtering and other gather-time options.
+                properties:
+                  since:
+                    description: |-
+                      since restricts log collection to entries newer than the specified duration.
+                      Accepts a duration string (e.g., "1h", "30m", "24h") relative to the current time.
+                      When set, only logs within this time window are collected, reducing archive size.
+                      When omitted, all available logs are collected (default behavior).
+                      This is passed to the gather container via the MUST_GATHER_SINCE environment variable.
+                    format: duration
+                    type: string
+                  sinceTime:
+                    description: |-
+                      sinceTime restricts log collection to entries newer than the specified RFC3339 timestamp.
+                      Accepts an RFC3339 compatible date time (e.g., "2024-01-01T00:00:00Z").
+                      When set, only logs after this timestamp are collected, reducing archive size.
+                      When omitted, all available logs are collected (default behavior).
+                      This is passed to the gather container via the MUST_GATHER_SINCE_TIME environment variable.
+                      If both since and sinceTime are specified, sinceTime takes precedence (matching CLI behavior).
+                    format: date-time
+                    type: string
+                type: object
               mustGatherTimeout:
                 description: |-
                   A time limit for gather command to complete a floating point number with a suffix:
