@@ -1,7 +1,7 @@
 apiVersion: operators.coreos.com/v1alpha1
 kind: ClusterServiceVersion
 metadata:
-  name: support-log-gather-operator.v4.20.0
+  name: support-log-gather-operator.v4.21.0
   namespace: must-gather-operator
   annotations:
     categories: Monitoring, Application Runtime
@@ -12,7 +12,7 @@ metadata:
     createdAt: "2020-07-31T16:12:36Z"
     support: Red Hat
     repository: https://github.com/openshift/must-gather-operator
-    olm.skipRange: ">=4.20.0-0 <4.20.0"
+    olm.skipRange: ">=4.20.0-0 <4.21.0"
     features.operators.openshift.io/disconnected: "false"
     features.operators.openshift.io/fips-compliant: "true"
     features.operators.openshift.io/proxy-aware: "true"
@@ -23,6 +23,7 @@ metadata:
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
     features.operators.openshift.io/csi: "true"
+    olm.properties: '[{"type":"olm.maxOpenShiftVersion","value":"4.22"}]'
   labels:
     operator-metering: "true"
     operatorframework.io/arch.amd64: supported
@@ -34,28 +35,27 @@ spec:
   displayName: support log gather
   description: |
     An operator that collects logs in Red Hat OpenShift and sends them to Red Hat Support for troubleshooting.
-    
+
     ## Features
-    
+
     * Automated must-gather collection
     * Secure collection and storage
-
   icon:
     - base64data: PHN2ZyBpZD0iTGF5ZXJfMSIgZGF0YS1uYW1lPSJMYXllciAxIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxOTIgMTQ1Ij48ZGVmcz48c3R5bGU+LmNscy0xe2ZpbGw6I2UwMDt9PC9zdHlsZT48L2RlZnM+PHRpdGxlPlJlZEhhdC1Mb2dvLUhhdC1Db2xvcjwvdGl0bGU+PHBhdGggZD0iTTE1Ny43Nyw2Mi42MWExNCwxNCwwLDAsMSwuMzEsMy40MmMwLDE0Ljg4LTE4LjEsMTcuNDYtMzAuNjEsMTcuNDZDNzguODMsODMuNDksNDIuNTMsNTMuMjYsNDIuNTMsNDRhNi40Myw2LjQzLDAsMCwxLC4yMi0xLjk0bC0zLjY2LDkuMDZhMTguNDUsMTguNDUsMCwwLDAtMS41MSw3LjMzYzAsMTguMTEsNDEsNDUuNDgsODcuNzQsNDUuNDgsMjAuNjksMCwzNi40My03Ljc2LDM2LjQzLTIxLjc3LDAtMS4wOCwwLTEuOTQtMS43My0xMC4xM1oiLz48cGF0aCBjbGFzcz0iY2xzLTEiIGQ9Ik0xMjcuNDcsODMuNDljMTIuNTEsMCwzMC42MS0yLjU4LDMwLjYxLTE3LjQ2YTE0LDE0LDAsMCwwLS4zMS0zLjQybC03LjQ1LTMyLjM2Yy0xLjcyLTcuMTItMy4yMy0xMC4zNS0xNS43My0xNi42QzEyNC44OSw4LjY5LDEwMy43Ni41LDk3LjUxLjUsOTEuNjkuNSw5MCw4LDgzLjA2LDhjLTYuNjgsMC0xMS42NC01LjYtMTcuODktNS42LTYsMC05LjkxLDQuMDktMTIuOTMsMTIuNSwwLDAtOC40MSwyMy43Mi05LjQ5LDI3LjE2QTYuNDMsNi40MywwLDAsMCw0Mi41Myw0NGMwLDkuMjIsMzYuMywzOS40NSw4NC45NCwzOS40NU0xNjAsNzIuMDdjMS43Myw4LjE5LDEuNzMsOS4wNSwxLjczLDEwLjEzLDAsMTQtMTUuNzQsMjEuNzctMzYuNDMsMjEuNzdDNzguNTQsMTA0LDM3LjU4LDc2LjYsMzcuNTgsNTguNDlhMTguNDUsMTguNDUsMCwwLDEsMS41MS03LjMzQzIyLjI3LDUyLC41LDU1LC41LDc0LjIyYzAsMzEuNDgsNzQuNTksNzAuMjgsMTMzLjY1LDcwLjI4LDQ1LjI4LDAsNTYuNy0yMC40OCw1Ni43LTM2LjY1LDAtMTIuNzItMTEtMjcuMTYtMzAuODMtMzUuNzgiLz48L3N2Zz4=
       mediatype: image/svg+xml
   keywords:
-  - kubernetes
-  - openshift
-  - monitoring
-  - diagnostics
-  - must-gather
-  - support
+    - kubernetes
+    - openshift
+    - monitoring
+    - diagnostics
+    - must-gather
+    - support
   links:
     - name: Documentation
       url: https://github.com/openshift/must-gather-operator
     - name: Source Repository
       url: https://github.com/openshift/must-gather-operator
-  version: 4.20.0
+  version: 4.21.0
   maturity: tech-preview
   maintainers:
     - email: aos-staff@redhat.com
@@ -64,180 +64,180 @@ spec:
   provider:
     name: Red Hat, Inc
   installModes:
-  - type: OwnNamespace
-    supported: false
-  - type: SingleNamespace
-    supported: false
-  - type: MultiNamespace
-    supported: false
-  - type: AllNamespaces
-    supported: true
+    - type: OwnNamespace
+      supported: false
+    - type: SingleNamespace
+      supported: false
+    - type: MultiNamespace
+      supported: false
+    - type: AllNamespaces
+      supported: true
   install:
     strategy: deployment
     spec:
       clusterPermissions:
-      - serviceAccountName: must-gather-operator
-        rules:
-        - apiGroups:
-          - ""
-          resources:
-          - pods
-          - services
-          - services/finalizers
-          - endpoints
-          - persistentvolumeclaims
-          - events
-          - configmaps
-          - secrets
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - apps
-          resources:
-          - deployments
-          - daemonsets
-          - replicasets
-          - statefulsets
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - monitoring.coreos.com
-          resources:
-          - servicemonitors
-          verbs:
-          - get
-          - create
-        - apiGroups:
-          - apps
-          resourceNames:
-          - must-gather-operator
-          resources:
-          - deployments/finalizers
-          verbs:
-          - update
-        - apiGroups:
-          - ""
-          resources:
-          - pods
-          verbs:
-          - get
-        - apiGroups:
-          - apps
-          resources:
-          - replicasets
-          - deployments
-          verbs:
-          - get
-        - apiGroups:
-          - operator.openshift.io
-          resources:
-          - mustgathers
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - operator.openshift.io
-          resources:
-          - mustgathers/status
-          verbs:
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - operator.openshift.io
-          resources:
-          - mustgathers/finalizers
-          verbs:
-          - update
-        - apiGroups:
-          - config.openshift.io
-          resources:
-          - clusterversions
-          verbs:
-          - get
-          - list
-          - watch
-        - apiGroups:
-          - batch
-          resources:
-          - jobs
-          - jobs/finalizers
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-      deployments:
-      - name: must-gather-operator
-        spec:
-          replicas: 1
-          selector:
-            matchLabels:
-              name: must-gather-operator
-          strategy: {}
-          template:
-            metadata:
-              labels:
-                name: must-gather-operator
-            spec:
-              containers:
-              - command:
+        - serviceAccountName: must-gather-operator
+          rules:
+            - apiGroups:
+                - ""
+              resources:
+                - pods
+                - services
+                - services/finalizers
+                - endpoints
+                - persistentvolumeclaims
+                - events
+                - configmaps
+                - secrets
+              verbs:
+                - create
+                - delete
+                - get
+                - list
+                - patch
+                - update
+                - watch
+            - apiGroups:
+                - apps
+              resources:
+                - deployments
+                - daemonsets
+                - replicasets
+                - statefulsets
+              verbs:
+                - create
+                - delete
+                - get
+                - list
+                - patch
+                - update
+                - watch
+            - apiGroups:
+                - monitoring.coreos.com
+              resources:
+                - servicemonitors
+              verbs:
+                - get
+                - create
+            - apiGroups:
+                - apps
+              resourceNames:
                 - must-gather-operator
-                env:
-                - name: OPERATOR_NAME
-                  value: must-gather-operator
-                - name: DEFAULT_MUST_GATHER_IMAGE
-                  value: quay.io/openshift/origin-must-gather:latest
-                - name: OPERATOR_IMAGE
-                  value: quay.io/openshift/origin-support-log-gather-operator:latest
-                - name: OPERATOR_NAMESPACE
-                  valueFrom:
-                    fieldRef:
-                      fieldPath: metadata.namespace
-                - name: POD_NAME
-                  valueFrom:
-                    fieldRef:
-                      fieldPath: metadata.name
-                - name: WATCH_NAMESPACE
-                  valueFrom:
-                    fieldRef:
-                      fieldPath: metadata.annotations['olm.targetNamespaces']
-                image: quay.io/openshift/origin-support-log-gather-operator:latest
-                imagePullPolicy: Always
+              resources:
+                - deployments/finalizers
+              verbs:
+                - update
+            - apiGroups:
+                - ""
+              resources:
+                - pods
+              verbs:
+                - get
+            - apiGroups:
+                - apps
+              resources:
+                - replicasets
+                - deployments
+              verbs:
+                - get
+            - apiGroups:
+                - operator.openshift.io
+              resources:
+                - mustgathers
+              verbs:
+                - create
+                - delete
+                - get
+                - list
+                - patch
+                - update
+                - watch
+            - apiGroups:
+                - operator.openshift.io
+              resources:
+                - mustgathers/status
+              verbs:
+                - get
+                - patch
+                - update
+            - apiGroups:
+                - operator.openshift.io
+              resources:
+                - mustgathers/finalizers
+              verbs:
+                - update
+            - apiGroups:
+                - config.openshift.io
+              resources:
+                - clusterversions
+              verbs:
+                - get
+                - list
+                - watch
+            - apiGroups:
+                - batch
+              resources:
+                - jobs
+                - jobs/finalizers
+              verbs:
+                - create
+                - delete
+                - get
+                - list
+                - patch
+                - update
+                - watch
+      deployments:
+        - name: must-gather-operator
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
                 name: must-gather-operator
-                resources:
-                  limits:
-                    cpu: 200m
-                    memory: 512Mi
-                  requests:
-                    cpu: 100m
-                    memory: 256Mi
-              serviceAccountName: must-gather-operator
+            strategy: {}
+            template:
+              metadata:
+                labels:
+                  name: must-gather-operator
+              spec:
+                containers:
+                  - command:
+                      - must-gather-operator
+                    env:
+                      - name: OPERATOR_NAME
+                        value: must-gather-operator
+                      - name: DEFAULT_MUST_GATHER_IMAGE
+                        value: quay.io/openshift/origin-must-gather:latest
+                      - name: OPERATOR_IMAGE
+                        value: quay.io/openshift/origin-support-log-gather-operator:latest
+                      - name: OPERATOR_NAMESPACE
+                        valueFrom:
+                          fieldRef:
+                            fieldPath: metadata.namespace
+                      - name: POD_NAME
+                        valueFrom:
+                          fieldRef:
+                            fieldPath: metadata.name
+                      - name: WATCH_NAMESPACE
+                        valueFrom:
+                          fieldRef:
+                            fieldPath: metadata.annotations['olm.targetNamespaces']
+                    image: quay.io/openshift/origin-support-log-gather-operator:latest
+                    imagePullPolicy: Always
+                    name: must-gather-operator
+                    resources:
+                      limits:
+                        cpu: 200m
+                        memory: 512Mi
+                      requests:
+                        cpu: 100m
+                        memory: 256Mi
+                serviceAccountName: must-gather-operator
   customresourcedefinitions:
     owned:
-    - displayName: Must Gather
-      group: operator.openshift.io
-      kind: MustGather
-      name: mustgathers.operator.openshift.io
-      description: Represents a must-gather diagnostic collection job
-      version: v1alpha1
+      - displayName: Must Gather
+        group: operator.openshift.io
+        kind: MustGather
+        name: mustgathers.operator.openshift.io
+        description: Represents a must-gather diagnostic collection job
+        version: v1alpha1
