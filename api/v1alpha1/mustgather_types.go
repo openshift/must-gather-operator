@@ -71,6 +71,9 @@ type MustGatherSpec struct {
 
 // GatherSpec allows specifying the execution details for a must-gather run and the collection behavior.
 // +kubebuilder:validation:XValidation:rule="!(has(self.since) && has(self.sinceTime))",message="only one of since or sinceTime may be specified"
+// +kubebuilder:validation:XValidation:rule="!has(self.since) || !self.since.startsWith(\"-\")",message="since must be a non-negative duration string"
+// +kubebuilder:validation:XValidation:rule="!has(self.since) || self.since.startsWith(\"-\") || self.since.matches(r'^\\+?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|µs|us|ms|s|m|h))+$')",message="since may only use these duration suffixes: ns, us, µs, ms, s, m, h (e.g. 2h, 30m, 168h for one week)."
+// +kubebuilder:validation:XValidation:rule="!has(self.sinceTime) || self.sinceTime.matches(r'^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$')",message="sinceTime must be in RFC3339 format."
 type GatherSpec struct {
 	// +kubebuilder:validation:Optional
 	// Audit requests audit log collection via the default gather entrypoint.
@@ -90,18 +93,19 @@ type GatherSpec struct {
 	// +kubebuilder:validation:Items:MaxLength=256
 	Args []string `json:"args,omitempty"`
 
-	// Since only returns logs newer than a relative duration like "2h" or "30m".
+	// Since only returns logs newer than a relative duration (e.g. 2h, 30m, 168h for one week). Must be non-negative.
+	// Allowed units are ns, us, µs, ms, s, m, and h.
 	// This is passed to the must-gather script to filter log collection.
 	// Only one of since or sinceTime may be specified.
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:validation:Format=duration
 	Since *metav1.Duration `json:"since,omitempty"`
 
-	// SinceTime only returns logs after a specific date/time (RFC3339 format).
+	// SinceTime only returns logs after a specific instant. Use RFC3339 with uppercase T and Z or a zone offset
+	// (e.g. 2026-02-02T00:00:00Z). Must not be after the current time when the operator reconciles the MustGather
+	// (CRD CEL cannot access metadata.creationTimestamp or a wall clock; validation is done in the controller).
 	// This is passed to the must-gather script to filter log collection.
 	// Only one of since or sinceTime may be specified.
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:validation:Format=date-time
 	SinceTime *metav1.Time `json:"sinceTime,omitempty"`
 }
 
