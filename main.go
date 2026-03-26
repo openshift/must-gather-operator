@@ -73,10 +73,7 @@ var (
 var log = logf.Log.WithName("cmd")
 
 func printVersion() {
-	log.Info(fmt.Sprintf("Operator Version: %s", version.Version))
-	log.Info(fmt.Sprintf("Go Version: %s", runtime.Version()))
-	log.Info(fmt.Sprintf("Go OS/Arch: %s/%s", runtime.GOOS, runtime.GOARCH))
-	log.Info(fmt.Sprintf("Version of operator-sdk: %v", version.SDKVersion))
+	log.Info("Operator started", "version", version.Version, "goVersion", runtime.Version(), "goOS", runtime.GOOS, "goArch", runtime.GOARCH, "sdkVersion", version.SDKVersion)
 }
 
 func init() {

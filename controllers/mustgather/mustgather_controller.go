@@ -21,6 +21,7 @@ import (
 	goerror "errors"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/go-logr/logr"
 	imagev1 "github.com/openshift/api/image/v1"
@@ -112,7 +113,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	isMustGatherMarkedToBeDeleted := instance.GetDeletionTimestamp() != nil
 	if isMustGatherMarkedToBeDeleted {
 		reqLogger.Info("mustgather instance is marked for deletion")
-		if contains(instance.GetFinalizers(), mustGatherFinalizer) {
+		if slices.Contains(instance.GetFinalizers(), mustGatherFinalizer) {
 			// Run finalization logic for mustGatherFinalizer. If the
 			// finalization logic fails, don't remove the finalizer so
 			// that we can retry during the next reconciliation.
@@ -129,7 +130,9 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 			// Remove mustGatherFinalizer. Once all finalizers have been
 			// removed, the object will be deleted.
-			instance.SetFinalizers(remove(instance.GetFinalizers(), mustGatherFinalizer))
+			instance.SetFinalizers(slices.DeleteFunc(instance.GetFinalizers(), func(s string) bool {
+				return s == mustGatherFinalizer
+			}))
 			err := r.GetClient().Update(ctx, instance)
 			if err != nil {
 				return r.ManageError(ctx, instance, err)
@@ -139,7 +142,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	// Add finalizer for this CR
-	if !contains(instance.GetFinalizers(), mustGatherFinalizer) {
+	if !slices.Contains(instance.GetFinalizers(), mustGatherFinalizer) {
 		return reconcile.Result{}, r.addFinalizer(ctx, reqLogger, instance)
 	}
 
@@ -266,25 +269,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		// requeue instance to handle resource clean-up (delete secret, job, and MustGather)
 		if job1.Status.Succeeded > 0 {
 			reqLogger.Info("mustgather Job pods succeeded")
-			// Update the MustGather CR status to indicate success
-			instance.Status.Status = "Completed"
-			instance.Status.Completed = true
-			instance.Status.Reason = "MustGather Job pods succeeded"
-			err := r.GetClient().Status().Update(ctx, instance)
-			if err != nil {
-				log.Error(err, "unable to update instance", "instance", instance)
-				return r.ManageError(ctx, instance, err)
-			}
-
-			// Clean up resources if RetainResourcesOnCompletion is false (default behavior)
-			if instance.Spec.RetainResourcesOnCompletion == nil || !*instance.Spec.RetainResourcesOnCompletion {
-				err := r.cleanupMustGatherResources(ctx, reqLogger, instance)
-				if err != nil {
-					reqLogger.Error(err, "failed to cleanup MustGather resources")
-					return r.ManageError(ctx, instance, err)
-				}
-			}
-			return reconcile.Result{}, nil
+			return r.handleJobCompletion(ctx, reqLogger, instance, "Completed", "MustGather Job pods succeeded")
 		}
 		backoffLimit := int32(0)
 		if job1.Spec.BackoffLimit != nil {
@@ -292,27 +277,8 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		}
 		if job1.Status.Failed > backoffLimit {
 			reqLogger.Info("MustGather Job pods failed")
-			// Increment prometheus metrics for must gather errors
 			localmetrics.MetricMustGatherErrors.Inc()
-			// Update the MustGather CR status to indicate failure
-			instance.Status.Status = "Failed"
-			instance.Status.Completed = true
-			instance.Status.Reason = "MustGather Job pods failed"
-			err := r.GetClient().Status().Update(ctx, instance)
-			if err != nil {
-				log.Error(err, "unable to update instance", "instance", instance)
-				return r.ManageError(ctx, instance, err)
-			}
-
-			// Clean up resources if RetainResourcesOnCompletion is false (default behavior)
-			if instance.Spec.RetainResourcesOnCompletion == nil || !*instance.Spec.RetainResourcesOnCompletion {
-				err := r.cleanupMustGatherResources(ctx, reqLogger, instance)
-				if err != nil {
-					reqLogger.Error(err, "failed to cleanup MustGather resources")
-					return r.ManageError(ctx, instance, err)
-				}
-			}
-			return reconcile.Result{}, nil
+			return r.handleJobCompletion(ctx, reqLogger, instance, "Failed", "MustGather Job pods failed")
 		}
 	}
 
@@ -322,6 +288,26 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	return r.updateStatus(ctx, instance, job1)
 
+}
+
+func (r *MustGatherReconciler) handleJobCompletion(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather, status string, reason string) (reconcile.Result, error) {
+	instance.Status.Status = status
+	instance.Status.Completed = true
+	instance.Status.Reason = reason
+	err := r.GetClient().Status().Update(ctx, instance)
+	if err != nil {
+		reqLogger.Error(err, "unable to update instance", "instance", instance.Name)
+		return r.ManageError(ctx, instance, err)
+	}
+
+	if instance.Spec.RetainResourcesOnCompletion == nil || !*instance.Spec.RetainResourcesOnCompletion {
+		err := r.cleanupMustGatherResources(ctx, reqLogger, instance)
+		if err != nil {
+			reqLogger.Error(err, "failed to cleanup MustGather resources")
+			return r.ManageError(ctx, instance, err)
+		}
+	}
+	return reconcile.Result{}, nil
 }
 
 func (r *MustGatherReconciler) updateStatus(ctx context.Context, instance *mustgatherv1alpha1.MustGather, job *batchv1.Job) (reconcile.Result, error) {
@@ -398,7 +384,7 @@ func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, instance 
 	if err != nil {
 		_, validationErr := r.setValidationFailureStatus(ctx, log, instance, ValidationImageStream, err)
 		if validationErr != nil {
-			return nil, fmt.Errorf("failed to set validation failure status: %w, %w", err, validationErr)
+			return nil, fmt.Errorf("failed to set validation failure status (original: %v): %w", validationErr, err)
 		}
 		return nil, err
 	}
@@ -451,26 +437,6 @@ func (r *MustGatherReconciler) getMustGatherImage(ctx context.Context, instance 
 	return image, nil
 }
 
-// contains is a helper function for finalizer
-func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
-}
-
-// remove is a helper function for finalizer
-func remove(list []string, s string) []string {
-	for i, v := range list {
-		if v == s {
-			list = append(list[:i], list[i+1:]...)
-		}
-	}
-	return list
-}
-
 // cleanupMustGatherResources cleans up the secret, job, and pods associated with a MustGather instance
 func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather) error {
 	reqLogger.Info("cleaning up resources")
@@ -485,10 +451,10 @@ func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, r
 
 	if err != nil {
 		if !errors.IsNotFound(err) {
-			reqLogger.Info(fmt.Sprintf("failed to get %s job", instance.Name))
+			reqLogger.Info("failed to get job", "job", instance.Name)
 			return err
 		}
-		reqLogger.Info(fmt.Sprintf("job %s not found", instance.Name))
+		reqLogger.Info("job not found", "job", instance.Name)
 		reqLogger.V(4).Info("successfully cleaned up mustgather resources")
 		return nil
 	}
@@ -511,18 +477,18 @@ func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, r
 	}
 	err = r.DeleteResourcesIfExist(ctx, podObjs)
 	if err != nil {
-		reqLogger.Error(err, fmt.Sprintf("failed to delete pods for job %s", tmpJob.Name))
+		reqLogger.Error(err, "failed to delete pods for job", "job", tmpJob.Name)
 		return err
 	}
-	reqLogger.Info(fmt.Sprintf("deleted pods for job %s", tmpJob.Name))
+	reqLogger.Info("deleted pods for job", "job", tmpJob.Name)
 
 	// finally delete job
 	err = r.GetClient().Delete(ctx, tmpJob)
 	if err != nil {
-		reqLogger.Error(err, fmt.Sprintf("failed to delete %s job", tmpJob.Name))
+		reqLogger.Error(err, "failed to delete job", "job", tmpJob.Name)
 		return err
 	}
-	reqLogger.Info(fmt.Sprintf("deleted job %s", tmpJob.Name))
+	reqLogger.Info("deleted job", "job", tmpJob.Name)
 
 	if r.TrustedCAConfigMap != "" {
 		if err := r.cleanupTrustedCAConfigMap(ctx, reqLogger, instance); err != nil {
