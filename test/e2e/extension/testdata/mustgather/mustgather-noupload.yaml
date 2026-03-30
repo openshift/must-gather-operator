@@ -1,0 +1,20 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: mustgather-noupload-template
+objects:
+  - apiVersion: operator.openshift.io/v1alpha1
+    kind: MustGather
+    metadata:
+      name: "${NAME}"
+      namespace: "${NAMESPACE}"
+    spec:
+      serviceAccountName: "${SA}"
+      retainResourcesOnCompletion: ${{RETAIN_RESOURCES}}
+parameters:
+  - name: NAME
+  - name: NAMESPACE
+  - name: SA
+    value: "must-gather-operator"
+  - name: RETAIN_RESOURCES
+    value: "true"

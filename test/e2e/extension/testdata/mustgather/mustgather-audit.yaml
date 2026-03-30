@@ -1,0 +1,31 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: mustgather-audit-template
+objects:
+  - apiVersion: operator.openshift.io/v1alpha1
+    kind: MustGather
+    metadata:
+      name: "${NAME}"
+      namespace: "${NAMESPACE}"
+    spec:
+      serviceAccountName: "${SA}"
+      retainResourcesOnCompletion: ${{RETAIN_RESOURCES}}
+      audit: ${{AUDIT}}
+      storage:
+        type: PersistentVolume
+        persistentVolume:
+          claim:
+            name: "${PVCNAME}"
+          subPath: "${SUBPATH}"
+parameters:
+  - name: NAME
+  - name: NAMESPACE
+  - name: SA
+    value: "must-gather-operator"
+  - name: RETAIN_RESOURCES
+  - name: AUDIT
+    value: "false"
+  - name: PVCNAME
+  - name: SUBPATH
+    value: "must-gather-bundles/case-04230315"
