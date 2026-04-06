@@ -11,6 +11,7 @@ import (
 
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -114,6 +115,8 @@ func Test_getGatherContainer(t *testing.T) {
 		storage         *mustgatherv1alpha1.Storage
 		command         []string
 		args            []string
+		since           *metav1.Duration
+		sinceTime       *metav1.Time
 	}{
 		{
 			name:            "no audit",
@@ -184,10 +187,48 @@ func Test_getGatherContainer(t *testing.T) {
 			command:         []string{"/usr/bin/custom-gather"},
 			args:            []string{"--verbose", "--subsystem=network"},
 		},
+		{
+			name:            "with since duration",
+			timeout:         5 * time.Second,
+			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+			since:           &metav1.Duration{Duration: 2 * time.Hour},
+		},
+		{
+			name:            "with sinceTime timestamp",
+			timeout:         5 * time.Second,
+			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+			sinceTime:       &metav1.Time{Time: time.Date(2026, 1, 10, 14, 0, 0, 0, time.UTC)},
+		},
+		{
+			name:            "with both since and sinceTime",
+			timeout:         5 * time.Second,
+			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+			since:           &metav1.Duration{Duration: 30 * time.Minute},
+			sinceTime:       &metav1.Time{Time: time.Date(2026, 1, 10, 14, 0, 0, 0, time.UTC)},
+		},
+		{
+			name:    "with PVC and since duration",
+			timeout: 5 * time.Second,
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{
+						Name: "test-pvc",
+					},
+					SubPath: "test-path",
+				},
+			},
+			since: &metav1.Duration{Duration: 1 * time.Hour},
+		},
+		{
+			name:            "backward compatibility - no time filters",
+			timeout:         5 * time.Second,
+			mustGatherImage: "quay.io/foo/bar/must-gather:latest",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			container := getGatherContainer(tt.mustGatherImage, tt.audit, tt.timeout, tt.storage, "", tt.command, tt.args)
+			container := getGatherContainer(tt.mustGatherImage, tt.audit, tt.timeout, tt.storage, "", tt.command, tt.args, tt.since, tt.sinceTime)
 
 			if len(tt.command) == 0 {
 				containerCommand := container.Command[2]
@@ -249,6 +290,38 @@ func Test_getGatherContainer(t *testing.T) {
 			}
 			if !hasPVCStorage && hasPodNameEnv {
 				t.Fatalf("did not expect %s env var when storage is not PVC", podNameEnvVar)
+			}
+
+			// Validate time filtering environment variables
+			hasSinceEnv := false
+			hasSinceTimeEnv := false
+			for _, env := range container.Env {
+				if env.Name == "MUST_GATHER_SINCE" {
+					hasSinceEnv = true
+					if tt.since == nil {
+						t.Fatalf("found MUST_GATHER_SINCE env var but since field is nil")
+					}
+					expectedValue := tt.since.Duration.String()
+					if env.Value != expectedValue {
+						t.Fatalf("expected MUST_GATHER_SINCE value %q but got %q", expectedValue, env.Value)
+					}
+				}
+				if env.Name == "MUST_GATHER_SINCE_TIME" {
+					hasSinceTimeEnv = true
+					if tt.sinceTime == nil {
+						t.Fatalf("found MUST_GATHER_SINCE_TIME env var but sinceTime field is nil")
+					}
+					expectedValue := tt.sinceTime.Format(time.RFC3339)
+					if env.Value != expectedValue {
+						t.Fatalf("expected MUST_GATHER_SINCE_TIME value %q but got %q", expectedValue, env.Value)
+					}
+				}
+			}
+			if tt.since != nil && !hasSinceEnv {
+				t.Fatalf("expected MUST_GATHER_SINCE env var when since field is set")
+			}
+			if tt.sinceTime != nil && !hasSinceTimeEnv {
+				t.Fatalf("expected MUST_GATHER_SINCE_TIME env var when sinceTime field is set")
 			}
 		})
 	}
