@@ -95,8 +95,15 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 	}
 
 	var audit bool
+	var since *metav1.Duration
+	var sinceTime *metav1.Time
+	var command, args []string
 	if mustGather.Spec.GatherSpec != nil {
 		audit = mustGather.Spec.GatherSpec.Audit
+		since = mustGather.Spec.GatherSpec.Since
+		sinceTime = mustGather.Spec.GatherSpec.SinceTime
+		command = mustGather.Spec.GatherSpec.Command
+		args = mustGather.Spec.GatherSpec.Args
 	}
 
 	timeout := time.Duration(0)
@@ -104,15 +111,9 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 		timeout = mustGather.Spec.MustGatherTimeout.Duration
 	}
 
-	var command, args []string
-	if mustGather.Spec.GatherSpec != nil {
-		command = mustGather.Spec.GatherSpec.Command
-		args = mustGather.Spec.GatherSpec.Args
-	}
-
 	job.Spec.Template.Spec.Containers = append(
 		job.Spec.Template.Spec.Containers,
-		getGatherContainer(image, audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName, command, args),
+		getGatherContainer(image, audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName, command, args, since, sinceTime),
 	)
 
 	// Add the upload container only if the upload target is specified
@@ -219,7 +220,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 	}
 }
 
-func getGatherContainer(image string, audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string, command []string, args []string) corev1.Container {
+func getGatherContainer(image string, audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string, command []string, args []string, since *metav1.Duration, sinceTime *metav1.Time) corev1.Container {
 	var commandBinary string
 	if audit {
 		commandBinary = gatherCommandBinaryAudit
@@ -271,6 +272,20 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 	// Provide pod name env var only when SubPathExpr is used (PVC subPath is set).
 	if hasSubPathExpr {
 		container.Env = append(container.Env, podNameEnvVars()...)
+	}
+
+	// Add time filtering environment variables if specified
+	if since != nil {
+		container.Env = append(container.Env, corev1.EnvVar{
+			Name:  "MUST_GATHER_SINCE",
+			Value: since.Duration.String(),
+		})
+	}
+	if sinceTime != nil {
+		container.Env = append(container.Env, corev1.EnvVar{
+			Name:  "MUST_GATHER_SINCE_TIME",
+			Value: sinceTime.Format(time.RFC3339),
+		})
 	}
 
 	return container
