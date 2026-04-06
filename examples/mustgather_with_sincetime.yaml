@@ -1,0 +1,8 @@
+apiVersion: operator.openshift.io/v1alpha1
+kind: MustGather
+metadata:
+  name: must-gather-sincetime
+spec:
+  serviceAccountName: must-gather-admin
+  gatherSpec:
+    sinceTime: "2026-04-06T12:00:00Z"
