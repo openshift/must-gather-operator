@@ -87,6 +87,23 @@ type GatherSpec struct {
 	// +kubebuilder:validation:MaxItems=256
 	// +kubebuilder:validation:Items:MaxLength=256
 	Args []string `json:"args,omitempty"`
+
+	// Since restricts log collection to entries newer than the specified duration.
+	// Accepts a duration string (e.g., "1h", "30m", "24h") relative to the current time.
+	// When set, only logs within this time window are collected, reducing archive size.
+	// If unset, all available logs are collected (default behavior).
+	// This is passed to the gather container via the MUST_GATHER_SINCE environment variable.
+	// +optional
+	// +kubebuilder:validation:Format=duration
+	Since *metav1.Duration `json:"since,omitempty"`
+
+	// SinceTime restricts log collection to entries newer than the specified RFC3339 timestamp.
+	// Accepts an RFC3339 compatible date time (e.g., "2024-01-01T00:00:00Z").
+	// When set, only logs after this timestamp are collected, reducing archive size.
+	// If unset, all available logs are collected (default behavior).
+	// This is passed to the gather container via the MUST_GATHER_SINCE_TIME environment variable.
+	// +optional
+	SinceTime *metav1.Time `json:"sinceTime,omitempty"`
 }
 
 // ImageStreamTagRef provides a structured reference to a specific tag within an ImageStream.
