@@ -8,11 +8,15 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -84,8 +88,9 @@ const (
 	// PersistentVolume test constants
 	mustGatherPVCName        = "must-gather-pvc"
 	caseCredsConfigDirEnvVar = "CASE_MANAGEMENT_CREDS_CONFIG_DIR"
-	vaultUsernameKey         = "sftp-username-e2e"
-	vaultPasswordKey         = "sftp-password-e2e"
+	// vaultOfflineTokenKey is the RH SSO offline refresh token mounted from Vault for CI.
+	vaultOfflineTokenKey = "offline-token-e2e"
+	sftpTokenScript      = "generate-sftp-token.sh"
 )
 
 //go:embed testdata/*
@@ -876,7 +881,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		ginkgo.It("should successfully upload must-gather data to SFTP server for external user", func() {
 			ginkgo.By("Getting SFTP credentials from Vault")
 
-			sftpUsername, sftpPassword, err := getCaseCredsFromVault()
+			sftpUsername, sftpPassword, err := getCaseCreds()
 			Expect(err).NotTo(HaveOccurred(), "Failed to get SFTP credentials from Vault")
 
 			ginkgo.By("Creating case-management-creds-valid secret")
@@ -1722,25 +1727,17 @@ func createMustGatherCR(name, namespace, serviceAccountName string, retainResour
 
 	return mg
 }
-func getCaseCredsFromVault() (string, string, error) {
-	// First, try to read from Vault-mounted files (CI/CD environment)
-	configDir := os.Getenv(caseCredsConfigDirEnvVar)
-	if configDir != "" {
-		// Check if the directory exists before trying to read
-		if _, err := os.Stat(configDir); err == nil {
-			sftpUsername, err := os.ReadFile(filepath.Join(configDir, vaultUsernameKey))
-			if err != nil {
-				return "", "", fmt.Errorf("failed to read sftp username from file: %w", err)
-			}
-			sftpPassword, err := os.ReadFile(filepath.Join(configDir, vaultPasswordKey))
-			if err != nil {
-				return "", "", fmt.Errorf("failed to read sftp password from file: %w", err)
-			}
-			return strings.TrimSpace(string(sftpUsername)), strings.TrimSpace(string(sftpPassword)), nil
-		}
+func getCaseCreds() (string, string, error) {
+	// Check for offline token in Vault first
+	offlineToken, err := readOfflineTokenFromVault()
+	if err != nil {
+		return "", "", err
+	}
+	if offlineToken != "" {
+		return runGenerateSFTPScript(offlineToken)
 	}
 
-	// Fallback: try direct environment variables (for local testing)
+	// Fall back to local credentials
 	sftpUsername := os.Getenv("SFTP_USERNAME_E2E")
 	sftpPassword := os.Getenv("SFTP_PASSWORD_E2E")
 	if sftpUsername != "" && sftpPassword != "" {
@@ -1748,8 +1745,73 @@ func getCaseCredsFromVault() (string, string, error) {
 	}
 
 	return "", "", fmt.Errorf("SFTP credentials not found. Set either:\n"+
-		"  1. CASE_MANAGEMENT_CREDS_CONFIG_DIR with Vault-mounted files (%s, %s), or\n"+
-		"  2. SFTP_USERNAME_E2E and SFTP_PASSWORD_E2E environment variables for local testing", vaultUsernameKey, vaultPasswordKey)
+		"  1. SFTP_USERNAME_E2E and SFTP_PASSWORD_E2E (typical for local runs), or\n"+
+		"  2. mount %q under CASE_MANAGEMENT_CREDS_CONFIG_DIR for generate-sftp-token.sh", vaultOfflineTokenKey)
+}
+
+type sftpCreds struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// runGenerateSFTPScript runs test/e2e/generate-sftp-token.sh beside this source file, passing the offline token as RH_OFFLINE_TOKEN for the subprocess only.
+func runGenerateSFTPScript(offline string) (string, string, error) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		return "", "", fmt.Errorf("could not resolve path to %s", sftpTokenScript)
+	}
+	script := filepath.Join(filepath.Dir(thisFile), sftpTokenScript)
+	if _, err := os.Stat(script); err != nil {
+		return "", "", fmt.Errorf("SFTP token generation script %q: %w", script, err)
+	}
+
+	cmd := exec.Command("bash", script)
+	cmd.Env = append(os.Environ(), "RH_OFFLINE_TOKEN="+strings.TrimSpace(offline))
+
+	out, err := cmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return "", "", fmt.Errorf("generate-sftp-token script failed: %w\nstderr: %s", err, string(exitErr.Stderr))
+		}
+		return "", "", fmt.Errorf("generate-sftp-token script failed: %w", err)
+	}
+
+	var creds sftpCreds
+	if err := json.Unmarshal(bytes.TrimSpace(out), &creds); err != nil {
+		return "", "", fmt.Errorf("parse generate script output: %w (output: %q)", err, strings.TrimSpace(string(out)))
+	}
+	if creds.Username == "" || creds.Password == "" {
+		return "", "", fmt.Errorf("generate script returned empty username or password")
+	}
+	return creds.Username, creds.Password, nil
+}
+
+// readOfflineTokenFromVault returns the RH SSO offline refresh token for generate-sftp-token.sh
+func readOfflineTokenFromVault() (string, error) {
+	configDir := os.Getenv(caseCredsConfigDirEnvVar)
+	if configDir == "" {
+		return "", nil
+	}
+	if _, err := os.Stat(configDir); err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("stat CASE_MANAGEMENT_CREDS_CONFIG_DIR %q: %w", configDir, err)
+	}
+
+	path := filepath.Join(configDir, vaultOfflineTokenKey)
+	offline_token, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("expected offline refresh token at %q (Vault key %s)", path, vaultOfflineTokenKey)
+		}
+		return "", fmt.Errorf("read offline token %q: %w", path, err)
+	}
+	if trimmed := strings.TrimSpace(string(offline_token)); trimmed != "" {
+		return trimmed, nil
+	}
+	return "", fmt.Errorf("offline token file %q is empty", path)
 }
 
 // getOperatorImage retrieves the OPERATOR_IMAGE from the must-gather-operator deployment
