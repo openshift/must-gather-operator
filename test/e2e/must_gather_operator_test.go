@@ -83,7 +83,7 @@ const (
 	caseManagementSecretNameInvalid       = "case-management-creds-invalid"
 	caseManagementSecretNameEmptyUsername = "case-management-creds-empty-username"
 	caseManagementSecretNameEmptyPassword = "case-management-creds-empty-password"
-	stageHostName                         = "sftp.access.stage.redhat.com"
+	prodHostName                          = "sftp.access.redhat.com"
 
 	// PersistentVolume test constants
 	mustGatherPVCName        = "must-gather-pvc"
@@ -910,7 +910,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.GinkgoWriter.Printf("Using unique caseID: %s\n", caseID)
 
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
-				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: stageHostName},
+				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: prodHostName},
 			})
 
 			ginkgo.By("Verifying MustGather CR has internalUser set to false")
@@ -1070,7 +1070,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Verifying file was uploaded to SFTP server at the correct path for external user")
 
 			// For external users (internal_user=false), the file should be uploaded directly to: <caseid>_<filename>.tar.gz
-			found, sftpLogs, err := verifySFTPUpload(ns.Name, caseManagementSecretNameValid, stageHostName, caseID, false)
+			found, sftpLogs, err := verifySFTPUpload(ns.Name, caseManagementSecretNameValid, prodHostName, caseID, false)
 			if err != nil {
 				ginkgo.GinkgoWriter.Printf("SFTP verification error: %v\n", err)
 			}
@@ -1113,7 +1113,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					CaseID:       "00000",
 					SecretName:   caseManagementSecretNameInvalid,
 					InternalUser: false,
-					Host:         stageHostName,
+					Host:         prodHostName,
 				},
 			})
 
@@ -1159,7 +1159,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					CaseID:       "00000",
 					SecretName:   caseManagementSecretNameEmptyUsername,
 					InternalUser: false,
-					Host:         stageHostName,
+					Host:         prodHostName,
 				},
 			})
 
@@ -1205,7 +1205,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					CaseID:       "00000",
 					SecretName:   caseManagementSecretNameEmptyPassword,
 					InternalUser: false,
-					Host:         stageHostName,
+					Host:         prodHostName,
 				},
 			})
 
