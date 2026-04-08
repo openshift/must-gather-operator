@@ -25,7 +25,6 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // MustGatherSpec defines the desired state of MustGather
-// +kubebuilder:validation:XValidation:rule="!(has(self.gatherSpec) && ((has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0) || (has(self.gatherSpec.args) && size(self.gatherSpec.args) > 0))) || has(self.imageStreamRef)",message="command and args in gatherSpec can only be set when imageStreamRef is specified"
 type MustGatherSpec struct {
 	// the service account to use to run the must gather job pod, defaults to default
 	// +kubebuilder:validation:Optional
@@ -37,9 +36,8 @@ type MustGatherSpec struct {
 	// +kubebuilder:validation:Optional
 	ImageStreamRef *ImageStreamTagRef `json:"imageStreamRef,omitempty"`
 
-	// GatherSpec allows overriding the command and/or arguments for the custom must-gather image
-	// and configures time-based collection filters.
-	// The command and args fields are only honored when ImageStreamRef is specified.
+	// GatherSpec allows overriding the command and/or arguments for the must-gather container
+	// (default or custom image from imageStreamRef) and configures time-based collection filters.
 	// Time-based filters (since, sinceTime) and audit apply regardless of ImageStreamRef.
 	// +kubebuilder:validation:Optional
 	GatherSpec *GatherSpec `json:"gatherSpec,omitempty"`
@@ -78,15 +76,14 @@ type GatherSpec struct {
 	Audit bool `json:"audit,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	// Command is a string array representing the entrypoint for the custom image.
-	// This field is only honored when a custom image IS specified via imageStreamRef.
+	// Command is a string array representing the container entrypoint.
+	// When set, it replaces the default gather wrapper for both the default must-gather image and custom images.
 	// +kubebuilder:validation:MaxItems=256
 	// +kubebuilder:validation:Items:MaxLength=256
 	Command []string `json:"command,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	// Args is a string array of arguments passed to the custom image's command.
-	// This field is only honored when a custom image IS specified via imageStreamRef.
+	// Args is a string array of arguments passed to the container command.
 	// +kubebuilder:validation:MaxItems=256
 	// +kubebuilder:validation:Items:MaxLength=256
 	Args []string `json:"args,omitempty"`
