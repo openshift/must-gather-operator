@@ -43,7 +43,8 @@ spec:
                 description: |-
                   GatherSpec allows overriding the command and/or arguments for the must-gather container
                   (default or custom image from imageStreamRef) and configures time-based collection filters.
-                  Time-based filters (since, sinceTime) and audit apply regardless of ImageStreamRef.
+                  Time-based filters (since, sinceTime) apply regardless of imageStreamRef.
+                  Audit is only allowed with the default image and default gather command (see CRD validation rules).
                 properties:
                   args:
                     description: Args is a string array of arguments passed to the
@@ -54,9 +55,8 @@ spec:
                     type: array
                   audit:
                     description: |-
-                      Audit specifies whether to collect audit logs. This is translated to a signal
-                      or command that can be respected by the default image
-                      or any custom image designed to do so.
+                      Audit requests audit log collection via the default gather entrypoint.
+                      It must be false when imageStreamRef is set or when gatherSpec.command is set without imageStreamRef.
                     type: boolean
                   command:
                     description: |-
@@ -227,6 +227,13 @@ spec:
                   rule: 'has(self.type) && self.type == ''SFTP'' ? has(self.sftp)
                     : !has(self.sftp)'
             type: object
+            x-kubernetes-validations:
+            - message: audit cannot be enabled when using a custom image (imageStreamRef)
+              rule: '!(has(self.imageStreamRef) && has(self.gatherSpec) && self.gatherSpec.audit)'
+            - message: audit cannot be enabled when gatherSpec.command is set with
+                the default must-gather image
+              rule: '!(!has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.command)
+                && size(self.gatherSpec.command) > 0 && self.gatherSpec.audit)'
           status:
             description: MustGatherStatus defines the observed state of MustGather
             properties:

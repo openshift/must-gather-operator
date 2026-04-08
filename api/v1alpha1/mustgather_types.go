@@ -25,6 +25,8 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // MustGatherSpec defines the desired state of MustGather
+// +kubebuilder:validation:XValidation:rule="!(has(self.imageStreamRef) && has(self.gatherSpec) && self.gatherSpec.audit)",message="audit cannot be enabled when using a custom image (imageStreamRef)"
+// +kubebuilder:validation:XValidation:rule="!(!has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0 && self.gatherSpec.audit)",message="audit cannot be enabled when gatherSpec.command is set with the default must-gather image"
 type MustGatherSpec struct {
 	// the service account to use to run the must gather job pod, defaults to default
 	// +kubebuilder:validation:Optional
@@ -38,7 +40,8 @@ type MustGatherSpec struct {
 
 	// GatherSpec allows overriding the command and/or arguments for the must-gather container
 	// (default or custom image from imageStreamRef) and configures time-based collection filters.
-	// Time-based filters (since, sinceTime) and audit apply regardless of ImageStreamRef.
+	// Time-based filters (since, sinceTime) apply regardless of imageStreamRef.
+	// Audit is only allowed with the default image and default gather command (see CRD validation rules).
 	// +kubebuilder:validation:Optional
 	GatherSpec *GatherSpec `json:"gatherSpec,omitempty"`
 
@@ -70,9 +73,8 @@ type MustGatherSpec struct {
 // +kubebuilder:validation:XValidation:rule="!(has(self.since) && has(self.sinceTime))",message="only one of since or sinceTime may be specified"
 type GatherSpec struct {
 	// +kubebuilder:validation:Optional
-	// Audit specifies whether to collect audit logs. This is translated to a signal
-	// or command that can be respected by the default image
-	// or any custom image designed to do so.
+	// Audit requests audit log collection via the default gather entrypoint.
+	// It must be false when imageStreamRef is set or when gatherSpec.command is set without imageStreamRef.
 	Audit bool `json:"audit,omitempty"`
 
 	// +kubebuilder:validation:Optional
