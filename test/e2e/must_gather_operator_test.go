@@ -9,6 +9,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -89,13 +90,16 @@ const (
 	mustGatherPVCName        = "must-gather-pvc"
 	caseCredsConfigDirEnvVar = "CASE_MANAGEMENT_CREDS_CONFIG_DIR"
 	// vaultOfflineTokenKey is the RH SSO offline refresh token mounted from Vault for CI.
-	vaultOfflineTokenKey     = "offline-token-e2e"
-	refreshSFTPTokenScript   = "refresh-sftp-token.sh"
-	sftpCleanupUploadsScript = "cleanup-sftp-uploads.sh"
+	vaultOfflineTokenKey          = "offline-token-e2e"
+	refreshSFTPTokenScript        = "refresh-sftp-token.sh"
+	refreshSFTPTokenScriptTimeout = 60 * time.Second
 )
 
 //go:embed testdata/*
 var testassets embed.FS
+
+//go:embed cleanup-sftp-uploads.sh
+var sftpCleanupUploadsScript string
 
 // Test suite variables
 var (
@@ -1773,11 +1777,17 @@ func refreshSFTPToken(offlineToken string) (string, string, error) {
 		return "", "", fmt.Errorf("SFTP token generation script %q: %w", script, err)
 	}
 
-	cmd := exec.Command("bash", script)
+	ctx, cancel := context.WithTimeout(context.Background(), refreshSFTPTokenScriptTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "bash", script)
 	cmd.Env = append(os.Environ(), "RH_OFFLINE_TOKEN="+strings.TrimSpace(offlineToken))
 
 	out, err := cmd.Output()
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return "", "", fmt.Errorf("refresh-sftp-token script exceeded deadline %s: %w", refreshSFTPTokenScriptTimeout, err)
+		}
 		return "", "", fmt.Errorf("refresh-sftp-token script failed: %w", err)
 	}
 

@@ -22,6 +22,7 @@ fi
 offline_token="${RH_OFFLINE_TOKEN}"
 
 token_json=$(curl -sS \
+	--connect-timeout 10 --max-time 30 \
 	https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token \
 	-d grant_type=refresh_token \
 	-d client_id=rhsm-api \
@@ -42,6 +43,7 @@ if [[ -z "${access_token}" || "${access_token}" == "null" ]]; then
 fi
 
 sftp_json=$(curl -sS \
+	--connect-timeout 10 --max-time 30 \
 	-H "Authorization: Bearer ${access_token}" \
 	-H 'Accept: application/json' \
 	-H 'Content-Type: application/json' \
