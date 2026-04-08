@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.16.4
   name: mustgathers.operator.openshift.io
 spec:
   group: operator.openshift.io
@@ -41,15 +41,13 @@ spec:
             properties:
               gatherSpec:
                 description: |-
-                  GatherSpec allows overriding the command and/or arguments for the custom must-gather image
-                  and configures time-based collection filters.
-                  The command and args fields are only honored when ImageStreamRef is specified.
+                  GatherSpec allows overriding the command and/or arguments for the must-gather container
+                  (default or custom image from imageStreamRef) and configures time-based collection filters.
                   Time-based filters (since, sinceTime) and audit apply regardless of ImageStreamRef.
                 properties:
                   args:
-                    description: |-
-                      Args is a string array of arguments passed to the custom image's command.
-                      This field is only honored when a custom image IS specified via imageStreamRef.
+                    description: Args is a string array of arguments passed to the
+                      container command.
                     items:
                       type: string
                     maxItems: 256
@@ -62,8 +60,8 @@ spec:
                     type: boolean
                   command:
                     description: |-
-                      Command is a string array representing the entrypoint for the custom image.
-                      This field is only honored when a custom image IS specified via imageStreamRef.
+                      Command is a string array representing the container entrypoint.
+                      When set, it replaces the default gather wrapper for both the default must-gather image and custom images.
                     items:
                       type: string
                     maxItems: 256
@@ -229,12 +227,6 @@ spec:
                   rule: 'has(self.type) && self.type == ''SFTP'' ? has(self.sftp)
                     : !has(self.sftp)'
             type: object
-            x-kubernetes-validations:
-            - message: command and args in gatherSpec can only be set when imageStreamRef
-                is specified
-              rule: '!(has(self.gatherSpec) && ((has(self.gatherSpec.command) && size(self.gatherSpec.command)
-                > 0) || (has(self.gatherSpec.args) && size(self.gatherSpec.args) >
-                0))) || has(self.imageStreamRef)'
           status:
             description: MustGatherStatus defines the observed state of MustGather
             properties:
