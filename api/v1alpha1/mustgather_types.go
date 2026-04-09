@@ -101,8 +101,7 @@ type GatherSpec struct {
 	Since *metav1.Duration `json:"since,omitempty"`
 
 	// SinceTime only returns logs after a specific instant. Use RFC3339 with uppercase T and Z or a zone offset
-	// (e.g. 2026-02-02T00:00:00Z). Must not be after the current time when the operator reconciles the MustGather
-	// (CRD CEL cannot access metadata.creationTimestamp or a wall clock; validation is done in the controller).
+	// (e.g. 2026-02-02T00:00:00Z). Must not be after the current time.
 	// This is passed to the must-gather script to filter log collection.
 	// Only one of since or sinceTime may be specified.
 	// +kubebuilder:validation:Optional
