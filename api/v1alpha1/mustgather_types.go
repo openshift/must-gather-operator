@@ -72,7 +72,7 @@ type MustGatherSpec struct {
 // GatherSpec allows specifying the execution details for a must-gather run and the collection behavior.
 // +kubebuilder:validation:XValidation:rule="!(has(self.since) && has(self.sinceTime))",message="only one of since or sinceTime may be specified"
 // +kubebuilder:validation:XValidation:rule="!has(self.since) || !self.since.startsWith(\"-\")",message="since must be a non-negative duration string"
-// +kubebuilder:validation:XValidation:rule="!has(self.since) || self.since.startsWith(\"-\") || self.since.matches(r'^\\+?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|µs|us|ms|s|m|h))+$')",message="since may only use these duration suffixes: ns, us, µs, ms, s, m, h (e.g. 2h, 30m, 168h for one week)."
+// +kubebuilder:validation:XValidation:rule="!has(self.since) || self.since.matches(r'^\\+?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|µs|us|ms|s|m|h))+$')",message="since may only use these duration suffixes: ns, us, µs, ms, s, m, h (e.g. 2h, 30m, 168h for one week)."
 // +kubebuilder:validation:XValidation:rule="!has(self.sinceTime) || self.sinceTime.matches(r'^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$')",message="sinceTime must be in RFC3339 format."
 type GatherSpec struct {
 	// +kubebuilder:validation:Optional
