@@ -3,6 +3,7 @@ package mustgather
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -263,6 +264,225 @@ func TestCleanupMustGatherResources(t *testing.T) {
 	}
 }
 
+func TestHandleJobCompletion(t *testing.T) {
+	const operatorNs = "must-gather-operator"
+
+	tests := []struct {
+		name           string
+		setupObjects   func() []client.Object
+		interceptors   func() interceptClient
+		status         string
+		reason         string
+		expectError    bool
+		postTestChecks func(t *testing.T, cl client.Client)
+	}{
+		{
+			name:   "completed_status_with_cleanup",
+			status: "Completed",
+			reason: "MustGather Job pods succeeded",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs},
+					Spec:       mustgatherv1alpha1.MustGatherSpec{},
+				}
+				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: operatorNs, UID: "uid-1"}}
+				pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod1", Namespace: operatorNs, Labels: map[string]string{"controller-uid": string(job.UID)}}}
+				return []client.Object{mg, job, pod}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				out := &mustgatherv1alpha1.MustGather{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, out); err != nil {
+					t.Fatalf("failed to get mustgather: %v", err)
+				}
+				if out.Status.Status != "Completed" || !out.Status.Completed || out.Status.Reason != "MustGather Job pods succeeded" {
+					t.Fatalf("unexpected status: %+v", out.Status)
+				}
+				chkJob := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, chkJob); err == nil {
+					t.Fatalf("expected job to be deleted after cleanup")
+				}
+			},
+		},
+		{
+			name:   "failed_status_with_cleanup",
+			status: "Failed",
+			reason: "MustGather Job pods failed",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs},
+					Spec:       mustgatherv1alpha1.MustGatherSpec{},
+				}
+				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: operatorNs, UID: "uid-2"}}
+				return []client.Object{mg, job}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				out := &mustgatherv1alpha1.MustGather{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, out); err != nil {
+					t.Fatalf("failed to get mustgather: %v", err)
+				}
+				if out.Status.Status != "Failed" || !out.Status.Completed || out.Status.Reason != "MustGather Job pods failed" {
+					t.Fatalf("unexpected status: %+v", out.Status)
+				}
+				chkJob := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, chkJob); err == nil {
+					t.Fatalf("expected job to be deleted after cleanup")
+				}
+			},
+		},
+		{
+			name:   "completed_with_retain_resources_skips_cleanup",
+			status: "Completed",
+			reason: "MustGather Job pods succeeded",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						RetainResourcesOnCompletion: ToPtr(true),
+					},
+				}
+				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: operatorNs, UID: "uid-3"}}
+				return []client.Object{mg, job}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				out := &mustgatherv1alpha1.MustGather{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, out); err != nil {
+					t.Fatalf("failed to get mustgather: %v", err)
+				}
+				if out.Status.Status != "Completed" || !out.Status.Completed {
+					t.Fatalf("unexpected status: %+v", out.Status)
+				}
+				chkJob := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, chkJob); err != nil {
+					t.Fatalf("expected job to remain when RetainResourcesOnCompletion is true, err: %v", err)
+				}
+			},
+		},
+		{
+			name:   "failed_with_retain_resources_skips_cleanup",
+			status: "Failed",
+			reason: "MustGather Job pods failed",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						RetainResourcesOnCompletion: ToPtr(true),
+					},
+				}
+				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: operatorNs, UID: "uid-4"}}
+				return []client.Object{mg, job}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				out := &mustgatherv1alpha1.MustGather{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, out); err != nil {
+					t.Fatalf("failed to get mustgather: %v", err)
+				}
+				if out.Status.Status != "Failed" || !out.Status.Completed {
+					t.Fatalf("unexpected status: %+v", out.Status)
+				}
+				chkJob := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, chkJob); err != nil {
+					t.Fatalf("expected job to remain when RetainResourcesOnCompletion is true, err: %v", err)
+				}
+			},
+		},
+		{
+			name:   "status_update_fails_returns_error",
+			status: "Completed",
+			reason: "MustGather Job pods succeeded",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs},
+					Spec:       mustgatherv1alpha1.MustGatherSpec{},
+				}
+				return []client.Object{mg}
+			},
+			interceptors: func() interceptClient {
+				return interceptClient{
+					status: &failingStatusWriter{},
+				}
+			},
+			expectError:    true,
+			postTestChecks: func(t *testing.T, cl client.Client) {},
+		},
+		{
+			name:   "cleanup_fails_returns_error",
+			status: "Completed",
+			reason: "MustGather Job pods succeeded",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs},
+					Spec:       mustgatherv1alpha1.MustGatherSpec{},
+				}
+				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: operatorNs, UID: "uid-5"}}
+				return []client.Object{mg, job}
+			},
+			interceptors: func() interceptClient {
+				return interceptClient{
+					onDelete: func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+						if _, ok := obj.(*batchv1.Job); ok {
+							return errors.New("failed to delete job")
+						}
+						return nil
+					},
+				}
+			},
+			expectError:    true,
+			postTestChecks: func(t *testing.T, cl client.Client) {},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := runtime.NewScheme()
+			_ = corev1.AddToScheme(s)
+			_ = batchv1.AddToScheme(s)
+			_ = mustgatherv1alpha1.AddToScheme(s)
+
+			objects := tt.setupObjects()
+			base := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).WithStatusSubresource(&mustgatherv1alpha1.MustGather{}).Build()
+
+			interceptor := tt.interceptors()
+			var cl client.Client = base
+			if interceptor.onGet != nil || interceptor.onList != nil || interceptor.onDelete != nil || interceptor.onUpdate != nil || interceptor.onCreate != nil || interceptor.status != nil {
+				interceptor.Client = base
+				cl = interceptor
+			}
+
+			r := &MustGatherReconciler{
+				ReconcilerBase:    util.NewReconcilerBase(cl, s, &rest.Config{}, &record.FakeRecorder{}, nil),
+				OperatorNamespace: operatorNs,
+			}
+
+			var mg *mustgatherv1alpha1.MustGather
+			for _, obj := range objects {
+				if mgObj, ok := obj.(*mustgatherv1alpha1.MustGather); ok {
+					mg = mgObj
+					break
+				}
+			}
+
+			_, err := r.handleJobCompletion(context.TODO(), logf.Log, mg, tt.status, tt.reason)
+
+			if tt.expectError && err == nil {
+				t.Fatalf("expected error but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			tt.postTestChecks(t, cl)
+		})
+	}
+}
+
 func TestReconcile(t *testing.T) {
 	const operatorNs = "must-gather-operator"
 
@@ -366,7 +586,7 @@ func TestReconcile(t *testing.T) {
 			postTestChecks: func(t *testing.T, cl client.Client) {
 				out := &mustgatherv1alpha1.MustGather{}
 				_ = cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, out)
-				if contains(out.GetFinalizers(), mustGatherFinalizer) {
+				if slices.Contains(out.GetFinalizers(), mustGatherFinalizer) {
 					t.Fatalf("expected finalizer removed")
 				}
 			},
@@ -939,7 +1159,7 @@ func TestReconcile(t *testing.T) {
 						if mgObj, ok := obj.(*mustgatherv1alpha1.MustGather); ok {
 							updateCount++
 							// Fail the update when removing finalizer (after cleanup is done)
-							if updateCount > 0 && !contains(mgObj.GetFinalizers(), mustGatherFinalizer) {
+							if updateCount > 0 && !slices.Contains(mgObj.GetFinalizers(), mustGatherFinalizer) {
 								return errors.New("failed to remove finalizer")
 							}
 						}
@@ -968,7 +1188,7 @@ func TestReconcile(t *testing.T) {
 					onUpdate: func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
 						if mgObj, ok := obj.(*mustgatherv1alpha1.MustGather); ok {
 							// Fail when trying to add the finalizer (when finalizer is present in the object)
-							if contains(mgObj.GetFinalizers(), mustGatherFinalizer) {
+							if slices.Contains(mgObj.GetFinalizers(), mustGatherFinalizer) {
 								return errors.New("failed to add finalizer")
 							}
 						}
