@@ -1,0 +1,37 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: mustgather-pvc-template
+objects:
+  - apiVersion: operator.openshift.io/v1alpha1
+    kind: MustGather
+    metadata:
+      name: "${NAME}"
+      namespace: "${NAMESPACE}"
+    spec:
+      serviceAccountName: "${SA}"
+      retainResourcesOnCompletion: true
+      uploadTarget:
+        type: SFTP
+        sftp:
+          caseID: "${CASEID}"
+          caseManagementAccountSecretRef:
+            name: "${CASESECRET}"
+          internalUser: true
+      storage:
+        type: PersistentVolume
+        persistentVolume:
+          claim:
+            name: "${PVCNAME}"
+          subPath: "${SUBPATH}"
+parameters:
+  - name: NAME
+  - name: NAMESPACE
+  - name: SA
+    value: "must-gather-operator"
+  - name: CASEID
+    value: "04230315"
+  - name: CASESECRET
+  - name: PVCNAME
+  - name: SUBPATH
+    value: "must-gather-bundles/case-04230315"

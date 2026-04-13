@@ -1,0 +1,20 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: mustgather-timeout-template
+objects:
+  - apiVersion: operator.openshift.io/v1alpha1
+    kind: MustGather
+    metadata:
+      name: "${NAME}"
+      namespace: "${NAMESPACE}"
+    spec:
+      serviceAccountName: "${SA}"
+      mustGatherTimeout: "${TIMEOUT}"
+parameters:
+  - name: NAME
+  - name: NAMESPACE
+  - name: TIMEOUT
+    value: "10s"
+  - name: SA
+    value: "must-gather-operator"

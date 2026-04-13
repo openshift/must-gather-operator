@@ -1,0 +1,34 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: mustgather-proxy-template
+objects:
+  - apiVersion: operator.openshift.io/v1alpha1
+    kind: MustGather
+    metadata:
+      name: "${NAME}"
+      namespace: "${NAMESPACE}"
+    spec:
+      serviceAccountName: "${SA}"
+      proxyConfig:
+        httpProxy: "${HTTP_PROXY}"
+        httpsProxy: "${HTTPS_PROXY}"
+        noProxy: "${NO_PROXY}"
+      uploadTarget:
+        type: SFTP
+        sftp:
+          caseID: "${CASEID}"
+          caseManagementAccountSecretRef:
+            name: "${CASESECRET}"
+parameters:
+  - name: NAME
+  - name: NAMESPACE
+  - name: CASEID
+    value: "04230315"
+  - name: CASESECRET
+    value: "mustgather-creds"
+  - name: SA
+    value: "must-gather-operator"
+  - name: HTTP_PROXY
+  - name: HTTPS_PROXY
+  - name: NO_PROXY

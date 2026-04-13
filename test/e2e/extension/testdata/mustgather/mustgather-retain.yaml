@@ -1,0 +1,31 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: mustgather-retain-template
+objects:
+  - apiVersion: operator.openshift.io/v1alpha1
+    kind: MustGather
+    metadata:
+      name: "${NAME}"
+      namespace: "${NAMESPACE}"
+    spec:
+      serviceAccountName: "${SA}"
+      retainResourcesOnCompletion: ${{RETAIN_RESOURCES}}
+      uploadTarget:
+        type: SFTP
+        sftp:
+          caseID: "${CASEID}"
+          caseManagementAccountSecretRef:
+            name: "${CASESECRET}"
+          internalUser: true
+parameters:
+  - name: NAME
+  - name: NAMESPACE
+  - name: CASEID
+    value: "04230315"
+  - name: CASESECRET
+    value: "mustgather-creds"
+  - name: SA
+    value: "must-gather-operator"
+  - name: RETAIN_RESOURCES
+    value: "false"
