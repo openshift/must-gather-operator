@@ -178,12 +178,11 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 		// Validate that the ServiceAccount exists before creating the Job.
 		// This prevents the Job from being stuck in pending state due to a missing ServiceAccount.
-		// If no ServiceAccount is specified, default to "default" which should exist in all namespaces.
-		// Note: If the "default" SA has been deleted, this validation will catch it and report an error.
+		// If no ServiceAccount is specified, default to "must-gather-admin" which has the required permissions.
 		saName := instance.Spec.ServiceAccountName
 		if saName == "" {
-			saName = "default"
-			log.Info("no serviceAccountName specified, defaulting to 'default'", "namespace", instance.Namespace)
+			saName = "must-gather-admin"
+			log.Info("no serviceAccountName specified, defaulting to 'must-gather-admin'", "namespace", instance.Namespace)
 		}
 		serviceAccount := &corev1.ServiceAccount{}
 		err = r.GetClient().Get(ctx, types.NamespacedName{

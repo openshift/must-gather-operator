@@ -27,9 +27,9 @@ import (
 // MustGatherSpec defines the desired state of MustGather
 // +kubebuilder:validation:XValidation:rule="!(has(self.gatherSpec) && ((has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0) || (has(self.gatherSpec.args) && size(self.gatherSpec.args) > 0))) || has(self.imageStreamRef)",message="command and args in gatherSpec can only be set when imageStreamRef is specified"
 type MustGatherSpec struct {
-	// the service account to use to run the must gather job pod, defaults to default
+	// the service account to use to run the must gather job pod, defaults to must-gather-admin
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:="default"
+	// +kubebuilder:default:="must-gather-admin"
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 
 	// ImageStreamRef specifies a custom image from the allowlist to be used for the

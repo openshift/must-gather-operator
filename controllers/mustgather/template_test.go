@@ -584,7 +584,7 @@ func Test_getJobTemplate_GatherSpec_BuildsTimeFilter(t *testing.T) {
 			mg := mustgatherv1alpha1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
-					ServiceAccountName: "default",
+					ServiceAccountName: "must-gather-admin",
 					GatherSpec:         tt.gatherSpec,
 				},
 			}
@@ -657,7 +657,7 @@ func Test_getJobTemplate_ProxyAuditTimeout(t *testing.T) {
 			mg := mustgatherv1alpha1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
-					ServiceAccountName: "default",
+					ServiceAccountName: "must-gather-admin",
 					MustGatherTimeout:  tt.timeout,
 					GatherSpec: &mustgatherv1alpha1.GatherSpec{
 						Audit: tt.audit,
