@@ -8,11 +8,16 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -79,17 +84,22 @@ const (
 	caseManagementSecretNameInvalid       = "case-management-creds-invalid"
 	caseManagementSecretNameEmptyUsername = "case-management-creds-empty-username"
 	caseManagementSecretNameEmptyPassword = "case-management-creds-empty-password"
-	stageHostName                         = "sftp.access.stage.redhat.com"
+	prodHostName                          = "sftp.access.redhat.com"
 
 	// PersistentVolume test constants
 	mustGatherPVCName        = "must-gather-pvc"
 	caseCredsConfigDirEnvVar = "CASE_MANAGEMENT_CREDS_CONFIG_DIR"
-	vaultUsernameKey         = "sftp-username-e2e"
-	vaultPasswordKey         = "sftp-password-e2e"
+	// vaultOfflineTokenKey is the RH SSO offline refresh token mounted from Vault for CI.
+	vaultOfflineTokenKey          = "offline-token-e2e"
+	refreshSFTPTokenScript        = "refresh-sftp-token.sh"
+	refreshSFTPTokenScriptTimeout = 60 * time.Second
 )
 
 //go:embed testdata/*
 var testassets embed.FS
+
+//go:embed cleanup-sftp-uploads.sh
+var sftpCleanupUploadsScript string
 
 // Test suite variables
 var (
@@ -101,6 +111,8 @@ var (
 	nonAdminClientset *kubernetes.Clientset
 	operatorImage     string
 	setupComplete     bool
+	// sftpE2ECleanupCaseID is set by the successful SFTP upload spec; the suite AfterAll removes matching files from the server.
+	sftpE2ECleanupCaseID string
 )
 
 func init() {
@@ -166,6 +178,12 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		}
 
 		ginkgo.By("CLEANUP: Removing all test resources")
+		if sftpE2ECleanupCaseID != "" {
+			ginkgo.By("Cleaning up SFTP files uploaded by e2e tests")
+			if err := cleanupSFTPUploadsByCaseID(ns.Name, caseManagementSecretNameValid, prodHostName, sftpE2ECleanupCaseID, false); err != nil {
+				ginkgo.GinkgoWriter.Printf("Warning: SFTP cleanup failed (non-fatal): %v\n", err)
+			}
+		}
 		// Deleting namespace and all resources in it (including ServiceAccount)
 		loader.DeleteTestingNS(ns.Name, func() bool { return ginkgo.CurrentSpecReport().Failed() })
 		// Deleting ClusterRole, ClusterRoleBinding, and associated RBAC
@@ -876,7 +894,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		ginkgo.It("should successfully upload must-gather data to SFTP server for external user", func() {
 			ginkgo.By("Getting SFTP credentials from Vault")
 
-			sftpUsername, sftpPassword, err := getCaseCredsFromVault()
+			sftpUsername, sftpPassword, err := getCaseCreds()
 			Expect(err).NotTo(HaveOccurred(), "Failed to get SFTP credentials from Vault")
 
 			ginkgo.By("Creating case-management-creds-valid secret")
@@ -902,10 +920,11 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Creating MustGather CR with UploadTarget and internalUser=false")
 			// Generate unique caseID to avoid false positives from previous test runs
 			caseID := generateTestCaseID()
+			sftpE2ECleanupCaseID = caseID
 			ginkgo.GinkgoWriter.Printf("Using unique caseID: %s\n", caseID)
 
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
-				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: stageHostName},
+				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: prodHostName},
 			})
 
 			ginkgo.By("Verifying MustGather CR has internalUser set to false")
@@ -1065,7 +1084,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Verifying file was uploaded to SFTP server at the correct path for external user")
 
 			// For external users (internal_user=false), the file should be uploaded directly to: <caseid>_<filename>.tar.gz
-			found, sftpLogs, err := verifySFTPUpload(ns.Name, caseManagementSecretNameValid, stageHostName, caseID, false)
+			found, sftpLogs, err := verifySFTPUpload(ns.Name, caseManagementSecretNameValid, prodHostName, caseID, false)
 			if err != nil {
 				ginkgo.GinkgoWriter.Printf("SFTP verification error: %v\n", err)
 			}
@@ -1093,9 +1112,6 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.GinkgoWriter.Printf("MustGather with UploadTarget completed - Status: %s, Reason: %s\n",
 				fetchedMG.Status.Status, fetchedMG.Status.Reason)
-
-			// Note: Uploaded test files are automatically purged by the SFTP server daily,
-			// so manual cleanup is not required.
 		})
 
 		ginkgo.It("should fail upload with invalid SFTP credentials", func() {
@@ -1108,7 +1124,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					CaseID:       "00000",
 					SecretName:   caseManagementSecretNameInvalid,
 					InternalUser: false,
-					Host:         stageHostName,
+					Host:         prodHostName,
 				},
 			})
 
@@ -1154,7 +1170,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					CaseID:       "00000",
 					SecretName:   caseManagementSecretNameEmptyUsername,
 					InternalUser: false,
-					Host:         stageHostName,
+					Host:         prodHostName,
 				},
 			})
 
@@ -1200,7 +1216,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					CaseID:       "00000",
 					SecretName:   caseManagementSecretNameEmptyPassword,
 					InternalUser: false,
-					Host:         stageHostName,
+					Host:         prodHostName,
 				},
 			})
 
@@ -1752,25 +1768,17 @@ func createMustGatherCR(name, namespace, serviceAccountName string, retainResour
 
 	return mg
 }
-func getCaseCredsFromVault() (string, string, error) {
-	// First, try to read from Vault-mounted files (CI/CD environment)
-	configDir := os.Getenv(caseCredsConfigDirEnvVar)
-	if configDir != "" {
-		// Check if the directory exists before trying to read
-		if _, err := os.Stat(configDir); err == nil {
-			sftpUsername, err := os.ReadFile(filepath.Join(configDir, vaultUsernameKey))
-			if err != nil {
-				return "", "", fmt.Errorf("failed to read sftp username from file: %w", err)
-			}
-			sftpPassword, err := os.ReadFile(filepath.Join(configDir, vaultPasswordKey))
-			if err != nil {
-				return "", "", fmt.Errorf("failed to read sftp password from file: %w", err)
-			}
-			return strings.TrimSpace(string(sftpUsername)), strings.TrimSpace(string(sftpPassword)), nil
-		}
+func getCaseCreds() (string, string, error) {
+	// Check for offline token in Vault first
+	offlineToken, err := readOfflineTokenFromVault()
+	if err != nil {
+		return "", "", err
+	}
+	if offlineToken != "" {
+		return refreshSFTPToken(offlineToken)
 	}
 
-	// Fallback: try direct environment variables (for local testing)
+	// Fall back to local credentials
 	sftpUsername := os.Getenv("SFTP_USERNAME_E2E")
 	sftpPassword := os.Getenv("SFTP_PASSWORD_E2E")
 	if sftpUsername != "" && sftpPassword != "" {
@@ -1778,8 +1786,76 @@ func getCaseCredsFromVault() (string, string, error) {
 	}
 
 	return "", "", fmt.Errorf("SFTP credentials not found. Set either:\n"+
-		"  1. CASE_MANAGEMENT_CREDS_CONFIG_DIR with Vault-mounted files (%s, %s), or\n"+
-		"  2. SFTP_USERNAME_E2E and SFTP_PASSWORD_E2E environment variables for local testing", vaultUsernameKey, vaultPasswordKey)
+		"  1. SFTP_USERNAME_E2E and SFTP_PASSWORD_E2E (typical for local runs), or\n"+
+		"  2. mount %q under CASE_MANAGEMENT_CREDS_CONFIG_DIR for refresh-sftp-token.sh", vaultOfflineTokenKey)
+}
+
+type sftpCreds struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// refreshSFTPToken runs test/e2e/refresh-sftp-token.sh script
+// to refresh the SFTP token when the offline token is provided
+func refreshSFTPToken(offlineToken string) (string, string, error) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		return "", "", fmt.Errorf("could not resolve path to %s", refreshSFTPTokenScript)
+	}
+	script := filepath.Join(filepath.Dir(thisFile), refreshSFTPTokenScript)
+	if _, err := os.Stat(script); err != nil {
+		return "", "", fmt.Errorf("SFTP token generation script %q: %w", script, err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), refreshSFTPTokenScriptTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "bash", script)
+	cmd.Env = append(os.Environ(), "RH_OFFLINE_TOKEN="+strings.TrimSpace(offlineToken))
+
+	out, err := cmd.Output()
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return "", "", fmt.Errorf("refresh-sftp-token script exceeded deadline %s: %w", refreshSFTPTokenScriptTimeout, err)
+		}
+		return "", "", fmt.Errorf("refresh-sftp-token script failed: %w", err)
+	}
+
+	var creds sftpCreds
+	if err := json.Unmarshal(bytes.TrimSpace(out), &creds); err != nil {
+		return "", "", fmt.Errorf("error in parsing generate script output: %w", err)
+	}
+	if creds.Username == "" || creds.Password == "" {
+		return "", "", fmt.Errorf("generate script returned empty username or password")
+	}
+	return creds.Username, creds.Password, nil
+}
+
+// readOfflineTokenFromVault returns the RH SSO offline refresh token for refresh-sftp-token.sh
+func readOfflineTokenFromVault() (string, error) {
+	configDir := os.Getenv(caseCredsConfigDirEnvVar)
+	if configDir == "" {
+		return "", nil
+	}
+	if _, err := os.Stat(configDir); err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("stat CASE_MANAGEMENT_CREDS_CONFIG_DIR %q: %w", configDir, err)
+	}
+
+	path := filepath.Join(configDir, vaultOfflineTokenKey)
+	offline_token, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("expected offline refresh token at %q (Vault key %s)", path, vaultOfflineTokenKey)
+		}
+		return "", fmt.Errorf("read offline token %q: %w", path, err)
+	}
+	if trimmed := strings.TrimSpace(string(offline_token)); trimmed != "" {
+		return trimmed, nil
+	}
+	return "", fmt.Errorf("offline token file %q is empty", path)
 }
 
 // getOperatorImage retrieves the OPERATOR_IMAGE from the must-gather-operator deployment
@@ -1966,6 +2042,103 @@ EOF
 	found := strings.Contains(logs, filePattern)
 
 	return found, logs, nil
+}
+
+// cleanupSFTPUploadsByCaseID removes remote files named like <caseID>_must-gather-*.tar.gz (external user: cwd;
+// internal user: under $SFTP_USERNAME/). Uses the same credentials secret as verifySFTPUpload.
+func cleanupSFTPUploadsByCaseID(namespace, secretName, host, caseID string, internalUser bool) error {
+	if caseID == "" {
+		return nil
+	}
+
+	podName := fmt.Sprintf("sftp-cleanup-%d", time.Now().UnixNano())
+	cleanupPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: namespace,
+		},
+		Spec: corev1.PodSpec{
+			RestartPolicy:      corev1.RestartPolicyNever,
+			ServiceAccountName: serviceAccount,
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsNonRoot: func() *bool { b := true; return &b }(),
+				SeccompProfile: &corev1.SeccompProfile{
+					Type: corev1.SeccompProfileTypeRuntimeDefault,
+				},
+			},
+			Containers: []corev1.Container{
+				{
+					Name:    "sftp-cleanup",
+					Image:   operatorImage,
+					Command: []string{"/bin/bash", "-c", sftpCleanupUploadsScript},
+					SecurityContext: &corev1.SecurityContext{
+						AllowPrivilegeEscalation: func() *bool { b := false; return &b }(),
+						Capabilities: &corev1.Capabilities{
+							Drop: []corev1.Capability{"ALL"},
+						},
+						RunAsNonRoot: func() *bool { b := true; return &b }(),
+					},
+					Env: []corev1.EnvVar{
+						{Name: "E2E_SFTP_CASE_ID", Value: caseID},
+						{Name: "E2E_SFTP_HOST", Value: host},
+						{Name: "E2E_SFTP_INTERNAL", Value: strconv.FormatBool(internalUser)},
+						{
+							Name: "SFTP_USERNAME",
+							ValueFrom: &corev1.EnvVarSource{
+								SecretKeyRef: &corev1.SecretKeySelector{
+									Key:                  "username",
+									LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+								},
+							},
+						},
+						{
+							Name: "SSHPASS",
+							ValueFrom: &corev1.EnvVarSource{
+								SecretKeyRef: &corev1.SecretKeySelector{
+									Key:                  "password",
+									LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if err := nonAdminClient.Create(testCtx, cleanupPod); err != nil {
+		return fmt.Errorf("create cleanup pod: %w", err)
+	}
+
+	var podPhase corev1.PodPhase
+	Eventually(func() corev1.PodPhase {
+		pod := &corev1.Pod{}
+		if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+			Name:      podName,
+			Namespace: namespace,
+		}, pod); err != nil {
+			return corev1.PodUnknown
+		}
+		podPhase = pod.Status.Phase
+		return podPhase
+	}).WithTimeout(3*time.Minute).WithPolling(5*time.Second).Should(
+		Or(Equal(corev1.PodSucceeded), Equal(corev1.PodFailed)),
+		"SFTP cleanup pod should complete")
+
+	logs, logErr := getContainerLogs(namespace, podName, "sftp-cleanup")
+	_ = nonAdminClient.Delete(testCtx, cleanupPod)
+
+	if podPhase != corev1.PodSucceeded {
+		if logErr != nil {
+			return fmt.Errorf("cleanup pod failed (phase=%s); could not read logs: %w", podPhase, logErr)
+		}
+		return fmt.Errorf("cleanup pod failed (phase=%s): %s", podPhase, logs)
+	}
+	if logErr != nil {
+		return fmt.Errorf("cleanup succeeded but logs unavailable: %w", logErr)
+	}
+	ginkgo.GinkgoWriter.Printf("SFTP cleanup logs:\n%s\n", logs)
+	return nil
 }
 
 func createImageStream(name, imageName, tagName string) {
