@@ -43,6 +43,6 @@ while IFS= read -r fn; do
 	fi
 done <<<"$files"
 printf 'bye\n' >>"$rm_script"
-sftp_ssh "${SFTP_USERNAME}@${E2E_SFTP_HOST}" -b "$rm_script"
+sftp_ssh -b "$rm_script" "${SFTP_USERNAME}@${E2E_SFTP_HOST}"
 rm -f "$rm_script"
 echo "SFTP cleanup done for case ${E2E_SFTP_CASE_ID}"
