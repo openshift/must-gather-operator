@@ -151,6 +151,10 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "serviceaccount-clusterrole.yaml"), ns.Name)
 		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "serviceaccount-clusterrole-binding.yaml"), ns.Name)
 
+		ginkgo.By("STEP 6: Creating must-gather-admin ServiceAccount and RBAC (default SA)")
+		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "must-gather-admin-serviceaccount.yaml"), ns.Name)
+		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "must-gather-admin-clusterrole-binding.yaml"), ns.Name)
+
 		ginkgo.By("Initializing non-admin client for tests")
 		nonAdminClient = createNonAdminClient()
 
@@ -173,6 +177,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		loader.DeleteFromFile(testassets.ReadFile, filepath.Join("testdata", "nonadmin-clusterrole-binding.yaml"), ns.Name)
 		loader.DeleteFromFile(testassets.ReadFile, filepath.Join("testdata", "serviceaccount-clusterrole.yaml"), ns.Name)
 		loader.DeleteFromFile(testassets.ReadFile, filepath.Join("testdata", "serviceaccount-clusterrole-binding.yaml"), ns.Name)
+		loader.DeleteFromFile(testassets.ReadFile, filepath.Join("testdata", "must-gather-admin-clusterrole-binding.yaml"), ns.Name)
 	})
 
 	// Test Cases
@@ -694,6 +699,41 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				_ = nonAdminClient.Delete(testCtx, mg)
 				mg = nil
 			}
+		})
+
+		ginkgo.It("should default serviceAccountName to must-gather-admin when not specified", func() {
+			mustGatherName := fmt.Sprintf("test-default-sa-%d", time.Now().UnixNano())
+
+			ginkgo.By("Creating MustGather CR without specifying serviceAccountName")
+			// Pass empty string for serviceAccountName — with omitempty, this field
+			// will be omitted from JSON serialization, and the API server will apply
+			// the CRD default "must-gather-admin"
+			mg = createMustGatherCR(mustGatherName, ns.Name, "", false, nil)
+
+			ginkgo.By("Verifying API server applied the default serviceAccountName")
+			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			err := adminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, fetchedMG)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fetchedMG.Spec.ServiceAccountName).To(Equal("must-gather-admin"),
+				"API server should default serviceAccountName to 'must-gather-admin'")
+
+			ginkgo.By("Verifying Job is created with the default ServiceAccount")
+			job := &batchv1.Job{}
+			Eventually(func() error {
+				return adminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+				"Job should be created when default must-gather-admin SA exists")
+
+			Expect(job.Spec.Template.Spec.ServiceAccountName).To(Equal("must-gather-admin"),
+				"Job pod spec should use must-gather-admin ServiceAccount")
+
+			ginkgo.GinkgoWriter.Println("Default serviceAccountName correctly applied as 'must-gather-admin'")
 		})
 
 		ginkgo.It("should report error when ServiceAccount does not exist", func() {
