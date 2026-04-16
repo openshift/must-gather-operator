@@ -1335,6 +1335,36 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			Expect(job.Spec.Template.Spec.Containers[0].Image).To(ContainSubstring(customImage))
 		})
 
+		ginkgo.It("should reject creation when gatherSpec.audit is true with imageStreamRef", func() {
+			ginkgo.By("Creating MustGather CR with custom image and audit enabled (invalid per CRD validation)")
+			retain := false
+			mg := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+					Labels: map[string]string{
+						"test": nonAdminLabel,
+					},
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName:          serviceAccount,
+					RetainResourcesOnCompletion: &retain,
+					ImageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{
+						Name: imageStreamName,
+						Tag:  "latest",
+					},
+					GatherSpec: &mustgatherv1alpha1.GatherSpec{
+						Audit: true,
+					},
+				},
+			}
+			err := nonAdminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "apiserver should reject MustGather with audit and imageStreamRef")
+			Expect(apierrors.IsInvalid(err)).To(BeTrue(), "expected Invalid (422) from CRD validation, got: %v", err)
+			Expect(strings.ToLower(err.Error())).To(ContainSubstring("audit"),
+				"error should describe audit validation failure")
+		})
+
 		ginkgo.It("should fail if the referenced ImageStream does not exist", func() {
 			ginkgo.By("Creating MustGather CR with a non-existent ImageStreamRef")
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
