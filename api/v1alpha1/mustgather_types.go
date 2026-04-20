@@ -25,7 +25,8 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // MustGatherSpec defines the desired state of MustGather
-// +kubebuilder:validation:XValidation:rule="!(has(self.gatherSpec) && ((has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0) || (has(self.gatherSpec.args) && size(self.gatherSpec.args) > 0))) || has(self.imageStreamRef)",message="command and args in gatherSpec can only be set when imageStreamRef is specified"
+// +kubebuilder:validation:XValidation:rule="!(has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.audit) && self.gatherSpec.audit)",message="audit cannot be enabled when using a custom image (imageStreamRef)"
+// +kubebuilder:validation:XValidation:rule="!(!has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0 && has(self.gatherSpec.audit) && self.gatherSpec.audit)",message="audit cannot be enabled when gatherSpec.command is set with the default must-gather image"
 type MustGatherSpec struct {
 	// the service account to use to run the must gather job pod, defaults to default
 	// +kubebuilder:validation:Optional
@@ -37,10 +38,10 @@ type MustGatherSpec struct {
 	// +kubebuilder:validation:Optional
 	ImageStreamRef *ImageStreamTagRef `json:"imageStreamRef,omitempty"`
 
-	// GatherSpec allows overriding the command and/or arguments for the custom must-gather image
-	// and configures time-based collection filters.
-	// The command and args fields are only honored when ImageStreamRef is specified.
-	// Time-based filters (since, sinceTime) and audit apply regardless of ImageStreamRef.
+	// GatherSpec allows overriding the command and/or arguments for the must-gather container
+	// (default or custom image from imageStreamRef) and configures time-based collection filters.
+	// Time-based filters (since, sinceTime) apply regardless of imageStreamRef.
+	// Audit is only allowed with the default image and default gather command (see CRD validation rules).
 	// +kubebuilder:validation:Optional
 	GatherSpec *GatherSpec `json:"gatherSpec,omitempty"`
 
@@ -72,21 +73,19 @@ type MustGatherSpec struct {
 // +kubebuilder:validation:XValidation:rule="!(has(self.since) && has(self.sinceTime))",message="only one of since or sinceTime may be specified"
 type GatherSpec struct {
 	// +kubebuilder:validation:Optional
-	// Audit specifies whether to collect audit logs. This is translated to a signal
-	// or command that can be respected by the default image
-	// or any custom image designed to do so.
+	// Audit requests audit log collection via the default gather entrypoint.
+	// It must be false when imageStreamRef is set or when gatherSpec.command is set without imageStreamRef.
 	Audit bool `json:"audit,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	// Command is a string array representing the entrypoint for the custom image.
-	// This field is only honored when a custom image IS specified via imageStreamRef.
+	// Command is a string array representing the container entrypoint.
+	// When set, it replaces the default gather wrapper for both the default must-gather image and custom images.
 	// +kubebuilder:validation:MaxItems=256
 	// +kubebuilder:validation:Items:MaxLength=256
 	Command []string `json:"command,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	// Args is a string array of arguments passed to the custom image's command.
-	// This field is only honored when a custom image IS specified via imageStreamRef.
+	// Args is a string array of arguments passed to the container command.
 	// +kubebuilder:validation:MaxItems=256
 	// +kubebuilder:validation:Items:MaxLength=256
 	Args []string `json:"args,omitempty"`
