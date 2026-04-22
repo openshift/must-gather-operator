@@ -750,60 +750,27 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		ginkgo.It("should report error when ServiceAccount does not exist", func() {
 			mustGatherName := fmt.Sprintf("test-missing-sa-%d", time.Now().UnixNano())
 
-			ginkgo.By("Creating MustGather with non-existent ServiceAccount")
-			mg = createMustGatherCR(mustGatherName, ns.Name, "non-existent-sa-e2e", false, nil)
-
-			ginkgo.By("Verifying MustGather status has error condition")
-			Eventually(func() bool {
-				fetchedMG := &mustgatherv1alpha1.MustGather{}
-				err := adminClient.Get(testCtx, client.ObjectKey{
+			ginkgo.By("Attempting to create MustGather with non-existent ServiceAccount")
+			testMG := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
-				}, fetchedMG)
-				if err != nil {
-					return false
-				}
-				// Check for error condition with service account message
-				for _, cond := range fetchedMG.Status.Conditions {
-					if cond.Type == "ReconcileError" && cond.Status == metav1.ConditionTrue {
-						if strings.Contains(strings.ToLower(cond.Message), "service account") &&
-							strings.Contains(strings.ToLower(cond.Message), "not found") {
-							ginkgo.GinkgoWriter.Printf("Found expected error condition: %s\n", cond.Message)
-							return true
-						}
-					}
-				}
-				return false
-			}).WithTimeout(1*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
-				"MustGather status should contain error condition about missing ServiceAccount")
-
-			ginkgo.By("Verifying Job was not created")
-			job := &batchv1.Job{}
-			err := adminClient.Get(testCtx, client.ObjectKey{
-				Name:      mustGatherName,
-				Namespace: ns.Name,
-			}, job)
-			Expect(apierrors.IsNotFound(err)).To(BeTrue(),
-				"Job should not be created when ServiceAccount is missing")
-
-			ginkgo.By("Verifying warning event was generated")
-			events := &corev1.EventList{}
-			err = adminClient.List(testCtx, events, client.InNamespace(ns.Name))
-			Expect(err).NotTo(HaveOccurred())
-
-			foundWarningEvent := false
-			for _, event := range events.Items {
-				if event.InvolvedObject.Name == mustGatherName &&
-					event.Type == corev1.EventTypeWarning &&
-					strings.Contains(strings.ToLower(event.Message), "service account") {
-					foundWarningEvent = true
-					ginkgo.GinkgoWriter.Printf("Found warning event: %s\n", event.Message)
-					break
-				}
+					Labels:    map[string]string{"test": nonAdminLabel},
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "non-existent-sa-e2e",
+				},
 			}
-			Expect(foundWarningEvent).To(BeTrue(), "Warning event should be generated for missing ServiceAccount")
+			err := nonAdminClient.Create(testCtx, testMG)
 
-			ginkgo.GinkgoWriter.Println("ServiceAccount validation correctly prevented Job creation and reported error")
+			ginkgo.By("Verifying admission policy denied the request")
+			Expect(err).To(HaveOccurred(), "Create should fail for unauthorized ServiceAccount")
+			Expect(apierrors.IsForbidden(err)).To(BeTrue(),
+				"Error should be Forbidden, got: %v", err)
+			Expect(err.Error()).To(ContainSubstring("not authorized to use the specified ServiceAccount"),
+				"Error should contain admission policy denial message")
+
+			ginkgo.GinkgoWriter.Println("ValidatingAdmissionPolicy correctly blocked MustGather creation with unauthorized ServiceAccount")
 		})
 
 		ginkgo.It("should enforce ServiceAccount permissions during data collection", func() {
