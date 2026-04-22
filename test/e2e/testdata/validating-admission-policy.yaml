@@ -1,0 +1,18 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: must-gather-sa-authorization
+  labels:
+    test: non-admin-must-gather-e2e
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: ["operator.openshift.io"]
+      apiVersions: ["v1alpha1"]
+      resources: ["mustgathers"]
+      operations: ["CREATE"]
+  validations:
+  - expression: "authorizer.group('').resource('serviceaccounts').namespace(object.metadata.namespace).name(object.spec.serviceAccountName).check('use').allowed()"
+    message: "you are not authorized to use the specified ServiceAccount"
+    reason: Forbidden
