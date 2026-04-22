@@ -160,6 +160,10 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "nonadmin-use-serviceaccount-role.yaml"), ns.Name)
 		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "nonadmin-use-serviceaccount-rolebinding.yaml"), ns.Name)
 
+		ginkgo.By("STEP 8: Creating ValidatingAdmissionPolicy for ServiceAccount authorization")
+		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "validating-admission-policy.yaml"), "")
+		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "validating-admission-policy-binding.yaml"), "")
+
 		ginkgo.By("Initializing non-admin client for tests")
 		nonAdminClient = createNonAdminClient()
 
@@ -183,6 +187,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		loader.DeleteFromFile(testassets.ReadFile, filepath.Join("testdata", "serviceaccount-clusterrole.yaml"), ns.Name)
 		loader.DeleteFromFile(testassets.ReadFile, filepath.Join("testdata", "serviceaccount-clusterrole-binding.yaml"), ns.Name)
 		loader.DeleteFromFile(testassets.ReadFile, filepath.Join("testdata", "must-gather-admin-clusterrole-binding.yaml"), ns.Name)
+		loader.DeleteFromFile(testassets.ReadFile, filepath.Join("testdata", "validating-admission-policy-binding.yaml"), "")
+		loader.DeleteFromFile(testassets.ReadFile, filepath.Join("testdata", "validating-admission-policy.yaml"), "")
 	})
 
 	// Test Cases
@@ -916,7 +922,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				},
 			}
 			err = nonAdminClient.Create(testCtx, mg)
-			Expect(err).To(HaveOccurred(), "Should be rejected by CRD authorizer validation")
+			Expect(err).To(HaveOccurred(), "Should be rejected by ValidatingAdmissionPolicy")
 			Expect(apierrors.IsInvalid(err) || apierrors.IsForbidden(err)).To(BeTrue(),
 				"Error should be Invalid or Forbidden, got: %v", err)
 			Expect(err.Error()).To(ContainSubstring("you are not authorized to use the specified ServiceAccount"),
@@ -925,7 +931,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Cleaning up unauthorized ServiceAccount")
 			_ = adminClient.Delete(testCtx, unauthorizedSA)
 
-			ginkgo.GinkgoWriter.Println("CRD authorizer correctly denied MustGather creation for unauthorized ServiceAccount")
+			ginkgo.GinkgoWriter.Println("ValidatingAdmissionPolicy correctly denied MustGather creation for unauthorized ServiceAccount")
 		})
 
 		ginkgo.It("should reject MustGather with explicitly empty serviceAccountName", func() {
