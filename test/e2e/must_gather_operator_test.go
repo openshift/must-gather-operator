@@ -27,6 +27,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -154,6 +155,10 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		ginkgo.By("STEP 6: Creating must-gather-admin ServiceAccount and RBAC (default SA)")
 		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "must-gather-admin-serviceaccount.yaml"), ns.Name)
 		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "must-gather-admin-clusterrole-binding.yaml"), ns.Name)
+
+		ginkgo.By("STEP 7: Granting non-admin user 'use' verb on test ServiceAccounts")
+		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "nonadmin-use-serviceaccount-role.yaml"), ns.Name)
+		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "nonadmin-use-serviceaccount-rolebinding.yaml"), ns.Name)
 
 		ginkgo.By("Initializing non-admin client for tests")
 		nonAdminClient = createNonAdminClient()
@@ -885,6 +890,66 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			err = nonAdminClient.Update(testCtx, sa)
 			Expect(err).To(HaveOccurred(), "Non-admin should NOT be able to modify ServiceAccounts")
 			Expect(apierrors.IsForbidden(err)).To(BeTrue(), "Should get Forbidden error")
+		})
+
+		ginkgo.It("should deny MustGather creation when user lacks 'use' permission on ServiceAccount", func() {
+			unauthorizedSAName := fmt.Sprintf("must-gather-unauthorized-sa-%d", time.Now().UnixNano())
+
+			ginkgo.By("Creating a ServiceAccount the non-admin user is NOT authorized to use")
+			unauthorizedSA := &corev1.ServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      unauthorizedSAName,
+					Namespace: ns.Name,
+				},
+			}
+			err := adminClient.Create(testCtx, unauthorizedSA)
+			Expect(err).NotTo(HaveOccurred(), "Admin should be able to create ServiceAccount")
+
+			ginkgo.By("Attempting to create MustGather CR with unauthorized ServiceAccount")
+			mg := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("test-authz-deny-%d", time.Now().UnixNano()),
+					Namespace: ns.Name,
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: unauthorizedSAName,
+				},
+			}
+			err = nonAdminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "Should be rejected by CRD authorizer validation")
+			Expect(apierrors.IsInvalid(err) || apierrors.IsForbidden(err)).To(BeTrue(),
+				"Error should be Invalid or Forbidden, got: %v", err)
+			Expect(err.Error()).To(ContainSubstring("you are not authorized to use the specified ServiceAccount"),
+				"Error message should indicate authorization failure")
+
+			ginkgo.By("Cleaning up unauthorized ServiceAccount")
+			_ = adminClient.Delete(testCtx, unauthorizedSA)
+
+			ginkgo.GinkgoWriter.Println("CRD authorizer correctly denied MustGather creation for unauthorized ServiceAccount")
+		})
+
+		ginkgo.It("should reject MustGather with explicitly empty serviceAccountName", func() {
+			ginkgo.By("Creating MustGather CR with explicitly empty serviceAccountName via unstructured client")
+			mg := &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "operator.openshift.io/v1alpha1",
+					"kind":       "MustGather",
+					"metadata": map[string]interface{}{
+						"name":      fmt.Sprintf("test-empty-sa-%d", time.Now().UnixNano()),
+						"namespace": ns.Name,
+					},
+					"spec": map[string]interface{}{
+						"serviceAccountName": "",
+					},
+				},
+			}
+
+			err := nonAdminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "Should be rejected by MinLength validation")
+			Expect(apierrors.IsInvalid(err)).To(BeTrue(),
+				"Error should be Invalid, got: %v", err)
+
+			ginkgo.GinkgoWriter.Println("CRD MinLength validation correctly rejected empty serviceAccountName")
 		})
 	})
 

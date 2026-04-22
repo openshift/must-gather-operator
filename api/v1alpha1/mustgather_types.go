@@ -30,6 +30,7 @@ import (
 type MustGatherSpec struct {
 	// the service account to use to run the must gather job pod, defaults to must-gather-admin
 	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:default:="must-gather-admin"
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 
@@ -227,6 +228,7 @@ func (m *MustGather) SetConditions(conditions []metav1.Condition) {
 
 // MustGather is the Schema for the mustgathers API
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec) || self.spec == oldSelf.spec",message="spec values are immutable once set"
+// +kubebuilder:validation:XValidation:rule="authorizer.group(”).resource('serviceaccounts').namespace(object.metadata.namespace).name(object.spec.serviceAccountName).check('use').allowed()",message="you are not authorized to use the specified ServiceAccount"
 type MustGather struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

@@ -117,6 +117,7 @@ spec:
                 default: must-gather-admin
                 description: the service account to use to run the must gather job
                   pod, defaults to must-gather-admin
+                minLength: 1
                 type: string
               storage:
                 description: |-
@@ -311,6 +312,8 @@ spec:
         x-kubernetes-validations:
         - message: spec values are immutable once set
           rule: '!has(oldSelf.spec) || self.spec == oldSelf.spec'
+        - message: you are not authorized to use the specified ServiceAccount
+          rule: authorizer.group('').resource('serviceaccounts').namespace(object.metadata.namespace).name(object.spec.serviceAccountName).check('use').allowed()
     served: true
     storage: true
     subresources:
