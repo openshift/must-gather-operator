@@ -228,7 +228,6 @@ func (m *MustGather) SetConditions(conditions []metav1.Condition) {
 
 // MustGather is the Schema for the mustgathers API
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec) || self.spec == oldSelf.spec",message="spec values are immutable once set"
-// +kubebuilder:validation:XValidation:rule="authorizer.group(”).resource('serviceaccounts').namespace(object.metadata.namespace).name(object.spec.serviceAccountName).check('use').allowed()",message="you are not authorized to use the specified ServiceAccount"
 type MustGather struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
