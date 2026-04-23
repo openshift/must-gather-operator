@@ -901,14 +901,15 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.GinkgoWriter.Println("ValidatingAdmissionPolicy correctly denied MustGather creation for unauthorized ServiceAccount")
 		})
 
-		ginkgo.It("should reject MustGather with explicitly empty serviceAccountName", func() {
+		ginkgo.It("should apply default serviceAccountName when explicitly set to empty", func() {
 			ginkgo.By("Creating MustGather CR with explicitly empty serviceAccountName via unstructured client")
-			mg := &unstructured.Unstructured{
+			mgName := fmt.Sprintf("test-empty-sa-%d", time.Now().UnixNano())
+			mgUnstructured := &unstructured.Unstructured{
 				Object: map[string]interface{}{
 					"apiVersion": "operator.openshift.io/v1alpha1",
 					"kind":       "MustGather",
 					"metadata": map[string]interface{}{
-						"name":      fmt.Sprintf("test-empty-sa-%d", time.Now().UnixNano()),
+						"name":      mgName,
 						"namespace": ns.Name,
 					},
 					"spec": map[string]interface{}{
@@ -917,12 +918,22 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				},
 			}
 
-			err := nonAdminClient.Create(testCtx, mg)
-			Expect(err).To(HaveOccurred(), "Should be rejected by MinLength validation")
-			Expect(apierrors.IsInvalid(err)).To(BeTrue(),
-				"Error should be Invalid, got: %v", err)
+			err := nonAdminClient.Create(testCtx, mgUnstructured)
+			Expect(err).NotTo(HaveOccurred(), "CRD default should replace empty serviceAccountName")
 
-			ginkgo.GinkgoWriter.Println("CRD MinLength validation correctly rejected empty serviceAccountName")
+			ginkgo.By("Verifying API server applied the default serviceAccountName")
+			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			err = adminClient.Get(testCtx, client.ObjectKey{
+				Name:      mgName,
+				Namespace: ns.Name,
+			}, fetchedMG)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fetchedMG.Spec.ServiceAccountName).To(Equal("must-gather-admin"),
+				"API server should default empty serviceAccountName to 'must-gather-admin'")
+
+			mg = fetchedMG
+
+			ginkgo.GinkgoWriter.Println("CRD default correctly applied 'must-gather-admin' for empty serviceAccountName")
 		})
 	})
 

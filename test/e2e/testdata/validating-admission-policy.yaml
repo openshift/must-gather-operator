@@ -13,6 +13,6 @@ spec:
       resources: ["mustgathers"]
       operations: ["CREATE"]
   validations:
-  - expression: "!has(object.spec.serviceAccountName) || object.spec.serviceAccountName == '' || authorizer.group('').resource('serviceaccounts').namespace(object.metadata.namespace).name(object.spec.serviceAccountName).check('use').allowed()"
+  - expression: "!has(object.spec.serviceAccountName) || authorizer.group('').resource('serviceaccounts').namespace(object.metadata.namespace).name(object.spec.serviceAccountName).check('use').allowed()"
     message: "you are not authorized to use the specified ServiceAccount"
     reason: Forbidden
