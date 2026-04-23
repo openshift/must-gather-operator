@@ -901,7 +901,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.GinkgoWriter.Println("ValidatingAdmissionPolicy correctly denied MustGather creation for unauthorized ServiceAccount")
 		})
 
-		ginkgo.It("should apply default serviceAccountName when explicitly set to empty", func() {
+		ginkgo.It("should reject explicitly empty serviceAccountName", func() {
 			ginkgo.By("Creating MustGather CR with explicitly empty serviceAccountName via unstructured client")
 			mgName := fmt.Sprintf("test-empty-sa-%d", time.Now().UnixNano())
 			mgUnstructured := &unstructured.Unstructured{
@@ -919,21 +919,11 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}
 
 			err := nonAdminClient.Create(testCtx, mgUnstructured)
-			Expect(err).NotTo(HaveOccurred(), "CRD default should replace empty serviceAccountName")
+			Expect(err).To(HaveOccurred(), "Empty serviceAccountName should be rejected by CRD minLength validation")
+			Expect(apierrors.IsInvalid(err)).To(BeTrue(),
+				"Error should be Invalid (422) from CRD validation, got: %v", err)
 
-			ginkgo.By("Verifying API server applied the default serviceAccountName")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
-			err = adminClient.Get(testCtx, client.ObjectKey{
-				Name:      mgName,
-				Namespace: ns.Name,
-			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(fetchedMG.Spec.ServiceAccountName).To(Equal("must-gather-admin"),
-				"API server should default empty serviceAccountName to 'must-gather-admin'")
-
-			mg = fetchedMG
-
-			ginkgo.GinkgoWriter.Println("CRD default correctly applied 'must-gather-admin' for empty serviceAccountName")
+			ginkgo.GinkgoWriter.Println("CRD minLength validation correctly rejected empty serviceAccountName")
 		})
 	})
 
