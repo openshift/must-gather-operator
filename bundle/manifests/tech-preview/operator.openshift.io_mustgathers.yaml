@@ -117,6 +117,7 @@ spec:
                 default: must-gather-admin
                 description: the service account to use to run the must gather job
                   pod, defaults to must-gather-admin
+                minLength: 1
                 type: string
               storage:
                 description: |-
