@@ -27,6 +27,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -63,6 +64,7 @@ const (
 	nonAdminCRRoleName = "must-gather-nonadmin-clusterrole"
 	serviceAccount     = "must-gather-serviceaccount"
 	nonAdminLabel      = "support-log-gather"
+	nonAdminUserNoUse  = "must-gather-nonadmin-user-no-use"
 
 	// Operator constants
 	operatorNamespace  = "must-gather-operator"
@@ -99,6 +101,7 @@ var (
 	adminClient       client.Client
 	nonAdminClient    client.Client
 	nonAdminClientset *kubernetes.Clientset
+	noUseClient       client.Client
 	operatorImage     string
 	setupComplete     bool
 )
@@ -151,8 +154,46 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "serviceaccount-clusterrole.yaml"), ns.Name)
 		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "serviceaccount-clusterrole-binding.yaml"), ns.Name)
 
+		ginkgo.By("STEP 6: Creating must-gather-admin ServiceAccount and RBAC (default SA)")
+		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "must-gather-admin-serviceaccount.yaml"), ns.Name)
+		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "must-gather-admin-clusterrole-binding.yaml"), ns.Name)
+
+		ginkgo.By("STEP 7: Granting non-admin user 'use' verb on test ServiceAccounts")
+		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "nonadmin-use-serviceaccount-role.yaml"), ns.Name)
+		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "nonadmin-use-serviceaccount-rolebinding.yaml"), ns.Name)
+
+		ginkgo.By("STEP 8: Creating ValidatingAdmissionPolicy for ServiceAccount authorization")
+		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "validating-admission-policy.yaml"), "")
+		loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "validating-admission-policy-binding.yaml"), "")
+
+		ginkgo.By("STEP 9: Creating RoleBinding for no-use test user (MustGather CRUD, no 'use' on any SA)")
+		noUseRB := &rbacv1.RoleBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "must-gather-nonadmin-no-use-rolebinding",
+				Namespace: ns.Name,
+				Labels:    map[string]string{"test": nonAdminLabel},
+			},
+			RoleRef: rbacv1.RoleRef{
+				APIGroup: "rbac.authorization.k8s.io",
+				Kind:     "ClusterRole",
+				Name:     nonAdminCRRoleName,
+			},
+			Subjects: []rbacv1.Subject{
+				{
+					Kind:     "User",
+					Name:     nonAdminUserNoUse,
+					APIGroup: "rbac.authorization.k8s.io",
+				},
+			},
+		}
+		err = adminClient.Create(testCtx, noUseRB)
+		Expect(err).NotTo(HaveOccurred(), "Failed to create no-use user RoleBinding")
+
 		ginkgo.By("Initializing non-admin client for tests")
 		nonAdminClient = createNonAdminClient()
+
+		ginkgo.By("Initializing no-use client (user without 'use' permission on any ServiceAccount)")
+		noUseClient = createNoUseClient()
 
 		setupComplete = true
 		ginkgo.GinkgoWriter.Println("Admin setup complete - RBAC and ServiceAccount configured")
@@ -173,6 +214,9 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		loader.DeleteFromFile(testassets.ReadFile, filepath.Join("testdata", "nonadmin-clusterrole-binding.yaml"), ns.Name)
 		loader.DeleteFromFile(testassets.ReadFile, filepath.Join("testdata", "serviceaccount-clusterrole.yaml"), ns.Name)
 		loader.DeleteFromFile(testassets.ReadFile, filepath.Join("testdata", "serviceaccount-clusterrole-binding.yaml"), ns.Name)
+		loader.DeleteFromFile(testassets.ReadFile, filepath.Join("testdata", "must-gather-admin-clusterrole-binding.yaml"), ns.Name)
+		loader.DeleteFromFile(testassets.ReadFile, filepath.Join("testdata", "validating-admission-policy-binding.yaml"), "")
+		loader.DeleteFromFile(testassets.ReadFile, filepath.Join("testdata", "validating-admission-policy.yaml"), "")
 	})
 
 	// Test Cases
@@ -696,63 +740,65 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}
 		})
 
-		ginkgo.It("should report error when ServiceAccount does not exist", func() {
-			mustGatherName := fmt.Sprintf("test-missing-sa-%d", time.Now().UnixNano())
+		ginkgo.It("should default serviceAccountName to must-gather-admin when not specified", func() {
+			mustGatherName := fmt.Sprintf("test-default-sa-%d", time.Now().UnixNano())
 
-			ginkgo.By("Creating MustGather with non-existent ServiceAccount")
-			mg = createMustGatherCR(mustGatherName, ns.Name, "non-existent-sa-e2e", false, nil)
+			ginkgo.By("Creating MustGather CR without specifying serviceAccountName")
+			// Pass empty string for serviceAccountName — with omitempty, this field
+			// will be omitted from JSON serialization, and the API server will apply
+			// the CRD default "must-gather-admin"
+			mg = createMustGatherCR(mustGatherName, ns.Name, "", false, nil)
 
-			ginkgo.By("Verifying MustGather status has error condition")
-			Eventually(func() bool {
-				fetchedMG := &mustgatherv1alpha1.MustGather{}
-				err := adminClient.Get(testCtx, client.ObjectKey{
-					Name:      mustGatherName,
-					Namespace: ns.Name,
-				}, fetchedMG)
-				if err != nil {
-					return false
-				}
-				// Check for error condition with service account message
-				for _, cond := range fetchedMG.Status.Conditions {
-					if cond.Type == "ReconcileError" && cond.Status == metav1.ConditionTrue {
-						if strings.Contains(strings.ToLower(cond.Message), "service account") &&
-							strings.Contains(strings.ToLower(cond.Message), "not found") {
-							ginkgo.GinkgoWriter.Printf("Found expected error condition: %s\n", cond.Message)
-							return true
-						}
-					}
-				}
-				return false
-			}).WithTimeout(1*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
-				"MustGather status should contain error condition about missing ServiceAccount")
-
-			ginkgo.By("Verifying Job was not created")
-			job := &batchv1.Job{}
+			ginkgo.By("Verifying API server applied the default serviceAccountName")
+			fetchedMG := &mustgatherv1alpha1.MustGather{}
 			err := adminClient.Get(testCtx, client.ObjectKey{
 				Name:      mustGatherName,
 				Namespace: ns.Name,
-			}, job)
-			Expect(apierrors.IsNotFound(err)).To(BeTrue(),
-				"Job should not be created when ServiceAccount is missing")
+			}, fetchedMG)
+			Expect(err).NotTo(HaveOccurred(), "admin should be able to fetch the MustGather CR")
+			Expect(fetchedMG.Spec.ServiceAccountName).To(Equal("must-gather-admin"),
+				"API server should default serviceAccountName to 'must-gather-admin'")
 
-			ginkgo.By("Verifying warning event was generated")
-			events := &corev1.EventList{}
-			err = adminClient.List(testCtx, events, client.InNamespace(ns.Name))
-			Expect(err).NotTo(HaveOccurred())
+			ginkgo.By("Verifying Job is created with the default ServiceAccount")
+			job := &batchv1.Job{}
+			Eventually(func() error {
+				return adminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+				"Job should be created when default must-gather-admin SA exists")
 
-			foundWarningEvent := false
-			for _, event := range events.Items {
-				if event.InvolvedObject.Name == mustGatherName &&
-					event.Type == corev1.EventTypeWarning &&
-					strings.Contains(strings.ToLower(event.Message), "service account") {
-					foundWarningEvent = true
-					ginkgo.GinkgoWriter.Printf("Found warning event: %s\n", event.Message)
-					break
-				}
+			Expect(job.Spec.Template.Spec.ServiceAccountName).To(Equal("must-gather-admin"),
+				"Job pod spec should use must-gather-admin ServiceAccount")
+
+			ginkgo.GinkgoWriter.Println("Default serviceAccountName correctly applied as 'must-gather-admin'")
+		})
+
+		ginkgo.It("should deny creation when user lacks use permission on ServiceAccount", func() {
+			mustGatherName := fmt.Sprintf("test-missing-sa-%d", time.Now().UnixNano())
+
+			ginkgo.By("Attempting to create MustGather with non-existent ServiceAccount")
+			testMG := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+					Labels:    map[string]string{"test": nonAdminLabel},
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "non-existent-sa-e2e",
+				},
 			}
-			Expect(foundWarningEvent).To(BeTrue(), "Warning event should be generated for missing ServiceAccount")
+			err := nonAdminClient.Create(testCtx, testMG)
 
-			ginkgo.GinkgoWriter.Println("ServiceAccount validation correctly prevented Job creation and reported error")
+			ginkgo.By("Verifying admission policy denied the request")
+			Expect(err).To(HaveOccurred(), "Create should fail for unauthorized ServiceAccount")
+			Expect(apierrors.IsForbidden(err)).To(BeTrue(),
+				"Error should be Forbidden, got: %v", err)
+			Expect(err.Error()).To(ContainSubstring("not authorized to use the specified ServiceAccount"),
+				"Error should contain admission policy denial message")
+
+			ginkgo.GinkgoWriter.Println("ValidatingAdmissionPolicy correctly blocked MustGather creation with unauthorized ServiceAccount")
 		})
 
 		ginkgo.It("should enforce ServiceAccount permissions during data collection", func() {
@@ -775,10 +821,12 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					return true
 				}
 				return false
-			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
+				"gather Pod should be created and running before checking security constraints")
 
 			ginkgo.By("Verifying Pod has no privilege escalation")
-			Expect(gatherPod.Spec.ServiceAccountName).To(Equal(serviceAccount))
+			Expect(gatherPod.Spec.ServiceAccountName).To(Equal(serviceAccount),
+				"Pod should use the ServiceAccount specified in MustGather CR")
 
 			// Check that pod doesn't request privileged mode
 			for _, container := range gatherPod.Spec.Containers {
@@ -845,6 +893,270 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			err = nonAdminClient.Update(testCtx, sa)
 			Expect(err).To(HaveOccurred(), "Non-admin should NOT be able to modify ServiceAccounts")
 			Expect(apierrors.IsForbidden(err)).To(BeTrue(), "Should get Forbidden error")
+		})
+
+		ginkgo.It("should deny MustGather creation when user lacks 'use' permission on ServiceAccount", func() {
+			unauthorizedSAName := fmt.Sprintf("must-gather-unauthorized-sa-%d", time.Now().UnixNano())
+
+			ginkgo.By("Creating a ServiceAccount the non-admin user is NOT authorized to use")
+			unauthorizedSA := &corev1.ServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      unauthorizedSAName,
+					Namespace: ns.Name,
+				},
+			}
+			err := adminClient.Create(testCtx, unauthorizedSA)
+			Expect(err).NotTo(HaveOccurred(), "Admin should be able to create ServiceAccount")
+
+			ginkgo.By("Attempting to create MustGather CR with unauthorized ServiceAccount")
+			mg := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("test-authz-deny-%d", time.Now().UnixNano()),
+					Namespace: ns.Name,
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: unauthorizedSAName,
+				},
+			}
+			err = nonAdminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "Should be rejected by ValidatingAdmissionPolicy")
+			Expect(apierrors.IsInvalid(err) || apierrors.IsForbidden(err)).To(BeTrue(),
+				"Error should be Invalid or Forbidden, got: %v", err)
+			Expect(err.Error()).To(ContainSubstring("you are not authorized to use the specified ServiceAccount"),
+				"Error message should indicate authorization failure")
+
+			ginkgo.By("Cleaning up unauthorized ServiceAccount")
+			_ = adminClient.Delete(testCtx, unauthorizedSA)
+
+			ginkgo.GinkgoWriter.Println("ValidatingAdmissionPolicy correctly denied MustGather creation for unauthorized ServiceAccount")
+		})
+
+		ginkgo.It("should reject explicitly empty serviceAccountName", func() {
+			ginkgo.By("Creating MustGather CR with explicitly empty serviceAccountName via unstructured client")
+			mgName := fmt.Sprintf("test-empty-sa-%d", time.Now().UnixNano())
+			mgUnstructured := &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "operator.openshift.io/v1alpha1",
+					"kind":       "MustGather",
+					"metadata": map[string]interface{}{
+						"name":      mgName,
+						"namespace": ns.Name,
+					},
+					"spec": map[string]interface{}{
+						"serviceAccountName": "",
+					},
+				},
+			}
+
+			err := nonAdminClient.Create(testCtx, mgUnstructured)
+			Expect(err).To(HaveOccurred(), "Empty serviceAccountName should be rejected by CRD minLength validation")
+			Expect(apierrors.IsInvalid(err)).To(BeTrue(),
+				"Error should be Invalid (422) from CRD validation, got: %v", err)
+
+			ginkgo.GinkgoWriter.Println("CRD minLength validation correctly rejected empty serviceAccountName")
+		})
+
+		ginkgo.It("should allow admin user to create MustGather CR with must-gather-admin SA", func() {
+			mustGatherName := fmt.Sprintf("test-admin-create-%d", time.Now().UnixNano())
+
+			ginkgo.By("Creating MustGather CR as admin with must-gather-admin ServiceAccount")
+			adminMG := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+					Labels:    map[string]string{"test": nonAdminLabel},
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "must-gather-admin",
+				},
+			}
+			err := adminClient.Create(testCtx, adminMG)
+			Expect(err).NotTo(HaveOccurred(),
+				"admin should be able to create MustGather CR with must-gather-admin SA")
+
+			ginkgo.By("Verifying CR was persisted with correct serviceAccountName")
+			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			err = adminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, fetchedMG)
+			Expect(err).NotTo(HaveOccurred(), "admin should be able to fetch the created MustGather CR")
+			Expect(fetchedMG.Spec.ServiceAccountName).To(Equal("must-gather-admin"),
+				"serviceAccountName in persisted CR should be must-gather-admin")
+
+			ginkgo.By("Cleaning up admin-created MustGather CR")
+			err = adminClient.Delete(testCtx, adminMG)
+			Expect(err).NotTo(HaveOccurred(), "admin should be able to delete the MustGather CR")
+
+			Eventually(func() bool {
+				err := adminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, &mustgatherv1alpha1.MustGather{})
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
+				"admin-created MustGather CR should be fully deleted")
+
+			ginkgo.GinkgoWriter.Println("Admin user correctly allowed to create MustGather CR with must-gather-admin SA")
+		})
+
+		ginkgo.It("should deny non-admin user when serviceAccountName is omitted and default SA applies", func() {
+			mustGatherName := fmt.Sprintf("test-nonadmin-omit-sa-%d", time.Now().UnixNano())
+
+			ginkgo.By("Creating MustGather CR with omitted serviceAccountName via no-use client")
+			// Use unstructured with an empty spec so the field is truly absent from the JSON payload.
+			// The API server will apply the CRD default "must-gather-admin" before evaluating the VAP.
+			mgUnstructured := &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "operator.openshift.io/v1alpha1",
+					"kind":       "MustGather",
+					"metadata": map[string]interface{}{
+						"name":      mustGatherName,
+						"namespace": ns.Name,
+					},
+					"spec": map[string]interface{}{},
+				},
+			}
+			err := noUseClient.Create(testCtx, mgUnstructured)
+
+			ginkgo.By("Verifying ValidatingAdmissionPolicy denied the request")
+			Expect(err).To(HaveOccurred(),
+				"non-admin without 'use' on must-gather-admin should be denied when serviceAccountName is omitted")
+			Expect(apierrors.IsForbidden(err)).To(BeTrue(),
+				"error should be Forbidden from ValidatingAdmissionPolicy, got: %v", err)
+			Expect(err.Error()).To(ContainSubstring("not authorized to use the specified ServiceAccount"),
+				"error message should describe authorization failure for the default SA")
+
+			ginkgo.GinkgoWriter.Println("ValidatingAdmissionPolicy correctly denied non-admin without 'use' when serviceAccountName was omitted")
+		})
+
+		ginkgo.It("should reject update that changes serviceAccountName after creation", func() {
+			mustGatherName := fmt.Sprintf("test-immutable-sa-%d", time.Now().UnixNano())
+
+			ginkgo.By("Creating MustGather CR as admin")
+			adminMG := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+					Labels:    map[string]string{"test": nonAdminLabel},
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: serviceAccount,
+				},
+			}
+			err := adminClient.Create(testCtx, adminMG)
+			Expect(err).NotTo(HaveOccurred(), "admin should be able to create the initial MustGather CR")
+
+			ginkgo.By("Attempting to change serviceAccountName (should be rejected by CRD XValidation immutability rule)")
+			var updateErr error
+			Eventually(func() bool {
+				fetchedMG := &mustgatherv1alpha1.MustGather{}
+				if err := adminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, fetchedMG); err != nil {
+					return false
+				}
+				fetchedMG.Spec.ServiceAccountName = "must-gather-admin"
+				updateErr = adminClient.Update(testCtx, fetchedMG)
+				// Retry on conflict (controller may be updating finalizers/status concurrently)
+				return !apierrors.IsConflict(updateErr)
+			}).WithTimeout(30*time.Second).WithPolling(2*time.Second).Should(BeTrue(),
+				"should eventually get past conflict errors")
+
+			Expect(updateErr).To(HaveOccurred(),
+				"update changing serviceAccountName should be rejected by CRD immutability rule")
+			Expect(apierrors.IsInvalid(updateErr)).To(BeTrue(),
+				"error should be Invalid (422) from CRD XValidation immutability rule, got: %v", updateErr)
+			Expect(updateErr.Error()).To(ContainSubstring("immutable"),
+				"error message should reference the immutability constraint")
+
+			ginkgo.By("Cleaning up the MustGather CR")
+			freshMG := &mustgatherv1alpha1.MustGather{}
+			if getErr := adminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, freshMG); getErr == nil {
+				_ = adminClient.Delete(testCtx, freshMG)
+			}
+
+			ginkgo.GinkgoWriter.Println("CRD XValidation correctly rejected serviceAccountName change after creation")
+		})
+
+		ginkgo.It("should set ReconcileError status when ServiceAccount does not exist (admin creates CR)", func() {
+			mustGatherName := fmt.Sprintf("test-nonexistent-sa-ctrl-%d", time.Now().UnixNano())
+			nonExistentSA := "non-existent-sa-ctrl-test"
+
+			ginkgo.By("Creating MustGather CR as admin with a non-existent ServiceAccount")
+			// Admin has wildcard RBAC so the ValidatingAdmissionPolicy passes.
+			// The controller then tries to look up the SA and sets ReconcileError status on failure.
+			adminMG := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+					Labels:    map[string]string{"test": nonAdminLabel},
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: nonExistentSA,
+				},
+			}
+			err := adminClient.Create(testCtx, adminMG)
+			Expect(err).NotTo(HaveOccurred(),
+				"admin should be able to create MustGather CR (ValidatingAdmissionPolicy passes for admin)")
+
+			ginkgo.By("Waiting for controller to detect the missing SA and set Failed status")
+			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			Eventually(func(g Gomega) {
+				g.Expect(adminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, fetchedMG)).To(Succeed(), "should be able to fetch MustGather CR")
+				g.Expect(fetchedMG.Status.Completed).To(BeTrue(),
+					"MustGather should be marked Completed (with failure) when SA does not exist")
+				g.Expect(fetchedMG.Status.Status).To(Equal("Failed"),
+					"MustGather status should be Failed when SA does not exist")
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+				"controller should set Failed status for non-existent ServiceAccount")
+
+			ginkgo.By("Verifying ReconcileError condition is set with correct reason")
+			var reconcileErrCondition *metav1.Condition
+			for i := range fetchedMG.Status.Conditions {
+				if fetchedMG.Status.Conditions[i].Type == "ReconcileError" {
+					reconcileErrCondition = &fetchedMG.Status.Conditions[i]
+					break
+				}
+			}
+			Expect(reconcileErrCondition).NotTo(BeNil(),
+				"ReconcileError condition should be present when SA does not exist")
+			Expect(reconcileErrCondition.Status).To(Equal(metav1.ConditionTrue),
+				"ReconcileError condition status should be True")
+			Expect(reconcileErrCondition.Reason).To(Equal("ValidationFailed"),
+				"ReconcileError condition reason should be ValidationFailed")
+
+			ginkgo.By("Verifying no Job was created for the failed MustGather")
+			Consistently(func() bool {
+				err := adminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, &batchv1.Job{})
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(30*time.Second).WithPolling(5*time.Second).Should(BeTrue(),
+				"no Job should be created when the ServiceAccount does not exist")
+
+			ginkgo.By("Cleaning up the MustGather CR")
+			err = adminClient.Delete(testCtx, adminMG)
+			Expect(err).NotTo(HaveOccurred(), "admin should be able to delete the MustGather CR")
+
+			Eventually(func() bool {
+				err := adminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, &mustgatherv1alpha1.MustGather{})
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
+				"MustGather CR should be fully deleted after cleanup")
+
+			ginkgo.GinkgoWriter.Printf("Controller correctly set ReconcileError status for non-existent SA: %s\n", nonExistentSA)
 		})
 	})
 
@@ -1667,6 +1979,20 @@ func createNonAdminClient() client.Client {
 	Expect(err).NotTo(HaveOccurred(), "Failed to create non-admin clientset")
 
 	ginkgo.GinkgoWriter.Printf("Created impersonated client for user: %s\n", nonAdminUser)
+	return c
+}
+
+func createNoUseClient() client.Client {
+	ginkgo.By("Creating impersonated no-use client")
+	noUseConfig := rest.CopyConfig(adminRestConfig)
+	noUseConfig.Impersonate = rest.ImpersonationConfig{
+		UserName: nonAdminUserNoUse,
+	}
+
+	c, err := client.New(noUseConfig, client.Options{Scheme: testScheme})
+	Expect(err).NotTo(HaveOccurred(), "Failed to create no-use impersonation client")
+
+	ginkgo.GinkgoWriter.Printf("Created impersonated client for user: %s\n", nonAdminUserNoUse)
 	return c
 }
 

@@ -114,9 +114,10 @@ spec:
                   If set to true, resources will be retained. If false or not set, resources will be deleted (default behavior).
                 type: boolean
               serviceAccountName:
-                default: default
+                default: must-gather-admin
                 description: the service account to use to run the must gather job
-                  pod, defaults to default
+                  pod, defaults to must-gather-admin
+                minLength: 1
                 type: string
               storage:
                 description: |-

@@ -28,9 +28,10 @@ import (
 // +kubebuilder:validation:XValidation:rule="!(has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.audit) && self.gatherSpec.audit)",message="audit cannot be enabled when using a custom image (imageStreamRef)"
 // +kubebuilder:validation:XValidation:rule="!(!has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0 && has(self.gatherSpec.audit) && self.gatherSpec.audit)",message="audit cannot be enabled when gatherSpec.command is set with the default must-gather image"
 type MustGatherSpec struct {
-	// the service account to use to run the must gather job pod, defaults to default
+	// the service account to use to run the must gather job pod, defaults to must-gather-admin
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:="default"
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:default:="must-gather-admin"
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 
 	// ImageStreamRef specifies a custom image from the allowlist to be used for the
