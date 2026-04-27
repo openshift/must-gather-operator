@@ -1047,22 +1047,28 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			err := adminClient.Create(testCtx, adminMG)
 			Expect(err).NotTo(HaveOccurred(), "admin should be able to create the initial MustGather CR")
 
-			ginkgo.By("Fetching the created CR to obtain the current resource version")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
-			err = adminClient.Get(testCtx, client.ObjectKey{
-				Name:      mustGatherName,
-				Namespace: ns.Name,
-			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred(), "should be able to fetch the created MustGather CR")
-
 			ginkgo.By("Attempting to change serviceAccountName (should be rejected by CRD XValidation immutability rule)")
-			fetchedMG.Spec.ServiceAccountName = "must-gather-admin"
-			err = adminClient.Update(testCtx, fetchedMG)
-			Expect(err).To(HaveOccurred(),
+			var updateErr error
+			Eventually(func() bool {
+				fetchedMG := &mustgatherv1alpha1.MustGather{}
+				if err := adminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, fetchedMG); err != nil {
+					return false
+				}
+				fetchedMG.Spec.ServiceAccountName = "must-gather-admin"
+				updateErr = adminClient.Update(testCtx, fetchedMG)
+				// Retry on conflict (controller may be updating finalizers/status concurrently)
+				return !apierrors.IsConflict(updateErr)
+			}).WithTimeout(30*time.Second).WithPolling(2*time.Second).Should(BeTrue(),
+				"should eventually get past conflict errors")
+
+			Expect(updateErr).To(HaveOccurred(),
 				"update changing serviceAccountName should be rejected by CRD immutability rule")
-			Expect(apierrors.IsInvalid(err)).To(BeTrue(),
-				"error should be Invalid (422) from CRD XValidation immutability rule, got: %v", err)
-			Expect(err.Error()).To(ContainSubstring("immutable"),
+			Expect(apierrors.IsInvalid(updateErr)).To(BeTrue(),
+				"error should be Invalid (422) from CRD XValidation immutability rule, got: %v", updateErr)
+			Expect(updateErr.Error()).To(ContainSubstring("immutable"),
 				"error message should reference the immutability constraint")
 
 			ginkgo.By("Cleaning up the MustGather CR")
