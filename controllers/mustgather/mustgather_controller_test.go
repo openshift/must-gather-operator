@@ -1588,7 +1588,7 @@ func generateFakeClient(objs ...runtime.Object) (client.Client, *runtime.Scheme)
 	return cl, s
 }
 
-func TestGetJobFromInstanceFutureSinceTimeSetsValidationStatus(t *testing.T) {
+func TestReconcileFutureSinceTimeSetsValidationStatus(t *testing.T) {
 	st := metav1.NewTime(time.Now().Add(48 * time.Hour))
 	mg := &mustgatherv1alpha1.MustGather{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1613,9 +1613,14 @@ func TestGetJobFromInstanceFutureSinceTimeSetsValidationStatus(t *testing.T) {
 		OperatorNamespace:      "openshift-must-gather-operator",
 	}
 
-	_, err := r.getJobFromInstance(context.Background(), mg)
-	if err == nil {
-		t.Fatal("expected error")
+	res, err := r.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace},
+	})
+	if err != nil {
+		t.Fatalf("expected nil error after validation status set (no requeue), got %v", err)
+	}
+	if !res.IsZero() {
+		t.Fatalf("expected empty result (no requeue), got %#v", res)
 	}
 
 	updated := &mustgatherv1alpha1.MustGather{}
