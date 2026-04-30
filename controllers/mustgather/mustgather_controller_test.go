@@ -1588,6 +1588,53 @@ func generateFakeClient(objs ...runtime.Object) (client.Client, *runtime.Scheme)
 	return cl, s
 }
 
+func TestReconcileFutureSinceTimeSetsValidationStatus(t *testing.T) {
+	st := metav1.NewTime(time.Now().Add(48 * time.Hour))
+	mg := &mustgatherv1alpha1.MustGather{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "mg-future-sincetime",
+			Namespace:  "openshift-must-gather-operator",
+			Finalizers: []string{mustGatherFinalizer},
+		},
+		Spec: mustgatherv1alpha1.MustGatherSpec{
+			GatherSpec: &mustgatherv1alpha1.GatherSpec{
+				SinceTime: &st,
+			},
+		},
+	}
+	t.Setenv("OPERATOR_IMAGE", "test-image")
+	t.Setenv("DEFAULT_MUST_GATHER_IMAGE", "test-must-gather-image")
+	cl, s := generateFakeClient(mg)
+	eventRec := record.NewFakeRecorder(10)
+	var cfg *rest.Config
+	r := MustGatherReconciler{
+		ReconcilerBase:         util.NewReconcilerBase(cl, s, cfg, eventRec, nil),
+		DefaultMustGatherImage: "test-must-gather-image",
+		OperatorNamespace:      "openshift-must-gather-operator",
+	}
+
+	res, err := r.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace},
+	})
+	if err != nil {
+		t.Fatalf("expected nil error after validation status set (no requeue), got %v", err)
+	}
+	if !res.IsZero() {
+		t.Fatalf("expected empty result (no requeue), got %#v", res)
+	}
+
+	updated := &mustgatherv1alpha1.MustGather{}
+	if err := cl.Get(context.Background(), types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status.Status != "Failed" {
+		t.Fatalf("expected status Failed, got %q", updated.Status.Status)
+	}
+	if !strings.Contains(updated.Status.Reason, ValidationSinceTime) {
+		t.Fatalf("expected reason to mention sinceTime, got %q", updated.Status.Reason)
+	}
+}
+
 // TestSFTPCredentialValidation tests the credential validation logic added in the controller
 func TestSFTPCredentialValidation(t *testing.T) {
 	// Setup scheme

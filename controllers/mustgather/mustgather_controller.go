@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"time"
 
 	"github.com/go-logr/logr"
 	imagev1 "github.com/openshift/api/image/v1"
@@ -152,6 +153,11 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			log.Error(err, "failed to ensure trustedCA ConfigMap exists")
 			return r.ManageError(ctx, instance, err)
 		}
+	}
+
+	if instance.Spec.GatherSpec != nil && instance.Spec.GatherSpec.SinceTime != nil && instance.Spec.GatherSpec.SinceTime.After(time.Now()) {
+		err := fmt.Errorf("gatherSpec.sinceTime must be at or before the current date and time")
+		return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationSinceTime, err)
 	}
 
 	job, err := r.getJobFromInstance(ctx, instance)

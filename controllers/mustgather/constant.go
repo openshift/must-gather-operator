@@ -20,6 +20,9 @@ const (
 	// ValidationImageStream represents the validation type for ImageStream
 	ValidationImageStream = "ImageStream"
 
+	// ValidationSinceTime represents validation of gatherSpec.sinceTime (e.g. must not be in the future)
+	ValidationSinceTime = "sinceTime"
+
 	// DefaultMustGatherImageEnv represents the environment variable for the default must-gather image
 	DefaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"
 
