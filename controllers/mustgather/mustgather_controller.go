@@ -51,10 +51,6 @@ const (
 
 var log = logf.Log.WithName(ControllerName)
 
-// errValidationFailureHandled is returned when setValidationFailureStatus succeeded so Reconcile
-// must not call ManageError (which would replace status conditions and confuse validation output).
-var errValidationFailureHandled = goerror.New("mustgather: validation failure recorded in status")
-
 // blank assignment to verify that MustGatherReconciler implements reconcile.Reconciler
 var _ reconcile.Reconciler = &MustGatherReconciler{}
 
@@ -161,9 +157,6 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	job, err := r.getJobFromInstance(ctx, instance)
 	if err != nil {
-		if goerror.Is(err, errValidationFailureHandled) {
-			return reconcile.Result{}, nil
-		}
 		log.Error(err, "unable to get job from", "instance", instance)
 		return r.ManageError(ctx, instance, err)
 	}
@@ -394,7 +387,7 @@ func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, instance 
 		if validationErr != nil {
 			return nil, fmt.Errorf("failed to set validation failure status for original error %v: %w", err, validationErr)
 		}
-		return nil, fmt.Errorf("%w: %v", errValidationFailureHandled, err)
+		return nil, err
 	}
 
 	// Inject the operator image URI from the pod's env variables
@@ -410,7 +403,7 @@ func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, instance 
 		if _, validationErr := r.setValidationFailureStatus(ctx, log, instance, ValidationSinceTime, err); validationErr != nil {
 			return nil, fmt.Errorf("failed to set validation failure status: %w, %w", err, validationErr)
 		}
-		return nil, fmt.Errorf("%w: %v", errValidationFailureHandled, err)
+		return nil, err
 	}
 
 	return getJobTemplate(image, operatorImage, *instance, r.TrustedCAConfigMap), nil
