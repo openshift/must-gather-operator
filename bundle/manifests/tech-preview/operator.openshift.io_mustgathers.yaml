@@ -238,17 +238,9 @@ spec:
                 0))) || has(self.imageStreamRef)'
             - message: audit cannot be used with a custom image (imageStreamRef) or
                 custom command
-              rule: '!(has(self.gatherSpec) && self.gatherSpec.audit == true && (has(self.imageStreamRef)
-                || (has(self.gatherSpec.command) && size(self.gatherSpec.command)
-                > 0)))'
-            - message: audit cannot be enabled when using a custom image (imageStreamRef)
-              rule: '!(has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.audit)
-                && self.gatherSpec.audit)'
-            - message: audit cannot be enabled when gatherSpec.command is set with
-                the default must-gather image
-              rule: '!(!has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.command)
-                && size(self.gatherSpec.command) > 0 && has(self.gatherSpec.audit)
-                && self.gatherSpec.audit)'
+              rule: '!(has(self.gatherSpec) && has(self.gatherSpec.audit) && self.gatherSpec.audit
+                == true && (has(self.imageStreamRef) || (has(self.gatherSpec.command)
+                && size(self.gatherSpec.command) > 0)))'
           status:
             description: MustGatherStatus defines the observed state of MustGather
             properties:
