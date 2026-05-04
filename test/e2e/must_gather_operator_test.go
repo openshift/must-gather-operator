@@ -27,7 +27,9 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -850,16 +852,18 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		ginkgo.It("should reject MustGather CR without serviceAccountName", func() {
 			mustGatherName := fmt.Sprintf("test-no-sa-%d", time.Now().UnixNano())
 
-			ginkgo.By("Creating MustGather CR without serviceAccountName")
-			mg = &mustgatherv1alpha1.MustGather{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      mustGatherName,
-					Namespace: ns.Name,
-				},
-				Spec: mustgatherv1alpha1.MustGatherSpec{},
-			}
+			ginkgo.By("Creating unstructured MustGather CR with spec that omits serviceAccountName entirely")
+			obj := &unstructured.Unstructured{}
+			obj.SetGroupVersionKind(schema.GroupVersionKind{
+				Group:   mustgatherv1alpha1.GroupVersion.Group,
+				Version: mustgatherv1alpha1.GroupVersion.Version,
+				Kind:    "MustGather",
+			})
+			obj.SetName(mustGatherName)
+			obj.SetNamespace(ns.Name)
+			obj.Object["spec"] = map[string]interface{}{}
 
-			err := nonAdminClient.Create(testCtx, mg)
+			err := nonAdminClient.Create(testCtx, obj)
 			Expect(err).To(HaveOccurred(), "CR without serviceAccountName should be rejected at admission")
 			Expect(apierrors.IsInvalid(err)).To(BeTrue(),
 				"Error should be a validation error for missing required field")
