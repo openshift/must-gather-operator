@@ -846,6 +846,27 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			Expect(err).To(HaveOccurred(), "Non-admin should NOT be able to modify ServiceAccounts")
 			Expect(apierrors.IsForbidden(err)).To(BeTrue(), "Should get Forbidden error")
 		})
+
+		ginkgo.It("should reject MustGather CR without serviceAccountName", func() {
+			mustGatherName := fmt.Sprintf("test-no-sa-%d", time.Now().UnixNano())
+
+			ginkgo.By("Creating MustGather CR without serviceAccountName")
+			mg = &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{},
+			}
+
+			err := nonAdminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "CR without serviceAccountName should be rejected at admission")
+			Expect(apierrors.IsInvalid(err)).To(BeTrue(),
+				"Error should be a validation error for missing required field")
+
+			ginkgo.GinkgoWriter.Printf("CR correctly rejected at admission: %v\n", err)
+			mg = nil
+		})
 	})
 
 	ginkgo.Context("UploadTarget SFTP Configuration Tests", func() {
