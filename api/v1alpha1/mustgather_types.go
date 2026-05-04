@@ -26,8 +26,7 @@ import (
 
 // MustGatherSpec defines the desired state of MustGather
 // +kubebuilder:validation:XValidation:rule="!(has(self.gatherSpec) && ((has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0) || (has(self.gatherSpec.args) && size(self.gatherSpec.args) > 0))) || has(self.imageStreamRef)",message="command and args in gatherSpec can only be set when imageStreamRef is specified"
-// +kubebuilder:validation:XValidation:rule="!(has(self.imageStreamRef) && has(self.gatherSpec) && self.gatherSpec.audit == true)",message="audit cannot be used with a custom image (imageStreamRef)"
-// +kubebuilder:validation:XValidation:rule="!(has(self.gatherSpec) && self.gatherSpec.audit == true && has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0 && !has(self.imageStreamRef))",message="audit cannot be used when gatherSpec.command is set without imageStreamRef"
+// +kubebuilder:validation:XValidation:rule="!(has(self.gatherSpec) && self.gatherSpec.audit == true && (has(self.imageStreamRef) || (has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0)))",message="audit cannot be used with a custom image (imageStreamRef) or custom command"
 // +kubebuilder:validation:XValidation:rule="!(has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.audit) && self.gatherSpec.audit)",message="audit cannot be enabled when using a custom image (imageStreamRef)"
 // +kubebuilder:validation:XValidation:rule="!(!has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0 && has(self.gatherSpec.audit) && self.gatherSpec.audit)",message="audit cannot be enabled when gatherSpec.command is set with the default must-gather image"
 type MustGatherSpec struct {

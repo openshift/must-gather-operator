@@ -867,6 +867,29 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.GinkgoWriter.Printf("CR correctly rejected at admission: %v\n", err)
 			mg = nil
 		})
+
+		ginkgo.It("should reject MustGather CR with empty serviceAccountName", func() {
+			mustGatherName := fmt.Sprintf("test-empty-sa-%d", time.Now().UnixNano())
+
+			ginkgo.By("Creating MustGather CR with explicit empty serviceAccountName")
+			mg = &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "",
+				},
+			}
+
+			err := nonAdminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "CR with empty serviceAccountName should be rejected at admission")
+			Expect(apierrors.IsInvalid(err)).To(BeTrue(),
+				"Error should be a validation error for MinLength=1 violation")
+
+			ginkgo.GinkgoWriter.Printf("CR with empty serviceAccountName correctly rejected at admission: %v\n", err)
+			mg = nil
+		})
 	})
 
 	ginkgo.Context("UploadTarget SFTP Configuration Tests", func() {
