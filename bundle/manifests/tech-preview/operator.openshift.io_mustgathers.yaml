@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.16.4
   name: mustgathers.operator.openshift.io
 spec:
   group: operator.openshift.io
@@ -116,9 +116,10 @@ spec:
                   If set to true, resources will be retained. If false or not set, resources will be deleted (default behavior).
                 type: boolean
               serviceAccountName:
-                default: default
-                description: the service account to use to run the must gather job
-                  pod, defaults to default
+                description: |-
+                  The service account to use to run the must-gather job pod.
+                  Users must explicitly specify a ServiceAccount with sufficient permissions.
+                minLength: 1
                 type: string
               storage:
                 description: |-
@@ -228,6 +229,8 @@ spec:
                     is SFTP, and forbidden otherwise
                   rule: 'has(self.type) && self.type == ''SFTP'' ? has(self.sftp)
                     : !has(self.sftp)'
+            required:
+            - serviceAccountName
             type: object
             x-kubernetes-validations:
             - message: command and args in gatherSpec can only be set when imageStreamRef
@@ -235,6 +238,13 @@ spec:
               rule: '!(has(self.gatherSpec) && ((has(self.gatherSpec.command) && size(self.gatherSpec.command)
                 > 0) || (has(self.gatherSpec.args) && size(self.gatherSpec.args) >
                 0))) || has(self.imageStreamRef)'
+            - message: audit cannot be used with a custom image (imageStreamRef)
+              rule: '!(has(self.imageStreamRef) && has(self.gatherSpec) && self.gatherSpec.audit
+                == true)'
+            - message: audit cannot be used when gatherSpec.command is set without
+                imageStreamRef
+              rule: '!(has(self.gatherSpec) && self.gatherSpec.audit == true && has(self.gatherSpec.command)
+                && size(self.gatherSpec.command) > 0 && !has(self.imageStreamRef))'
           status:
             description: MustGatherStatus defines the observed state of MustGather
             properties:
