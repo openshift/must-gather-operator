@@ -178,25 +178,18 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 		// Validate that the ServiceAccount exists before creating the Job.
 		// This prevents the Job from being stuck in pending state due to a missing ServiceAccount.
-		// If no ServiceAccount is specified, default to "default" which should exist in all namespaces.
-		// Note: If the "default" SA has been deleted, this validation will catch it and report an error.
-		saName := instance.Spec.ServiceAccountName
-		if saName == "" {
-			saName = "default"
-			log.Info("no serviceAccountName specified, defaulting to 'default'", "namespace", instance.Namespace)
-		}
 		serviceAccount := &corev1.ServiceAccount{}
 		err = r.GetClient().Get(ctx, types.NamespacedName{
 			Namespace: instance.Namespace,
-			Name:      saName,
+			Name:      instance.Spec.ServiceAccountName,
 		}, serviceAccount)
 		if err != nil {
 			if errors.IsNotFound(err) {
-				log.Error(err, "service account not found", "name", saName, "namespace", instance.Namespace)
+				log.Error(err, "service account not found", "name", instance.Spec.ServiceAccountName, "namespace", instance.Namespace)
 				return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationServiceAccount, err)
 			}
 
-			log.Error(err, "failed to get service account (transient error, will retry)", "name", saName, "namespace", instance.Namespace)
+			log.Error(err, "failed to get service account (transient error, will retry)", "name", instance.Spec.ServiceAccountName, "namespace", instance.Namespace)
 			return reconcile.Result{Requeue: true}, err
 		}
 
