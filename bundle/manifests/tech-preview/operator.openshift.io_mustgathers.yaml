@@ -72,7 +72,6 @@ spec:
                       Allowed units are ns, us, µs, ms, s, m, and h.
                       This is passed to the must-gather script to filter log collection.
                       Only one of since or sinceTime may be specified.
-                    format: duration
                     type: string
                   sinceTime:
                     description: |-
