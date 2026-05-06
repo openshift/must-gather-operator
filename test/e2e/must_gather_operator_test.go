@@ -17,7 +17,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -98,9 +97,6 @@ const (
 //go:embed testdata/*
 var testassets embed.FS
 
-//go:embed cleanup-sftp-uploads.sh
-var sftpCleanupUploadsScript string
-
 // Test suite variables
 var (
 	testCtx           context.Context
@@ -111,8 +107,6 @@ var (
 	nonAdminClientset *kubernetes.Clientset
 	operatorImage     string
 	setupComplete     bool
-	// sftpE2ECleanupCaseID is set by the successful SFTP upload spec; the suite AfterAll removes matching files from the server.
-	sftpE2ECleanupCaseID string
 )
 
 func init() {
@@ -178,12 +172,6 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		}
 
 		ginkgo.By("CLEANUP: Removing all test resources")
-		if sftpE2ECleanupCaseID != "" {
-			ginkgo.By("Cleaning up SFTP files uploaded by e2e tests")
-			if err := cleanupSFTPUploadsByCaseID(ns.Name, caseManagementSecretNameValid, prodHostName, sftpE2ECleanupCaseID, false); err != nil {
-				ginkgo.GinkgoWriter.Printf("Warning: SFTP cleanup failed (non-fatal): %v\n", err)
-			}
-		}
 		// Deleting namespace and all resources in it (including ServiceAccount)
 		loader.DeleteTestingNS(ns.Name, func() bool { return ginkgo.CurrentSpecReport().Failed() })
 		// Deleting ClusterRole, ClusterRoleBinding, and associated RBAC
@@ -920,7 +908,6 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Creating MustGather CR with UploadTarget and internalUser=false")
 			// Generate unique caseID to avoid false positives from previous test runs
 			caseID := generateTestCaseID()
-			sftpE2ECleanupCaseID = caseID
 			ginkgo.GinkgoWriter.Printf("Using unique caseID: %s\n", caseID)
 
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
@@ -2042,103 +2029,6 @@ EOF
 	found := strings.Contains(logs, filePattern)
 
 	return found, logs, nil
-}
-
-// cleanupSFTPUploadsByCaseID removes remote files named like <caseID>_must-gather-*.tar.gz (external user: cwd;
-// internal user: under $SFTP_USERNAME/). Uses the same credentials secret as verifySFTPUpload.
-func cleanupSFTPUploadsByCaseID(namespace, secretName, host, caseID string, internalUser bool) error {
-	if caseID == "" {
-		return nil
-	}
-
-	podName := fmt.Sprintf("sftp-cleanup-%d", time.Now().UnixNano())
-	cleanupPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      podName,
-			Namespace: namespace,
-		},
-		Spec: corev1.PodSpec{
-			RestartPolicy:      corev1.RestartPolicyNever,
-			ServiceAccountName: serviceAccount,
-			SecurityContext: &corev1.PodSecurityContext{
-				RunAsNonRoot: func() *bool { b := true; return &b }(),
-				SeccompProfile: &corev1.SeccompProfile{
-					Type: corev1.SeccompProfileTypeRuntimeDefault,
-				},
-			},
-			Containers: []corev1.Container{
-				{
-					Name:    "sftp-cleanup",
-					Image:   operatorImage,
-					Command: []string{"/bin/bash", "-c", sftpCleanupUploadsScript},
-					SecurityContext: &corev1.SecurityContext{
-						AllowPrivilegeEscalation: func() *bool { b := false; return &b }(),
-						Capabilities: &corev1.Capabilities{
-							Drop: []corev1.Capability{"ALL"},
-						},
-						RunAsNonRoot: func() *bool { b := true; return &b }(),
-					},
-					Env: []corev1.EnvVar{
-						{Name: "E2E_SFTP_CASE_ID", Value: caseID},
-						{Name: "E2E_SFTP_HOST", Value: host},
-						{Name: "E2E_SFTP_INTERNAL", Value: strconv.FormatBool(internalUser)},
-						{
-							Name: "SFTP_USERNAME",
-							ValueFrom: &corev1.EnvVarSource{
-								SecretKeyRef: &corev1.SecretKeySelector{
-									Key:                  "username",
-									LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-								},
-							},
-						},
-						{
-							Name: "SSHPASS",
-							ValueFrom: &corev1.EnvVarSource{
-								SecretKeyRef: &corev1.SecretKeySelector{
-									Key:                  "password",
-									LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	if err := nonAdminClient.Create(testCtx, cleanupPod); err != nil {
-		return fmt.Errorf("create cleanup pod: %w", err)
-	}
-
-	var podPhase corev1.PodPhase
-	Eventually(func() corev1.PodPhase {
-		pod := &corev1.Pod{}
-		if err := nonAdminClient.Get(testCtx, client.ObjectKey{
-			Name:      podName,
-			Namespace: namespace,
-		}, pod); err != nil {
-			return corev1.PodUnknown
-		}
-		podPhase = pod.Status.Phase
-		return podPhase
-	}).WithTimeout(3*time.Minute).WithPolling(5*time.Second).Should(
-		Or(Equal(corev1.PodSucceeded), Equal(corev1.PodFailed)),
-		"SFTP cleanup pod should complete")
-
-	logs, logErr := getContainerLogs(namespace, podName, "sftp-cleanup")
-	_ = nonAdminClient.Delete(testCtx, cleanupPod)
-
-	if podPhase != corev1.PodSucceeded {
-		if logErr != nil {
-			return fmt.Errorf("cleanup pod failed (phase=%s); could not read logs: %w", podPhase, logErr)
-		}
-		return fmt.Errorf("cleanup pod failed (phase=%s): %s", podPhase, logs)
-	}
-	if logErr != nil {
-		return fmt.Errorf("cleanup succeeded but logs unavailable: %w", logErr)
-	}
-	ginkgo.GinkgoWriter.Printf("SFTP cleanup logs:\n%s\n", logs)
-	return nil
 }
 
 func createImageStream(name, imageName, tagName string) {
