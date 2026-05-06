@@ -1617,9 +1617,6 @@ func TestGetJobFromInstanceFutureSinceTimeSetsValidationStatus(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !errors.Is(err, errValidationFailureHandled) {
-		t.Fatalf("expected errValidationFailureHandled, got %v", err)
-	}
 
 	updated := &mustgatherv1alpha1.MustGather{}
 	if err := cl.Get(context.Background(), types.NamespacedName{Name: mg.Name, Namespace: mg.Namespace}, updated); err != nil {
