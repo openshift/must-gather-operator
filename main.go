@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -143,7 +144,7 @@ func main() {
 	// Get operator namespace for metrics and reconciler
 	operatorNamespace, err := k8sutil.GetOperatorNamespace()
 	if err != nil {
-		if err != k8sutil.ErrRunLocal {
+		if !errors.Is(err, k8sutil.ErrRunLocal) {
 			log.Error(err, "Failed to get operator namespace")
 			os.Exit(1)
 		}

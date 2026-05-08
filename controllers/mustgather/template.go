@@ -90,49 +90,8 @@ type GatherTimeFilter struct {
 func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.MustGather, trustedCAConfigMapName string) *batchv1.Job {
 	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, mustGather.Spec.ServiceAccountName, mustGather.Spec.Storage, trustedCAConfigMapName)
 
-	var httpProxy, httpsProxy, noProxy string
-
-	// Use operator's environment proxy variables
-	envVars := proxy.ReadProxyVarsFromEnv()
-	// the below loop should implicitly handle len(envVars) > 0
-	for _, envVar := range envVars {
-		switch envVar.Name {
-		case "HTTP_PROXY":
-			httpProxy = envVar.Value
-		case "HTTPS_PROXY":
-			httpsProxy = envVar.Value
-		case "NO_PROXY":
-			noProxy = envVar.Value
-		}
-	}
-
-	var audit bool
-	if mustGather.Spec.GatherSpec != nil {
-		audit = mustGather.Spec.GatherSpec.Audit
-	}
-
-	timeout := time.Duration(0)
-	if mustGather.Spec.MustGatherTimeout != nil {
-		timeout = mustGather.Spec.MustGatherTimeout.Duration
-	}
-
-	// Build time filter from spec
-	var timeFilter *GatherTimeFilter
-	var command, args []string
-	if mustGather.Spec.GatherSpec != nil {
-		command = mustGather.Spec.GatherSpec.Command
-		args = mustGather.Spec.GatherSpec.Args
-		if mustGather.Spec.GatherSpec.Since != nil || mustGather.Spec.GatherSpec.SinceTime != nil {
-			timeFilter = &GatherTimeFilter{}
-			if mustGather.Spec.GatherSpec.Since != nil {
-				timeFilter.Since = mustGather.Spec.GatherSpec.Since.Duration
-			}
-			if mustGather.Spec.GatherSpec.SinceTime != nil {
-				t := mustGather.Spec.GatherSpec.SinceTime.Time
-				timeFilter.SinceTime = &t
-			}
-		}
-	}
+	httpProxy, httpsProxy, noProxy := extractProxySettings(proxy.ReadProxyVarsFromEnv())
+	audit, timeout, command, args, timeFilter := extractGatherParams(mustGather)
 
 	job.Spec.Template.Spec.Containers = append(
 		job.Spec.Template.Spec.Containers,
@@ -162,6 +121,44 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 	}
 
 	return job
+}
+
+// extractProxySettings reads HTTP/HTTPS/NO_PROXY values from a list of env vars.
+func extractProxySettings(envVars []corev1.EnvVar) (httpProxy, httpsProxy, noProxy string) {
+	for _, e := range envVars {
+		switch e.Name {
+		case "HTTP_PROXY":
+			httpProxy = e.Value
+		case "HTTPS_PROXY":
+			httpsProxy = e.Value
+		case "NO_PROXY":
+			noProxy = e.Value
+		}
+	}
+	return
+}
+
+// extractGatherParams pulls audit flag, timeout, command/args, and time filter from a MustGather spec.
+func extractGatherParams(mg v1alpha1.MustGather) (audit bool, timeout time.Duration, command, args []string, timeFilter *GatherTimeFilter) {
+	if mg.Spec.GatherSpec != nil {
+		audit = mg.Spec.GatherSpec.Audit
+		command = mg.Spec.GatherSpec.Command
+		args = mg.Spec.GatherSpec.Args
+		if mg.Spec.GatherSpec.Since != nil || mg.Spec.GatherSpec.SinceTime != nil {
+			timeFilter = &GatherTimeFilter{}
+			if mg.Spec.GatherSpec.Since != nil {
+				timeFilter.Since = mg.Spec.GatherSpec.Since.Duration
+			}
+			if mg.Spec.GatherSpec.SinceTime != nil {
+				t := mg.Spec.GatherSpec.SinceTime.Time
+				timeFilter.SinceTime = &t
+			}
+		}
+	}
+	if mg.Spec.MustGatherTimeout != nil {
+		timeout = mg.Spec.MustGatherTimeout.Duration
+	}
+	return
 }
 
 func initializeJobTemplate(name string, namespace string, serviceAccountRef string, storage *v1alpha1.Storage, trustedCAConfigMapName string) *batchv1.Job {

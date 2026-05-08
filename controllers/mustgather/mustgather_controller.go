@@ -384,7 +384,7 @@ func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, instance 
 	if err != nil {
 		_, validationErr := r.setValidationFailureStatus(ctx, log, instance, ValidationImageStream, err)
 		if validationErr != nil {
-			return nil, fmt.Errorf("failed to set validation failure status for original error %v: %w", err, validationErr)
+			return nil, fmt.Errorf("failed to set validation failure status: %w (caused by: %w)", validationErr, err)
 		}
 		return nil, err
 	}
