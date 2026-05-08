@@ -94,59 +94,23 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
 	reqLogger.Info("Reconciling MustGather")
 
-	// Fetch the MustGather instance
 	instance := &mustgatherv1alpha1.MustGather{}
 	err := r.GetClient().Get(ctx, request.NamespacedName, instance)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			// Request object not found, could have been deleted after reconcile request.
-			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
-			// Return and don't requeue
 			return reconcile.Result{}, nil
 		}
-		// Error reading the object - requeue the request.
 		return reconcile.Result{}, err
 	}
 
-	// Check if the MustGather instance is marked to be deleted, which is
-	// indicated by the deletion timestamp being set.
-	isMustGatherMarkedToBeDeleted := instance.GetDeletionTimestamp() != nil
-	if isMustGatherMarkedToBeDeleted {
-		reqLogger.Info("mustgather instance is marked for deletion")
-		if slices.Contains(instance.GetFinalizers(), mustGatherFinalizer) {
-			// Run finalization logic for mustGatherFinalizer. If the
-			// finalization logic fails, don't remove the finalizer so
-			// that we can retry during the next reconciliation.
-
-			// Clean up resources if RetainResourcesOnCompletion is false (default behavior)
-			if instance.Spec.RetainResourcesOnCompletion == nil || !*instance.Spec.RetainResourcesOnCompletion {
-				reqLogger.V(4).Info("running finalization logic for mustGatherFinalizer")
-				err := r.cleanupMustGatherResources(ctx, reqLogger, instance)
-				if err != nil {
-					reqLogger.Error(err, "failed to cleanup MustGather resources during deletion")
-					return reconcile.Result{}, err
-				}
-			}
-
-			// Remove mustGatherFinalizer. Once all finalizers have been
-			// removed, the object will be deleted.
-			instance.SetFinalizers(slices.DeleteFunc(instance.GetFinalizers(), func(s string) bool {
-				return s == mustGatherFinalizer
-			}))
-			err := r.GetClient().Update(ctx, instance)
-			if err != nil {
-				return r.ManageError(ctx, instance, err)
-			}
-		}
-		return reconcile.Result{}, nil
+	if instance.GetDeletionTimestamp() != nil {
+		return r.reconcileDeletion(ctx, reqLogger, instance)
 	}
 
-	// Add finalizer for this CR
 	if !slices.Contains(instance.GetFinalizers(), mustGatherFinalizer) {
 		return reconcile.Result{}, r.addFinalizer(ctx, reqLogger, instance)
 	}
 
-	// perform CA config map copy, iff set in caller
 	if r.TrustedCAConfigMap != "" {
 		if err := r.ensureTrustedCAConfigMap(ctx, reqLogger, instance); err != nil {
 			log.Error(err, "failed to ensure trustedCA ConfigMap exists")
@@ -161,133 +125,138 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	job1 := &batchv1.Job{}
-	err = r.GetClient().Get(ctx, types.NamespacedName{
-		Name:      job.GetName(),
-		Namespace: job.GetNamespace(),
-	}, job1)
-
+	err = r.GetClient().Get(ctx, types.NamespacedName{Name: job.GetName(), Namespace: job.GetNamespace()}, job1)
 	if err != nil {
 		if !errors.IsNotFound(err) {
-			// Error reading the object - requeue the request.
-			log.Error(err, "unable to look up", "job", types.NamespacedName{
-				Name:      job.GetName(),
-				Namespace: job.GetNamespace(),
-			})
+			log.Error(err, "unable to look up", "job", types.NamespacedName{Name: job.GetName(), Namespace: job.GetNamespace()})
 			return r.ManageError(ctx, instance, err)
 		}
-
-		// Validate that the ServiceAccount exists before creating the Job.
-		// This prevents the Job from being stuck in pending state due to a missing ServiceAccount.
-		// If no ServiceAccount is specified, default to "default" which should exist in all namespaces.
-		// Note: If the "default" SA has been deleted, this validation will catch it and report an error.
-		saName := instance.Spec.ServiceAccountName
-		if saName == "" {
-			saName = "default"
-			log.Info("no serviceAccountName specified, defaulting to 'default'", "namespace", instance.Namespace)
-		}
-		serviceAccount := &corev1.ServiceAccount{}
-		err = r.GetClient().Get(ctx, types.NamespacedName{
-			Namespace: instance.Namespace,
-			Name:      saName,
-		}, serviceAccount)
-		if err != nil {
-			if errors.IsNotFound(err) {
-				log.Error(err, "service account not found", "name", saName, "namespace", instance.Namespace)
-				return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationServiceAccount, err)
-			}
-
-			log.Error(err, "failed to get service account (transient error, will retry)", "name", saName, "namespace", instance.Namespace)
-			return reconcile.Result{Requeue: true}, err
-		}
-
-		// look up user secret
-		if instance.Spec.UploadTarget != nil && instance.Spec.UploadTarget.SFTP != nil && instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name != "" {
-			secretName := instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name
-			userSecret := &corev1.Secret{}
-			err = r.GetClient().Get(ctx, types.NamespacedName{
-				Namespace: instance.Namespace,
-				Name:      secretName,
-			}, userSecret)
-			if err != nil {
-				if errors.IsNotFound(err) {
-					log.Error(err, "secret not found", "secret", secretName, "namespace", instance.Namespace)
-					return r.ManageError(ctx, instance, fmt.Errorf("secret %s not found in namespace %s: Please create the secret referenced by caseManagementAccountSecretRef", secretName, instance.Namespace))
-				}
-				log.Error(err, "error getting secret", "secret", secretName)
-				return reconcile.Result{Requeue: true}, err
-			}
-
-			// Validate and extract required credentials
-			username, usernameExists := userSecret.Data["username"]
-			password, passwordExists := userSecret.Data["password"]
-
-			if !usernameExists || len(username) == 0 {
-				validationErr := fmt.Errorf("sftp credentials secret %q is missing required field 'username'", secretName)
-				reqLogger.Error(validationErr, "sftp credential validation failed")
-				return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationSFTPCredentials, validationErr)
-			}
-
-			if !passwordExists || len(password) == 0 {
-				validationErr := fmt.Errorf("sftp credentials secret %q is missing required field 'password'", secretName)
-				reqLogger.Error(validationErr, "sftp credential validation failed")
-				return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationSFTPCredentials, validationErr)
-			}
-
-			// Validate SFTP credentials before creating the job
-			reqLogger.Info("Validating SFTP credentials before creating must-gather job")
-			validationErr := validateSFTPWithRetry(
-				ctx,
-				reqLogger,
-				string(username),
-				string(password),
-				instance.Spec.UploadTarget.SFTP.Host,
-			)
-			if validationErr != nil {
-				reqLogger.Error(validationErr, "SFTP credential validation failed")
-				return r.setValidationFailureStatus(ctx, reqLogger, instance, ProtocolSFTP, validationErr)
-			}
-
-			reqLogger.Info("SFTP credentials validated successfully")
-		}
-
-		// job is not there, create it.
-		err = r.CreateResourceIfNotExists(ctx, instance, instance.Namespace, job)
-		if err != nil {
-			log.Error(err, "unable to create", "job", job)
-			return r.ManageError(ctx, instance, err)
-		}
-		// Increment prometheus metrics for must gather total
-		localmetrics.MetricMustGatherTotal.Inc()
-		return r.ManageSuccess(ctx, instance)
+		return r.reconcileNewJob(ctx, reqLogger, instance, job)
 	}
 
-	// Check status of job and update any metric counts
+	return r.reconcileExistingJob(ctx, reqLogger, instance, job1)
+}
+
+func (r *MustGatherReconciler) reconcileDeletion(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather) (reconcile.Result, error) {
+	reqLogger.Info("mustgather instance is marked for deletion")
+	if !slices.Contains(instance.GetFinalizers(), mustGatherFinalizer) {
+		return reconcile.Result{}, nil
+	}
+	if instance.Spec.RetainResourcesOnCompletion == nil || !*instance.Spec.RetainResourcesOnCompletion {
+		reqLogger.V(4).Info("running finalization logic for mustGatherFinalizer")
+		if err := r.cleanupMustGatherResources(ctx, reqLogger, instance); err != nil {
+			reqLogger.Error(err, "failed to cleanup MustGather resources during deletion")
+			return reconcile.Result{}, err
+		}
+	}
+	instance.SetFinalizers(slices.DeleteFunc(instance.GetFinalizers(), func(s string) bool { return s == mustGatherFinalizer }))
+	if err := r.GetClient().Update(ctx, instance); err != nil {
+		return r.ManageError(ctx, instance, err)
+	}
+	return reconcile.Result{}, nil
+}
+
+func (r *MustGatherReconciler) reconcileNewJob(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather, job *batchv1.Job) (reconcile.Result, error) {
+	if err := r.validateServiceAccount(ctx, reqLogger, instance); err != nil {
+		var re reconcileError
+		if goerror.As(err, &re) {
+			return re.result, re.err
+		}
+		return reconcile.Result{}, err
+	}
+	if instance.Spec.UploadTarget != nil && instance.Spec.UploadTarget.SFTP != nil && instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name != "" {
+		if result, err := r.validateSFTPCredentials(ctx, reqLogger, instance); err != nil {
+			return result, err
+		}
+	}
+	if err := r.CreateResourceIfNotExists(ctx, instance, instance.Namespace, job); err != nil {
+		log.Error(err, "unable to create", "job", job)
+		return r.ManageError(ctx, instance, err)
+	}
+	localmetrics.MetricMustGatherTotal.Inc()
+	return r.ManageSuccess(ctx, instance)
+}
+
+// reconcileError carries a reconcile.Result alongside an error for use in reconcileNewJob.
+type reconcileError struct {
+	result reconcile.Result
+	err    error
+}
+
+func (e reconcileError) Error() string { return e.err.Error() }
+
+func (r *MustGatherReconciler) validateServiceAccount(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather) error {
+	saName := instance.Spec.ServiceAccountName
+	if saName == "" {
+		saName = "default"
+		log.Info("no serviceAccountName specified, defaulting to 'default'", "namespace", instance.Namespace)
+	}
+	serviceAccount := &corev1.ServiceAccount{}
+	err := r.GetClient().Get(ctx, types.NamespacedName{Namespace: instance.Namespace, Name: saName}, serviceAccount)
+	if err == nil {
+		return nil
+	}
+	if errors.IsNotFound(err) {
+		log.Error(err, "service account not found", "name", saName, "namespace", instance.Namespace)
+		result, rerr := r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationServiceAccount, err)
+		return reconcileError{result, rerr}
+	}
+	log.Error(err, "failed to get service account (transient error, will retry)", "name", saName, "namespace", instance.Namespace)
+	return reconcileError{reconcile.Result{Requeue: true}, err}
+}
+
+func (r *MustGatherReconciler) validateSFTPCredentials(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather) (reconcile.Result, error) {
+	secretName := instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name
+	userSecret := &corev1.Secret{}
+	err := r.GetClient().Get(ctx, types.NamespacedName{Namespace: instance.Namespace, Name: secretName}, userSecret)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Error(err, "secret not found", "secret", secretName, "namespace", instance.Namespace)
+			return r.ManageError(ctx, instance, fmt.Errorf("secret %s not found in namespace %s: Please create the secret referenced by caseManagementAccountSecretRef", secretName, instance.Namespace))
+		}
+		log.Error(err, "error getting secret", "secret", secretName)
+		return reconcile.Result{Requeue: true}, err
+	}
+	username, usernameExists := userSecret.Data["username"]
+	password, passwordExists := userSecret.Data["password"]
+	if !usernameExists || len(username) == 0 {
+		validationErr := fmt.Errorf("sftp credentials secret %q is missing required field 'username'", secretName)
+		reqLogger.Error(validationErr, "sftp credential validation failed")
+		return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationSFTPCredentials, validationErr)
+	}
+	if !passwordExists || len(password) == 0 {
+		validationErr := fmt.Errorf("sftp credentials secret %q is missing required field 'password'", secretName)
+		reqLogger.Error(validationErr, "sftp credential validation failed")
+		return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationSFTPCredentials, validationErr)
+	}
+	reqLogger.Info("Validating SFTP credentials before creating must-gather job")
+	if validationErr := validateSFTPWithRetry(ctx, reqLogger, string(username), string(password), instance.Spec.UploadTarget.SFTP.Host); validationErr != nil {
+		reqLogger.Error(validationErr, "SFTP credential validation failed")
+		return r.setValidationFailureStatus(ctx, reqLogger, instance, ProtocolSFTP, validationErr)
+	}
+	reqLogger.Info("SFTP credentials validated successfully")
+	return reconcile.Result{}, nil
+}
+
+func (r *MustGatherReconciler) reconcileExistingJob(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather, job1 *batchv1.Job) (reconcile.Result, error) {
 	if job1.Status.Active > 0 {
 		reqLogger.Info("mustgather Job pods are still running")
-	} else {
-		// if the job has been marked as Succeeded or Failed but instance has no DeletionTimestamp,
-		// requeue instance to handle resource clean-up (delete secret, job, and MustGather)
-		if job1.Status.Succeeded > 0 {
-			reqLogger.Info("mustgather Job pods succeeded")
-			return r.handleJobCompletion(ctx, reqLogger, instance, "Completed", "MustGather Job pods succeeded")
-		}
-		backoffLimit := int32(0)
-		if job1.Spec.BackoffLimit != nil {
-			backoffLimit = *job1.Spec.BackoffLimit
-		}
-		if job1.Status.Failed > backoffLimit {
-			reqLogger.Info("MustGather Job pods failed")
-			localmetrics.MetricMustGatherErrors.Inc()
-			return r.handleJobCompletion(ctx, reqLogger, instance, "Failed", "MustGather Job pods failed")
-		}
+		return r.updateStatus(ctx, instance, job1)
 	}
-
-	// if we get here it means that either
-	// 1. the mustgather instance was updated, which we don't support and we are going to ignore
-	// 2. the job was updated, probably the status piece. we should the update the status of the instance, not supported yet.
-
+	if job1.Status.Succeeded > 0 {
+		reqLogger.Info("mustgather Job pods succeeded")
+		return r.handleJobCompletion(ctx, reqLogger, instance, "Completed", "MustGather Job pods succeeded")
+	}
+	backoffLimit := int32(0)
+	if job1.Spec.BackoffLimit != nil {
+		backoffLimit = *job1.Spec.BackoffLimit
+	}
+	if job1.Status.Failed > backoffLimit {
+		reqLogger.Info("MustGather Job pods failed")
+		localmetrics.MetricMustGatherErrors.Inc()
+		return r.handleJobCompletion(ctx, reqLogger, instance, "Failed", "MustGather Job pods failed")
+	}
 	return r.updateStatus(ctx, instance, job1)
-
 }
 
 func (r *MustGatherReconciler) handleJobCompletion(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather, status string, reason string) (reconcile.Result, error) {
