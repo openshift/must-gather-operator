@@ -11,6 +11,7 @@ import (
 	"time"
 
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
+	"github.com/stretchr/testify/require"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,75 +37,54 @@ func Test_initializeJobTemplate(t *testing.T) {
 		storage     *mustgatherv1alpha1.Storage
 		caConfigMap string
 	}{
-		{
-			name: "Without PVC",
-		},
+		{name: "Without PVC"},
 		{
 			name: "With PVC",
 			storage: &mustgatherv1alpha1.Storage{
 				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
 				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-					Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{
-						Name: pvcClaimName,
-					},
+					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: pvcClaimName},
 					SubPath: pvcSubPath,
 				},
 			},
 		},
-		{
-			name:        "With CA config map",
-			caConfigMap: "trusted-ca-cert-001",
-		},
+		{name: "With CA config map", caConfigMap: "trusted-ca-cert-001"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			job := initializeJobTemplate(testName, testNamespace, testServiceAccountRef, tt.storage, tt.caConfigMap)
-
-			if got := job.Name; got != testName {
-				t.Fatalf("job name from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testName)
-			}
-
-			if got := job.Namespace; got != testNamespace {
-				t.Fatalf("job namespace from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testNamespace)
-			}
-
-			if got := job.Spec.Template.Spec.ServiceAccountName; got != testServiceAccountRef {
-				t.Fatalf("job service account name from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testServiceAccountRef)
-			}
-
-			if (tt.storage != nil || tt.caConfigMap != "") && len(job.Spec.Template.Spec.Volumes) == 0 {
-				t.Fatalf("expected at least one volume to be present")
-			}
-
-			foundStorageVolume := false
-			foundCAVolume := false
-			for _, v := range job.Spec.Template.Spec.Volumes {
-				if v.Name == knownStorageVolumeMountNameForTest {
-					foundStorageVolume = true
-
-					if tt.storage != nil && v.PersistentVolumeClaim.ClaimName != tt.storage.PersistentVolume.Claim.Name {
-						t.Fatalf("pvc claim name from initializeJobTemplate() was not correctly set. got %v, wanted %v", v.PersistentVolumeClaim.ClaimName, tt.storage.PersistentVolume.Claim.Name)
-					}
-				}
-
-				if v.ConfigMap != nil && v.ConfigMap.Name == tt.caConfigMap {
-					foundCAVolume = true
-
-					if v.ConfigMap.Name != tt.caConfigMap {
-						t.Fatalf("config map CA from initializeJobTemplate() was not correctly set. got %v, wanted %v", v.ConfigMap.Name, tt.caConfigMap)
-					}
-				}
-			}
-
-			if tt.storage != nil && !foundStorageVolume {
-				t.Fatalf("expected volumeMount for storage was not found got %v", job.Spec.Template.Spec.Volumes)
-			}
-
-			if tt.caConfigMap != "" && !foundCAVolume {
-				t.Fatalf("expected volumeMount for CA was not found got %v", job.Spec.Template.Spec.Volumes)
-			}
+			require.Equal(t, testName, job.Name)
+			require.Equal(t, testNamespace, job.Namespace)
+			require.Equal(t, testServiceAccountRef, job.Spec.Template.Spec.ServiceAccountName)
+			assertJobTemplateVolumes(t, job, tt.storage, tt.caConfigMap)
 		})
+	}
+}
+
+func assertJobTemplateVolumes(t *testing.T, job *batchv1.Job, storage *mustgatherv1alpha1.Storage, caConfigMap string) {
+	t.Helper()
+	if storage == nil && caConfigMap == "" {
+		return
+	}
+	require.NotEmpty(t, job.Spec.Template.Spec.Volumes, "expected at least one volume")
+	foundStorage, foundCA := false, false
+	for _, v := range job.Spec.Template.Spec.Volumes {
+		if v.Name == knownStorageVolumeMountNameForTest {
+			foundStorage = true
+			if storage != nil {
+				require.Equal(t, storage.PersistentVolume.Claim.Name, v.PersistentVolumeClaim.ClaimName)
+			}
+		}
+		if v.ConfigMap != nil && v.ConfigMap.Name == caConfigMap {
+			foundCA = true
+		}
+	}
+	if storage != nil {
+		require.True(t, foundStorage, "expected storage volume not found: %v", job.Spec.Template.Spec.Volumes)
+	}
+	if caConfigMap != "" {
+		require.True(t, foundCA, "expected CA volume not found: %v", job.Spec.Template.Spec.Volumes)
 	}
 }
 
