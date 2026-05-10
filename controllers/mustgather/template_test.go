@@ -88,6 +88,206 @@ func assertJobTemplateVolumes(t *testing.T, job *batchv1.Job, storage *mustgathe
 	}
 }
 
+func verifyGatherContainerCommand(t *testing.T, container v1.Container, command []string, args []string, audit bool, timeout time.Duration) {
+	t.Helper()
+	if len(command) == 0 {
+		containerCommand := container.Command[2]
+		if audit && !strings.Contains(containerCommand, gatherCommandBinaryAudit) {
+			t.Fatalf("gather container command expected with binary %v but it wasn't present", gatherCommandBinaryAudit)
+		} else if !audit && !strings.Contains(containerCommand, gatherCommandBinaryNoAudit) {
+			t.Fatalf("gather container command expected with binary %v but it wasn't present", gatherCommandBinaryNoAudit)
+		}
+		timeoutInSeconds := int(math.Ceil(timeout.Seconds()))
+		if !strings.HasPrefix(containerCommand, fmt.Sprintf("timeout %d", timeoutInSeconds)) {
+			t.Fatalf("the duration was not properly added to the container command, got %v but wanted %v", strings.Split(containerCommand, " ")[1], timeoutInSeconds)
+		}
+	} else {
+		if !reflect.DeepEqual(container.Command, command) {
+			t.Fatalf("expected container command %v but got %v", command, container.Command)
+		}
+		if !reflect.DeepEqual(container.Args, args) {
+			t.Fatalf("expected container args %v but got %v", args, container.Args)
+		}
+	}
+}
+
+func verifyGatherTrustedCAMount(t *testing.T, container v1.Container, caConfigMap string) {
+	t.Helper()
+	foundTrustedCAMount := false
+	for _, vm := range container.VolumeMounts {
+		if vm.Name == trustedCAVolumeName {
+			foundTrustedCAMount = true
+			if vm.MountPath != wellKnownCADirForTest {
+				t.Fatalf("trusted CA volume mount path was not correctly set. got %v, wanted %v", vm.MountPath, wellKnownCADirForTest)
+			}
+			if !vm.ReadOnly {
+				t.Fatalf("trusted CA volume mount expected to be read-only")
+			}
+		}
+	}
+	if caConfigMap != "" && !foundTrustedCAMount {
+		t.Fatalf("expected trusted CA volume mount to be present when caConfigMap is provided")
+	}
+	if caConfigMap == "" && foundTrustedCAMount {
+		t.Fatalf("did not expect trusted CA volume mount when caConfigMap is empty")
+	}
+}
+
+func verifyGatherStorageMount(t *testing.T, container v1.Container, storage *mustgatherv1alpha1.Storage) {
+	t.Helper()
+	if storage == nil {
+		return
+	}
+	if len(container.VolumeMounts) == 0 {
+		t.Fatalf("expected at least one volume mount when storage is provided")
+	}
+	volumeMount := container.VolumeMounts[0]
+	if volumeMount.Name != outputVolumeName {
+		t.Fatalf("volume mount name was not correctly set. got %v, wanted %v", volumeMount.Name, outputVolumeName)
+	}
+	base := strings.Trim(strings.TrimSpace(storage.PersistentVolume.SubPath), "/")
+	wantExpr := path.Join(base, fmt.Sprintf("$(%s)", podNameEnvVar))
+	if volumeMount.SubPathExpr != wantExpr {
+		t.Fatalf("volume mount subPathExpr was not correctly set. got %q, wanted %q", volumeMount.SubPathExpr, wantExpr)
+	}
+	if volumeMount.SubPath != "" {
+		t.Fatalf("did not expect volume mount subPath to be set when using subPathExpr, got %q", volumeMount.SubPath)
+	}
+}
+
+func verifyGatherPodNameEnv(t *testing.T, container v1.Container, storage *mustgatherv1alpha1.Storage) {
+	t.Helper()
+	hasPodNameEnv := false
+	for _, env := range container.Env {
+		if env.Name == podNameEnvVar {
+			hasPodNameEnv = true
+			if env.ValueFrom == nil || env.ValueFrom.FieldRef == nil || env.ValueFrom.FieldRef.FieldPath != "metadata.name" {
+				t.Fatalf("expected %s env var to be sourced from metadata.name via fieldRef, got %#v", podNameEnvVar, env)
+			}
+		}
+	}
+	hasPVCStorage := storage != nil && storage.Type == mustgatherv1alpha1.StorageTypePersistentVolume
+	if hasPVCStorage && !hasPodNameEnv {
+		t.Fatalf("expected %s env var when PVC storage is used (SubPathExpr is set)", podNameEnvVar)
+	}
+	if !hasPVCStorage && hasPodNameEnv {
+		t.Fatalf("did not expect %s env var when storage is not PVC", podNameEnvVar)
+	}
+}
+
+func verifyGatherTimeFilter(t *testing.T, container v1.Container, timeFilter *GatherTimeFilter) {
+	t.Helper()
+	if timeFilter == nil {
+		return
+	}
+	envMap := envValues(container)
+	if timeFilter.Since > 0 {
+		if envMap[gatherEnvSince] != timeFilter.Since.String() {
+			t.Fatalf("expected %s env var to be %v, got %v", gatherEnvSince, timeFilter.Since.String(), envMap[gatherEnvSince])
+		}
+	}
+	if timeFilter.SinceTime != nil {
+		expectedTime := timeFilter.SinceTime.Format(time.RFC3339)
+		if envMap[gatherEnvSinceTime] != expectedTime {
+			t.Fatalf("expected %s env var to be %v, got %v", gatherEnvSinceTime, expectedTime, envMap[gatherEnvSinceTime])
+		}
+	}
+}
+
+func verifyUploadContainerCAMount(t *testing.T, container v1.Container, mountCAConfigMap bool) {
+	t.Helper()
+	if !mountCAConfigMap {
+		return
+	}
+	for _, vm := range container.VolumeMounts {
+		if vm.MountPath == wellKnownCADirForTest {
+			return
+		}
+	}
+	t.Fatalf("expected a CA cert volumeMount in upload container")
+}
+
+func verifyUploadContainerStorageMount(t *testing.T, container v1.Container, storage *mustgatherv1alpha1.Storage) {
+	t.Helper()
+	if storage == nil || storage.Type != mustgatherv1alpha1.StorageTypePersistentVolume {
+		return
+	}
+	var outputMount *v1.VolumeMount
+	for i := range container.VolumeMounts {
+		if container.VolumeMounts[i].Name == outputVolumeName {
+			outputMount = &container.VolumeMounts[i]
+			break
+		}
+	}
+	if outputMount == nil {
+		t.Fatalf("expected output volume mount %q to be present", outputVolumeName)
+	}
+	base := strings.Trim(strings.TrimSpace(storage.PersistentVolume.SubPath), "/")
+	wantExpr := path.Join(base, fmt.Sprintf("$(%s)", podNameEnvVar))
+	if outputMount.SubPathExpr != wantExpr {
+		t.Fatalf("expected output volume mount subPathExpr %q but got %q", wantExpr, outputMount.SubPathExpr)
+	}
+	if outputMount.SubPath != "" {
+		t.Fatalf("did not expect output volume mount subPath to be set when using subPathExpr, got %q", outputMount.SubPath)
+	}
+}
+
+func verifyUploadContainerPodNameEnv(t *testing.T, container v1.Container, storage *mustgatherv1alpha1.Storage) {
+	t.Helper()
+	hasPodNameEnv := false
+	for _, env := range container.Env {
+		if env.Name == podNameEnvVar {
+			hasPodNameEnv = true
+			if env.ValueFrom == nil || env.ValueFrom.FieldRef == nil || env.ValueFrom.FieldRef.FieldPath != "metadata.name" {
+				t.Fatalf("expected %s env var to be sourced from metadata.name via fieldRef, got %#v", podNameEnvVar, env)
+			}
+		}
+	}
+	hasPVCStorage := storage != nil && storage.Type == mustgatherv1alpha1.StorageTypePersistentVolume
+	if hasPVCStorage && !hasPodNameEnv {
+		t.Fatalf("expected %s env var when PVC storage is used (SubPathExpr is set)", podNameEnvVar)
+	}
+	if !hasPVCStorage && hasPodNameEnv {
+		t.Fatalf("did not expect %s env var when storage is not PVC", podNameEnvVar)
+	}
+}
+
+func verifyUploadContainerEnvVars(t *testing.T, container v1.Container, caseID, host string, internalUser bool, httpProxy, httpsProxy, noProxy string, secretKeyRefName v1.LocalObjectReference) {
+	t.Helper()
+	for _, env := range container.Env {
+		switch env.Name {
+		case uploadEnvCaseId:
+			if env.Value != caseID {
+				t.Fatalf("expected case ID envar %v but got %v", caseID, env.Value)
+			}
+		case uploadEnvHost:
+			if env.Value != host {
+				t.Fatalf("expected host envar %v but got %v", host, env.Value)
+			}
+		case uploadEnvInternalUser:
+			if env.Value != strconv.FormatBool(internalUser) {
+				t.Fatalf("expected internal user envar %v but got %v", internalUser, env.Value)
+			}
+		case uploadEnvHttpProxy:
+			if env.Value != httpProxy {
+				t.Fatalf("expected httpproxy envar %v but got %v", httpProxy, env.Value)
+			}
+		case uploadEnvHttpsProxy:
+			if env.Value != httpsProxy {
+				t.Fatalf("expected httpsproxy envar %v but got %v", httpsProxy, env.Value)
+			}
+		case uploadEnvNoProxy:
+			if env.Value != noProxy {
+				t.Fatalf("expected noproxy envar %v but got %v", noProxy, env.Value)
+			}
+		case uploadEnvUsername, uploadEnvPassword:
+			if !reflect.DeepEqual(env.ValueFrom.SecretKeyRef.LocalObjectReference, secretKeyRefName) {
+				t.Fatalf("expected %v envar to have secret key ref name %v but got %v", env.Name, secretKeyRefName.Name, env.ValueFrom.SecretKeyRef.Name)
+			}
+		}
+	}
+}
+
 func Test_getGatherContainer(t *testing.T) {
 	testSinceTime := time.Date(2026, 1, 7, 10, 0, 0, 0, time.UTC)
 
@@ -197,103 +397,14 @@ func Test_getGatherContainer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			container := getGatherContainer(tt.mustGatherImage, tt.audit, tt.timeout, tt.storage, tt.caConfigMap, tt.timeFilter, tt.command, tt.args)
-
-			if len(tt.command) == 0 {
-				containerCommand := container.Command[2]
-				if tt.audit && !strings.Contains(containerCommand, gatherCommandBinaryAudit) {
-					t.Fatalf("gather container command expected with binary %v but it wasn't present", gatherCommandBinaryAudit)
-				} else if !tt.audit && !strings.Contains(containerCommand, gatherCommandBinaryNoAudit) {
-					t.Fatalf("gather container command expected with binary %v but it wasn't present", gatherCommandBinaryNoAudit)
-				}
-				timeoutInSeconds := int(math.Ceil(tt.timeout.Seconds()))
-				if !strings.HasPrefix(containerCommand, fmt.Sprintf("timeout %d", timeoutInSeconds)) {
-					t.Fatalf("the duration was not properly added to the container command, got %v but wanted %v", strings.Split(containerCommand, " ")[1], timeoutInSeconds)
-				}
-			} else {
-				if !reflect.DeepEqual(container.Command, tt.command) {
-					t.Fatalf("expected container command %v but got %v", tt.command, container.Command)
-				}
-				if !reflect.DeepEqual(container.Args, tt.args) {
-					t.Fatalf("expected container args %v but got %v", tt.args, container.Args)
-				}
-			}
-
+			verifyGatherContainerCommand(t, container, tt.command, tt.args, tt.audit, tt.timeout)
 			if container.Image != tt.mustGatherImage {
 				t.Fatalf("expected container image %v but got %v", tt.mustGatherImage, container.Image)
 			}
-
-			// Check trusted CA configmap volume mount behavior
-			foundTrustedCAMount := false
-			for _, vm := range container.VolumeMounts {
-				if vm.Name == trustedCAVolumeName {
-					foundTrustedCAMount = true
-					if vm.MountPath != wellKnownCADirForTest {
-						t.Fatalf("trusted CA volume mount path was not correctly set. got %v, wanted %v", vm.MountPath, wellKnownCADirForTest)
-					}
-					if !vm.ReadOnly {
-						t.Fatalf("trusted CA volume mount expected to be read-only")
-					}
-				}
-			}
-			if tt.caConfigMap != "" && !foundTrustedCAMount {
-				t.Fatalf("expected trusted CA volume mount to be present when caConfigMap is provided")
-			}
-			if tt.caConfigMap == "" && foundTrustedCAMount {
-				t.Fatalf("did not expect trusted CA volume mount when caConfigMap is empty")
-			}
-
-			if tt.storage != nil {
-				if len(container.VolumeMounts) == 0 {
-					t.Fatalf("expected at least one volume mount when storage is provided")
-				}
-				volumeMount := container.VolumeMounts[0]
-				if volumeMount.Name != outputVolumeName {
-					t.Fatalf("volume mount name was not correctly set. got %v, wanted %v", volumeMount.Name, outputVolumeName)
-				}
-				base := strings.Trim(strings.TrimSpace(tt.storage.PersistentVolume.SubPath), "/")
-				wantExpr := path.Join(base, fmt.Sprintf("$(%s)", podNameEnvVar))
-				if volumeMount.SubPathExpr != wantExpr {
-					t.Fatalf("volume mount subPathExpr was not correctly set. got %q, wanted %q", volumeMount.SubPathExpr, wantExpr)
-				}
-				if volumeMount.SubPath != "" {
-					t.Fatalf("did not expect volume mount subPath to be set when using subPathExpr, got %q", volumeMount.SubPath)
-				}
-			}
-
-			// POD_NAME env var should be present only when SubPathExpr is used.
-			hasPodNameEnv := false
-			for _, env := range container.Env {
-				if env.Name == podNameEnvVar {
-					hasPodNameEnv = true
-					if env.ValueFrom == nil || env.ValueFrom.FieldRef == nil || env.ValueFrom.FieldRef.FieldPath != "metadata.name" {
-						t.Fatalf("expected %s env var to be sourced from metadata.name via fieldRef, got %#v", podNameEnvVar, env)
-					}
-				}
-			}
-			// SubPathExpr is always set for PVC storage (for per-pod isolation), so POD_NAME env is always present.
-			hasPVCStorage := tt.storage != nil && tt.storage.Type == mustgatherv1alpha1.StorageTypePersistentVolume
-			if hasPVCStorage && !hasPodNameEnv {
-				t.Fatalf("expected %s env var when PVC storage is used (SubPathExpr is set)", podNameEnvVar)
-			}
-			if !hasPVCStorage && hasPodNameEnv {
-				t.Fatalf("did not expect %s env var when storage is not PVC", podNameEnvVar)
-			}
-
-			// Check time filter environment variables
-			if tt.timeFilter != nil {
-				envMap := envValues(container)
-				if tt.timeFilter.Since > 0 {
-					if envMap[gatherEnvSince] != tt.timeFilter.Since.String() {
-						t.Fatalf("expected %s env var to be %v, got %v", gatherEnvSince, tt.timeFilter.Since.String(), envMap[gatherEnvSince])
-					}
-				}
-				if tt.timeFilter.SinceTime != nil {
-					expectedTime := tt.timeFilter.SinceTime.Format(time.RFC3339)
-					if envMap[gatherEnvSinceTime] != expectedTime {
-						t.Fatalf("expected %s env var to be %v, got %v", gatherEnvSinceTime, expectedTime, envMap[gatherEnvSinceTime])
-					}
-				}
-			}
+			verifyGatherTrustedCAMount(t, container, tt.caConfigMap)
+			verifyGatherStorageMount(t, container, tt.storage)
+			verifyGatherPodNameEnv(t, container, tt.storage)
+			verifyGatherTimeFilter(t, container, tt.timeFilter)
 		})
 	}
 }
@@ -430,101 +541,14 @@ func Test_getUploadContainer(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			testFailed := false
 			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.host, tt.internalUser, tt.storage, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName, tt.mountCAConfigMap)
-
 			if container.Image != tt.operatorImage {
 				t.Fatalf("expected container image %v but got %v", tt.operatorImage, container.Image)
 			}
-
-			if tt.mountCAConfigMap {
-				mountedCAExists := false
-				for _, vm := range container.VolumeMounts {
-					if vm.MountPath == wellKnownCADirForTest {
-						mountedCAExists = true
-					}
-				}
-
-				if !mountedCAExists {
-					t.Fatalf("expected a CA cert volumeMount in upload container")
-				}
-			}
-
-			if tt.storage != nil && tt.storage.Type == mustgatherv1alpha1.StorageTypePersistentVolume {
-				var outputMount *v1.VolumeMount
-				for i := range container.VolumeMounts {
-					if container.VolumeMounts[i].Name == outputVolumeName {
-						outputMount = &container.VolumeMounts[i]
-						break
-					}
-				}
-				if outputMount == nil {
-					t.Fatalf("expected output volume mount %q to be present", outputVolumeName)
-				}
-				base := strings.Trim(strings.TrimSpace(tt.storage.PersistentVolume.SubPath), "/")
-				wantExpr := path.Join(base, fmt.Sprintf("$(%s)", podNameEnvVar))
-				if outputMount.SubPathExpr != wantExpr {
-					t.Fatalf("expected output volume mount subPathExpr %q but got %q", wantExpr, outputMount.SubPathExpr)
-				}
-				if outputMount.SubPath != "" {
-					t.Fatalf("did not expect output volume mount subPath to be set when using subPathExpr, got %q", outputMount.SubPath)
-				}
-			}
-
-			// POD_NAME env var is present when SubPathExpr is used (always for PVC storage).
-			hasPodNameEnv := false
-			for _, env := range container.Env {
-				if env.Name == podNameEnvVar {
-					hasPodNameEnv = true
-					if env.ValueFrom == nil || env.ValueFrom.FieldRef == nil || env.ValueFrom.FieldRef.FieldPath != "metadata.name" {
-						t.Fatalf("expected %s env var to be sourced from metadata.name via fieldRef, got %#v", podNameEnvVar, env)
-					}
-				}
-			}
-			hasPVCStorage := tt.storage != nil && tt.storage.Type == mustgatherv1alpha1.StorageTypePersistentVolume
-			if hasPVCStorage && !hasPodNameEnv {
-				t.Fatalf("expected %s env var when PVC storage is used (SubPathExpr is set)", podNameEnvVar)
-			}
-			if !hasPVCStorage && hasPodNameEnv {
-				t.Fatalf("did not expect %s env var when storage is not PVC", podNameEnvVar)
-			}
-
-			for _, env := range container.Env {
-				switch env.Name {
-				case uploadEnvCaseId:
-					if env.Value != tt.caseId {
-						t.Fatalf("expected case ID envar %v but got %v", tt.caseId, env.Value)
-					}
-				case uploadEnvHost:
-					if env.Value != tt.host {
-						t.Fatalf("expected host envar %v but got %v", tt.host, env.Value)
-					}
-				case uploadEnvInternalUser:
-					if env.Value != strconv.FormatBool(tt.internalUser) {
-						t.Fatalf("expected internal user envar %v but got %v", tt.internalUser, env.Value)
-					}
-				case uploadEnvHttpProxy:
-					if env.Value != tt.httpProxy {
-						t.Fatalf("expected httpproxy envar %v but got %v", tt.httpProxy, env.Value)
-					}
-				case uploadEnvHttpsProxy:
-					if env.Value != tt.httpsProxy {
-						t.Fatalf("expected httpsproxy envar %v but got %v", tt.httpsProxy, env.Value)
-					}
-				case uploadEnvNoProxy:
-					if env.Value != tt.noProxy {
-						t.Fatalf("expected noproxy envar %v but got %v", tt.noProxy, env.Value)
-					}
-				case uploadEnvUsername, uploadEnvPassword:
-					if !reflect.DeepEqual(env.ValueFrom.SecretKeyRef.LocalObjectReference, tt.secretKeyRefName) {
-						t.Fatalf("expected %v envar to have secret key ref name %v but got %v", env.Name, tt.secretKeyRefName.Name, env.ValueFrom.SecretKeyRef.Name)
-					}
-				}
-
-				if testFailed {
-					t.Error()
-				}
-			}
+			verifyUploadContainerCAMount(t, container, tt.mountCAConfigMap)
+			verifyUploadContainerStorageMount(t, container, tt.storage)
+			verifyUploadContainerPodNameEnv(t, container, tt.storage)
+			verifyUploadContainerEnvVars(t, container, tt.caseId, tt.host, tt.internalUser, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName)
 		})
 	}
 }

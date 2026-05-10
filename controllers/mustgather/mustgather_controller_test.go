@@ -262,18 +262,58 @@ func TestCleanupMustGatherResources(t *testing.T) {
 	}
 }
 
-func TestHandleJobCompletion(t *testing.T) {
-	const operatorNs = "must-gather-operator"
+type handleJobCompletionTC struct {
+	name           string
+	setupObjects   func() []client.Object
+	interceptors   func() interceptClient
+	status         string
+	reason         string
+	expectError    bool
+	postTestChecks func(t *testing.T, cl client.Client)
+}
 
-	tests := []struct {
-		name           string
-		setupObjects   func() []client.Object
-		interceptors   func() interceptClient
-		status         string
-		reason         string
-		expectError    bool
-		postTestChecks func(t *testing.T, cl client.Client)
-	}{
+func runHandleJobCompletionTC(t *testing.T, operatorNs string, tt handleJobCompletionTC) {
+	t.Helper()
+	s := runtime.NewScheme()
+	_ = corev1.AddToScheme(s)
+	_ = batchv1.AddToScheme(s)
+	_ = mustgatherv1alpha1.AddToScheme(s)
+
+	objects := tt.setupObjects()
+	base := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).WithStatusSubresource(&mustgatherv1alpha1.MustGather{}).Build()
+
+	interceptor := tt.interceptors()
+	var cl client.Client = base
+	if interceptor.onGet != nil || interceptor.onList != nil || interceptor.onDelete != nil || interceptor.onUpdate != nil || interceptor.onCreate != nil || interceptor.status != nil {
+		interceptor.Client = base
+		cl = interceptor
+	}
+
+	r := &MustGatherReconciler{
+		ReconcilerBase:    util.NewReconcilerBase(cl, s, &rest.Config{}, &record.FakeRecorder{}, nil),
+		OperatorNamespace: operatorNs,
+	}
+
+	var mg *mustgatherv1alpha1.MustGather
+	for _, obj := range objects {
+		if mgObj, ok := obj.(*mustgatherv1alpha1.MustGather); ok {
+			mg = mgObj
+			break
+		}
+	}
+
+	_, err := r.handleJobCompletion(context.TODO(), logf.Log, mg, tt.status, tt.reason)
+	if tt.expectError && err == nil {
+		t.Fatalf("expected error but got none")
+	}
+	if !tt.expectError && err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	tt.postTestChecks(t, cl)
+}
+
+func buildHandleJobCompletionTests(operatorNs string) []handleJobCompletionTC {
+	return []handleJobCompletionTC{
 		{
 			name:   "completed_status_with_cleanup",
 			status: "Completed",
@@ -436,63 +476,91 @@ func TestHandleJobCompletion(t *testing.T) {
 			postTestChecks: func(t *testing.T, cl client.Client) {},
 		},
 	}
+}
 
-	for _, tt := range tests {
+func TestHandleJobCompletion(t *testing.T) {
+	const operatorNs = "must-gather-operator"
+	for _, tt := range buildHandleJobCompletionTests(operatorNs) {
 		t.Run(tt.name, func(t *testing.T) {
-			s := runtime.NewScheme()
-			_ = corev1.AddToScheme(s)
-			_ = batchv1.AddToScheme(s)
-			_ = mustgatherv1alpha1.AddToScheme(s)
-
-			objects := tt.setupObjects()
-			base := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).WithStatusSubresource(&mustgatherv1alpha1.MustGather{}).Build()
-
-			interceptor := tt.interceptors()
-			var cl client.Client = base
-			if interceptor.onGet != nil || interceptor.onList != nil || interceptor.onDelete != nil || interceptor.onUpdate != nil || interceptor.onCreate != nil || interceptor.status != nil {
-				interceptor.Client = base
-				cl = interceptor
-			}
-
-			r := &MustGatherReconciler{
-				ReconcilerBase:    util.NewReconcilerBase(cl, s, &rest.Config{}, &record.FakeRecorder{}, nil),
-				OperatorNamespace: operatorNs,
-			}
-
-			var mg *mustgatherv1alpha1.MustGather
-			for _, obj := range objects {
-				if mgObj, ok := obj.(*mustgatherv1alpha1.MustGather); ok {
-					mg = mgObj
-					break
-				}
-			}
-
-			_, err := r.handleJobCompletion(context.TODO(), logf.Log, mg, tt.status, tt.reason)
-
-			if tt.expectError && err == nil {
-				t.Fatalf("expected error but got none")
-			}
-			if !tt.expectError && err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			tt.postTestChecks(t, cl)
+			runHandleJobCompletionTC(t, operatorNs, tt)
 		})
 	}
 }
 
-func TestReconcile(t *testing.T) {
-	const operatorNs = "must-gather-operator"
+type reconcileTC struct {
+	name           string
+	setupObjects   func() []client.Object
+	setupEnv       func(t *testing.T)
+	interceptors   func() interceptClient
+	expectError    bool
+	expectResult   reconcile.Result
+	postTestChecks func(t *testing.T, cl client.Client)
+}
 
-	tests := []struct {
-		name           string
-		setupObjects   func() []client.Object
-		setupEnv       func(t *testing.T)
-		interceptors   func() interceptClient
-		expectError    bool
-		expectResult   reconcile.Result
-		postTestChecks func(t *testing.T, cl client.Client)
-	}{
+func runReconcileTC(t *testing.T, operatorNs string, tt reconcileTC) {
+	t.Helper()
+	s := runtime.NewScheme()
+	_ = corev1.AddToScheme(s)
+	_ = batchv1.AddToScheme(s)
+	_ = mustgatherv1alpha1.AddToScheme(s)
+	_ = configv1.AddToScheme(s)
+
+	objects := tt.setupObjects()
+	base := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).WithStatusSubresource(&mustgatherv1alpha1.MustGather{}).Build()
+
+	interceptor := tt.interceptors()
+	var cl client.Client = base
+	if interceptor.onGet != nil || interceptor.onList != nil || interceptor.onDelete != nil || interceptor.onUpdate != nil || interceptor.onCreate != nil || interceptor.status != nil {
+		interceptor.Client = base
+		cl = interceptor
+	}
+
+	originalSftpDialFunc := sftpDialFunc
+	defer func() { sftpDialFunc = originalSftpDialFunc }()
+	sftpDialFunc = func(ctx context.Context, username, password, host string) error { return nil }
+
+	r := &MustGatherReconciler{
+		ReconcilerBase:         util.NewReconcilerBase(cl, s, &rest.Config{}, &record.FakeRecorder{}, nil),
+		DefaultMustGatherImage: "test-must-gather-image",
+		OperatorNamespace:      operatorNs,
+	}
+
+	var req reconcile.Request
+	for _, obj := range objects {
+		if mgObj, ok := obj.(*mustgatherv1alpha1.MustGather); ok {
+			req = reconcile.Request{NamespacedName: types.NamespacedName{Name: mgObj.Name, Namespace: mgObj.Namespace}}
+			break
+		}
+	}
+	if req.Name == "" {
+		req = reconcile.Request{NamespacedName: types.NamespacedName{Name: "x", Namespace: "y"}}
+	}
+
+	if tt.setupEnv != nil {
+		tt.setupEnv(t)
+	}
+	if tt.name != "reconcile_job_template_env_missing_returns_error" {
+		t.Setenv("OPERATOR_IMAGE", "img")
+	}
+	t.Setenv("DEFAULT_MUST_GATHER_IMAGE", "test-must-gather-image")
+	t.Setenv("OPERATOR_NAMESPACE", operatorNs)
+
+	res, err := r.Reconcile(context.TODO(), req)
+	if tt.expectError && err == nil {
+		t.Fatalf("expected error but got none")
+	}
+	if !tt.expectError && err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res != tt.expectResult {
+		t.Fatalf("expected result %+v, got %+v", tt.expectResult, res)
+	}
+	tt.postTestChecks(t, cl)
+}
+
+func TestReconcile_NotFoundToServiceAccount(t *testing.T) {
+	const operatorNs = "must-gather-operator"
+	tests := []reconcileTC{
 		{
 			name: "reconcile_mustgather_not_found_returns_empty_result",
 			setupObjects: func() []client.Object {
@@ -850,6 +918,17 @@ func TestReconcile(t *testing.T) {
 				}
 			},
 		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runReconcileTC(t, operatorNs, tt)
+		})
+	}
+}
+
+func TestReconcile_SecretToErrors(t *testing.T) {
+	const operatorNs = "must-gather-operator"
+	tests := []reconcileTC{
 		{
 			name: "reconcile_job_not_found_user_secret_not_found_calls_manage_error",
 			setupObjects: func() []client.Object {
@@ -1329,86 +1408,9 @@ func TestReconcile(t *testing.T) {
 			postTestChecks: func(t *testing.T, cl client.Client) {},
 		},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
-			// Setup scheme
-			s := runtime.NewScheme()
-			_ = corev1.AddToScheme(s)
-			_ = batchv1.AddToScheme(s)
-			_ = mustgatherv1alpha1.AddToScheme(s)
-			_ = configv1.AddToScheme(s)
-
-			// Setup objects and client
-			objects := tt.setupObjects()
-			base := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).WithStatusSubresource(&mustgatherv1alpha1.MustGather{}).Build()
-
-			// Setup interceptor if needed
-			interceptor := tt.interceptors()
-			var cl client.Client = base
-			if interceptor.onGet != nil || interceptor.onList != nil || interceptor.onDelete != nil || interceptor.onUpdate != nil || interceptor.onCreate != nil || interceptor.status != nil {
-				interceptor.Client = base
-				cl = interceptor
-			}
-
-			// Mock sftpDialFunc to avoid real network calls in tests
-			// Save original and restore after test
-			originalSftpDialFunc := sftpDialFunc
-			defer func() { sftpDialFunc = originalSftpDialFunc }()
-
-			// Mock SFTP dial function to always succeed
-			sftpDialFunc = func(ctx context.Context, username, password, host string) error {
-				return nil // Mock success - allows validation to pass and test job creation logic
-			}
-
-			// Create reconciler
-			r := &MustGatherReconciler{
-				ReconcilerBase:         util.NewReconcilerBase(cl, s, &rest.Config{}, &record.FakeRecorder{}, nil),
-				DefaultMustGatherImage: "test-must-gather-image",
-				OperatorNamespace:      operatorNs,
-			}
-
-			// Determine request based on test objects
-			var req reconcile.Request
-			for _, obj := range objects {
-				if mgObj, ok := obj.(*mustgatherv1alpha1.MustGather); ok {
-					req = reconcile.Request{NamespacedName: types.NamespacedName{Name: mgObj.Name, Namespace: mgObj.Namespace}}
-					break
-				}
-			}
-			// Default request if no MustGather object found
-			if req.Name == "" {
-				req = reconcile.Request{NamespacedName: types.NamespacedName{Name: "x", Namespace: "y"}}
-			}
-
-			if tt.setupEnv != nil {
-				tt.setupEnv(t)
-			}
-
-			// Execute
-			if tt.name != "reconcile_job_template_env_missing_returns_error" {
-				t.Setenv("OPERATOR_IMAGE", "img")
-			}
-			t.Setenv("DEFAULT_MUST_GATHER_IMAGE", "test-must-gather-image")
-			t.Setenv("OPERATOR_NAMESPACE", operatorNs)
-			res, err := r.Reconcile(context.TODO(), req)
-
-			// Assert error expectation
-			if tt.expectError && err == nil {
-				t.Fatalf("expected error but got none")
-			}
-			if !tt.expectError && err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			// Assert result expectation
-			if res != tt.expectResult {
-				t.Fatalf("expected result %+v, got %+v", tt.expectResult, res)
-			}
-
-			// Run post-test checks
-			tt.postTestChecks(t, cl)
+			runReconcileTC(t, operatorNs, tt)
 		})
 	}
 }
