@@ -517,7 +517,7 @@ func runReconcileTC(t *testing.T, operatorNs string, tt reconcileTC) {
 
 	originalSftpDialFunc := sftpDialFunc
 	defer func() { sftpDialFunc = originalSftpDialFunc }()
-	sftpDialFunc = func(ctx context.Context, username, password, host string) error { return nil }
+	sftpDialFunc = func(_ context.Context, _, _, _ string) error { return nil }
 
 	r := &MustGatherReconciler{
 		ReconcilerBase:         util.NewReconcilerBase(cl, s, &rest.Config{}, &record.FakeRecorder{}, nil),
