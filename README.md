@@ -20,6 +20,8 @@ spec:
 
 This request will collect the standard must-gather info and upload it to case `#02527285` using the credentials found in the `caseManagementCreds` secret.
 
+> **Note:** `serviceAccountName: default` is valid for limited-privilege collections. For full must-gather collection and cluster-scoped RBAC operations (including node-level data), use `serviceAccountName: must-gather-admin`. See [Using the must-gather-admin service account](#using-the-must-gather-admin-service-account) for details.
+
 ## Using a custom SFTP port
 
 By default the operator uploads to `sftp.access.redhat.com` on port 22. If outbound port 22 is blocked in your environment, Red Hat also accepts uploads on port 80 at the same address. Set the optional `port` field to override:
@@ -99,7 +101,7 @@ The operator's service account (`must-gather-operator`) requires cluster-level *
 
 If you see the following error in operator logs:
 
-```
+```text
 serviceaccounts is forbidden: User "system:serviceaccount:must-gather-operator:must-gather-operator" cannot list resource "serviceaccounts" in API group ""
 ```
 
