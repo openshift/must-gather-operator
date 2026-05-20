@@ -325,6 +325,7 @@ func Test_getUploadContainer(t *testing.T) {
 		caseId           string
 		host             string
 		internalUser     bool
+		port             int
 		storage          *mustgatherv1alpha1.Storage
 		httpProxy        string
 		httpsProxy       string
@@ -447,11 +448,27 @@ func Test_getUploadContainer(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:             "Custom port 80",
+			operatorImage:    "testImage",
+			caseId:           "1234",
+			host:             "sftp.example.com",
+			port:             80,
+			secretKeyRefName: v1.LocalObjectReference{Name: "testSecretKeyRefName"},
+		},
+		{
+			name:             "Port defaults to 22 when zero",
+			operatorImage:    "testImage",
+			caseId:           "1234",
+			host:             "sftp.example.com",
+			port:             0,
+			secretKeyRefName: v1.LocalObjectReference{Name: "testSecretKeyRefName"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testFailed := false
-			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.host, tt.internalUser, tt.storage, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName, tt.mountCAConfigMap)
+			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.host, tt.internalUser, tt.port, tt.storage, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName, tt.mountCAConfigMap)
 
 			if container.Image != tt.operatorImage {
 				t.Fatalf("expected container image %v but got %v", tt.operatorImage, container.Image)
@@ -534,6 +551,14 @@ func Test_getUploadContainer(t *testing.T) {
 				case uploadEnvNoProxy:
 					if env.Value != tt.noProxy {
 						t.Fatalf("expected noproxy envar %v but got %v", tt.noProxy, env.Value)
+					}
+				case uploadEnvPort:
+					expectedPort := tt.port
+					if expectedPort == 0 {
+						expectedPort = 22
+					}
+					if env.Value != strconv.Itoa(expectedPort) {
+						t.Fatalf("expected port envar %d but got %v", expectedPort, env.Value)
 					}
 				case uploadEnvUsername, uploadEnvPassword:
 					if !reflect.DeepEqual(env.ValueFrom.SecretKeyRef.LocalObjectReference, tt.secretKeyRefName) {

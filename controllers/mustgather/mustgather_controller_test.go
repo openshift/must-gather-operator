@@ -1360,7 +1360,7 @@ func TestReconcile(t *testing.T) {
 			defer func() { sftpDialFunc = originalSftpDialFunc }()
 
 			// Mock SFTP dial function to always succeed
-			sftpDialFunc = func(ctx context.Context, username, password, host string) error {
+			sftpDialFunc = func(ctx context.Context, username, password, host string, port int) error {
 				return nil // Mock success - allows validation to pass and test job creation logic
 			}
 
@@ -1600,7 +1600,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 		name                     string
 		secret                   *corev1.Secret
 		mustgather               *mustgatherv1alpha1.MustGather
-		mockSFTPDialFunc         func(ctx context.Context, username, password, host string) error
+		mockSFTPDialFunc         func(ctx context.Context, username, password, host string, port int) error
 		expectError              bool
 		expectedStatus           string
 		expectedCompleted        bool
@@ -1793,7 +1793,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					},
 				},
 			},
-			mockSFTPDialFunc: func(ctx context.Context, username, password, host string) error {
+			mockSFTPDialFunc: func(ctx context.Context, username, password, host string, port int) error {
 				return errors.New("SFTP connection failed: authentication failed")
 			},
 			expectError:              false,
@@ -1834,7 +1834,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					},
 				},
 			},
-			mockSFTPDialFunc: func(ctx context.Context, username, password, host string) error {
+			mockSFTPDialFunc: func(ctx context.Context, username, password, host string, port int) error {
 				// Use context.DeadlineExceeded to simulate a transient error
 				// Local retry will exhaust all attempts and then fail
 				return context.DeadlineExceeded
@@ -1877,7 +1877,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					},
 				},
 			},
-			mockSFTPDialFunc: func(ctx context.Context, username, password, host string) error {
+			mockSFTPDialFunc: func(ctx context.Context, username, password, host string, port int) error {
 				return nil // Success
 			},
 			expectError: false,
@@ -1909,7 +1909,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 				sftpDialFunc = tt.mockSFTPDialFunc
 			} else {
 				// Safety: fail if the dial is called unexpectedly
-				sftpDialFunc = func(ctx context.Context, username, password, host string) error {
+				sftpDialFunc = func(ctx context.Context, username, password, host string, port int) error {
 					t.Fatal("sftpDialFunc called unexpectedly")
 					return nil
 				}

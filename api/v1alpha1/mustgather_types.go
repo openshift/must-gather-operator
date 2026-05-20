@@ -138,6 +138,13 @@ type SFTPSpec struct {
 	// +kubebuilder:default:="sftp.access.redhat.com"
 	// +optional
 	Host string `json:"host,omitempty"`
+
+	// port specifies the SFTP server port.
+	// +kubebuilder:default:=22
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +optional
+	Port int `json:"port,omitempty"`
 }
 
 // UploadType defines the type of upload target.

@@ -98,55 +98,82 @@ func Test_normalizeHostAddress(t *testing.T) {
 	tests := []struct {
 		name     string
 		host     string
+		port     int
 		expected string
 	}{
 		{
 			name:     "empty host",
 			host:     "",
+			port:     0,
 			expected: "",
 		},
 		{
-			name:     "IPv4 without port",
+			name:     "IPv4 without port uses port param",
 			host:     "192.168.1.1",
+			port:     22,
 			expected: "192.168.1.1:22",
 		},
 		{
-			name:     "IPv4 with port",
+			name:     "IPv4 without port uses custom port",
+			host:     "192.168.1.1",
+			port:     80,
+			expected: "192.168.1.1:80",
+		},
+		{
+			name:     "IPv4 without port defaults to 22 when zero",
+			host:     "192.168.1.1",
+			port:     0,
+			expected: "192.168.1.1:22",
+		},
+		{
+			name:     "IPv4 with port kept as-is",
 			host:     "192.168.1.1:2222",
+			port:     22,
 			expected: "192.168.1.1:2222",
 		},
 		{
-			name:     "hostname without port",
+			name:     "hostname without port uses port param",
 			host:     "example.com",
+			port:     22,
 			expected: "example.com:22",
 		},
 		{
-			name:     "hostname with port",
+			name:     "hostname without port uses custom port",
+			host:     "example.com",
+			port:     80,
+			expected: "example.com:80",
+		},
+		{
+			name:     "hostname with port kept as-is",
 			host:     "example.com:2222",
+			port:     22,
 			expected: "example.com:2222",
 		},
 		{
-			name:     "IPv6 unbracketed",
+			name:     "IPv6 unbracketed without port gets bracketed with port",
 			host:     "2001:db8::1",
+			port:     22,
 			expected: "[2001:db8::1]:22",
 		},
 		{
-			name:     "IPv6 bracketed without port",
+			name:     "IPv6 bracketed without port uses param",
 			host:     "[2001:db8::1]",
+			port:     22,
 			expected: "[2001:db8::1]:22",
 		},
 		{
-			name:     "IPv6 bracketed with port",
+			name:     "IPv6 bracketed with port kept as-is",
 			host:     "[2001:db8::1]:2222",
+			port:     22,
 			expected: "[2001:db8::1]:2222",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := normalizeHostAddress(tt.host)
+			got := normalizeHostAddress(tt.host, tt.port)
 			if got != tt.expected {
-				t.Errorf("normalizeHostAddress(%q) = %q, want %q", tt.host, got, tt.expected)
+				t.Errorf("normalizeHostAddress(%q, %d) = %q, want %q", tt.host, tt.port, got, tt.expected)
 			}
 		})
 	}
@@ -367,6 +394,7 @@ func Test_checkSFTPConnection(t *testing.T) {
 		username    string
 		password    string
 		host        string
+		port        int
 		wantErr     bool
 		errContains string
 	}{
@@ -375,6 +403,7 @@ func Test_checkSFTPConnection(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "",
+			port:        0,
 			wantErr:     true,
 			errContains: "Connection refused",
 		},
@@ -383,6 +412,7 @@ func Test_checkSFTPConnection(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "192.168.1.1",
+			port:        22,
 			wantErr:     true,
 			errContains: "Connection refused",
 		},
@@ -391,6 +421,7 @@ func Test_checkSFTPConnection(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "192.168.1.1:22",
+			port:        22,
 			wantErr:     true,
 			errContains: "Connection refused",
 		},
@@ -399,6 +430,7 @@ func Test_checkSFTPConnection(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "sftp.example.com",
+			port:        22,
 			wantErr:     true,
 			errContains: "Connection refused",
 		},
@@ -407,6 +439,7 @@ func Test_checkSFTPConnection(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "sftp.example.com:2222",
+			port:        22,
 			wantErr:     true,
 			errContains: "Connection refused",
 		},
@@ -415,6 +448,7 @@ func Test_checkSFTPConnection(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "2001:db8::1",
+			port:        22,
 			wantErr:     true,
 			errContains: "Connection refused",
 		},
@@ -423,6 +457,7 @@ func Test_checkSFTPConnection(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "[2001:db8::1]",
+			port:        22,
 			wantErr:     true,
 			errContains: "Connection refused",
 		},
@@ -431,6 +466,16 @@ func Test_checkSFTPConnection(t *testing.T) {
 			username:    "user",
 			password:    "pass",
 			host:        "[2001:db8::1]:2222",
+			port:        22,
+			wantErr:     true,
+			errContains: "Connection refused",
+		},
+		{
+			name:        "custom port 80",
+			username:    "user",
+			password:    "pass",
+			host:        "sftp.example.com",
+			port:        80,
 			wantErr:     true,
 			errContains: "Connection refused",
 		},
@@ -446,7 +491,7 @@ func Test_checkSFTPConnection(t *testing.T) {
 				return nil, errors.New("connection refused")
 			}
 
-			err := checkSFTPConnection(context.Background(), tt.username, tt.password, tt.host)
+			err := checkSFTPConnection(context.Background(), tt.username, tt.password, tt.host, tt.port)
 
 			if tt.wantErr {
 				if err == nil {
@@ -509,7 +554,7 @@ func Test_checkSFTPConnection_ContextCancellation(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), tt.timeout)
 			defer cancel()
 
-			err := checkSFTPConnection(ctx, tt.username, tt.password, tt.host)
+			err := checkSFTPConnection(ctx, tt.username, tt.password, tt.host, 22)
 
 			if tt.wantErr {
 				if err == nil {
@@ -566,12 +611,12 @@ func Test_validateSFTPCredentials(t *testing.T) {
 			originalDialFunc := sftpDialFunc
 			defer func() { sftpDialFunc = originalDialFunc }()
 
-			sftpDialFunc = func(ctx context.Context, username, password, host string) error {
+			sftpDialFunc = func(ctx context.Context, username, password, host string, port int) error {
 				return tt.mockDialErr
 			}
 
 			// Run the validation
-			err := validateSFTPCredentials(context.Background(), tt.username, tt.password, tt.host)
+			err := validateSFTPCredentials(context.Background(), tt.username, tt.password, tt.host, 22)
 
 			if tt.wantErr {
 				if err == nil {
@@ -597,14 +642,14 @@ func Test_validateSFTPCredentials_Timeout(t *testing.T) {
 	testCtx, testCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer testCancel()
 
-	sftpDialFunc = func(ctx context.Context, username, password, host string) error {
+	sftpDialFunc = func(ctx context.Context, username, password, host string, port int) error {
 		// Block until the passed context is cancelled (respecting context cancellation)
 		<-ctx.Done()
 		return ctx.Err()
 	}
 
 	// Run the validation (should timeout based on context)
-	err := validateSFTPCredentials(testCtx, "user", "pass", "sftp.example.com")
+	err := validateSFTPCredentials(testCtx, "user", "pass", "sftp.example.com", 22)
 
 	if err == nil {
 		t.Errorf("validateSFTPCredentials() expected timeout error, got nil")
@@ -685,7 +730,7 @@ func Test_validateSFTPWithRetry(t *testing.T) {
 			defer func() { sftpDialFunc = originalDialFunc }()
 
 			callCount := 0
-			sftpDialFunc = func(ctx context.Context, username, password, host string) error {
+			sftpDialFunc = func(ctx context.Context, username, password, host string, port int) error {
 				if callCount < len(tt.mockDialErrors) {
 					err := tt.mockDialErrors[callCount]
 					callCount++
@@ -696,7 +741,7 @@ func Test_validateSFTPWithRetry(t *testing.T) {
 			}
 
 			logger := logr.Discard()
-			err := validateSFTPWithRetry(context.Background(), logger, "user", "pass", "sftp.example.com")
+			err := validateSFTPWithRetry(context.Background(), logger, "user", "pass", "sftp.example.com", 22)
 
 			if tt.wantErr {
 				if err == nil {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,7 +25,7 @@ const (
 // sftpDialFunc is the function used to test SFTP connections.
 // It can be overridden in tests to avoid real network calls.
 // The context parameter allows for cancellation and timeout control.
-var sftpDialFunc = checkSFTPConnection
+var sftpDialFunc func(ctx context.Context, username, password, host string, port int) error = checkSFTPConnection
 
 // netDialFunc is the function used to dial TCP connections with context support.
 // It can be overridden in tests to avoid real network calls.
@@ -132,18 +133,19 @@ func validateSFTPCredentials(
 	username string,
 	password string,
 	host string,
+	port int,
 ) error {
 	// Call dial function with context for cancellation support
-	return sftpDialFunc(ctx, username, password, host)
+	return sftpDialFunc(ctx, username, password, host, port)
 }
 
 // validateSFTPWithRetry attempts SFTP validation with retries for transient errors.
 // It retries up to MaxSFTPValidationRetries times for transient errors (e.g., timeouts).
 // Non-transient errors (e.g., auth failures) are returned immediately without retry.
-func validateSFTPWithRetry(ctx context.Context, reqLogger logr.Logger, username, password, host string) error {
+func validateSFTPWithRetry(ctx context.Context, reqLogger logr.Logger, username, password, host string, port int) error {
 	var lastErr error
 	for attempt := 1; attempt <= MaxSFTPValidationRetries; attempt++ {
-		lastErr = validateSFTPCredentials(ctx, username, password, host)
+		lastErr = validateSFTPCredentials(ctx, username, password, host, port)
 		if lastErr == nil {
 			return nil
 		}
@@ -169,8 +171,8 @@ func validateSFTPWithRetry(ctx context.Context, reqLogger logr.Logger, username,
 //
 // The TCP connection respects context cancellation. The SSH handshake timeout is controlled
 // by sshDialTimeout (5 seconds) in the SSH config.
-func checkSFTPConnection(ctx context.Context, username, password, host string) error {
-	address := normalizeHostAddress(host)
+func checkSFTPConnection(ctx context.Context, username, password, host string, port int) error {
+	address := normalizeHostAddress(host, port)
 
 	// Skip host key verification to match upload script (StrictHostKeyChecking=no)
 	// #nosec G106 -- Intentional: matches upload script behavior
@@ -196,10 +198,15 @@ func checkSFTPConnection(ctx context.Context, username, password, host string) e
 
 // normalizeHostAddress adds the default SFTP port if not specified.
 // It handles both IPv4 and IPv6 addresses, ensuring IPv6 addresses are correctly bracketed.
-func normalizeHostAddress(host string) string {
+func normalizeHostAddress(host string, port int) string {
 	if host == "" || containsPort(host) {
 		return host
 	}
+
+	if port == 0 {
+		port = 22
+	}
+	portStr := strconv.Itoa(port)
 
 	// If the host is already bracketed (IPv6), strip brackets so JoinHostPort can re-add them correctly
 	// along with the port. JoinHostPort automatically brackets IPv6 literals.
@@ -207,7 +214,7 @@ func normalizeHostAddress(host string) string {
 		host = host[1 : len(host)-1]
 	}
 
-	return net.JoinHostPort(host, sftpDefaultPort)
+	return net.JoinHostPort(host, portStr)
 }
 
 // buildSSHConfig creates an SSH client configuration with the provided credentials and host key callback.

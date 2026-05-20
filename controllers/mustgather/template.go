@@ -48,6 +48,7 @@ const (
 	uploadEnvNoProxy          = "no_proxy"
 	uploadEnvMustGatherOutput = "must_gather_output"
 	uploadEnvMustGatherUpload = "must_gather_upload"
+	uploadEnvPort             = "port"
 	uploadCommand             = "count=0\nuntil [ $count -gt 4 ]\ndo\n  while `pgrep -a gather > /dev/null`\n  do\n    echo \"waiting for gathers to complete ...\"\n    sleep 120\n    count=0\n  done\n  echo \"no gather is running ($count / 4)\"\n  ((count++))\n  sleep 30\ndone\n/usr/local/bin/upload"
 
 	// SSH directory and known hosts file
@@ -150,6 +151,7 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 					s.CaseID,
 					s.Host,
 					s.InternalUser,
+					s.Port,
 					mustGather.Spec.Storage,
 					httpProxy,
 					httpsProxy,
@@ -320,6 +322,7 @@ func getUploadContainer(
 	caseId string,
 	host string,
 	internalUser bool,
+	port int,
 	storage *v1alpha1.Storage,
 	httpProxy string,
 	httpsProxy string,
@@ -354,6 +357,10 @@ func getUploadContainer(
 			MountPath: trustedCAMountPath,
 			ReadOnly:  true,
 		})
+	}
+
+	if port == 0 {
+		port = 22
 	}
 
 	container := corev1.Container{
@@ -403,6 +410,10 @@ func getUploadContainer(
 			{
 				Name:  uploadEnvInternalUser,
 				Value: strconv.FormatBool(internalUser),
+			},
+			{
+				Name:  uploadEnvPort,
+				Value: strconv.Itoa(port),
 			},
 		},
 	}

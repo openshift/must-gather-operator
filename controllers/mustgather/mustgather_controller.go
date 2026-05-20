@@ -241,6 +241,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 				string(username),
 				string(password),
 				instance.Spec.UploadTarget.SFTP.Host,
+				instance.Spec.UploadTarget.SFTP.Port,
 			)
 			if validationErr != nil {
 				reqLogger.Error(validationErr, "SFTP credential validation failed")

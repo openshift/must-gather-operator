@@ -203,6 +203,12 @@ spec:
                           A flag to specify if the upload user provided in the caseManagementAccountSecret is a RH internal user.
                           See documentation for further information.
                         type: boolean
+                      port:
+                        default: 22
+                        description: port specifies the SFTP server port.
+                        maximum: 65535
+                        minimum: 1
+                        type: integer
                     required:
                     - caseID
                     - caseManagementAccountSecretRef
