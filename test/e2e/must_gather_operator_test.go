@@ -756,61 +756,44 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.GinkgoWriter.Println("ServiceAccount validation correctly prevented Job creation and reported error")
 		})
 
-		ginkgo.It("should reject operator service account", func() {
+		ginkgo.It("should allow operator service account name in different namespace", func() {
 			mustGatherName := fmt.Sprintf("test-operator-sa-%d", time.Now().UnixNano())
 
-			ginkgo.By("Creating MustGather with operator service account name")
+			ginkgo.By("Creating a ServiceAccount with the operator's name in the test namespace")
+			operatorNamedSA := &corev1.ServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mgconfig.OperatorName,
+					Namespace: ns.Name,
+				},
+			}
+			err := adminClient.Create(testCtx, operatorNamedSA)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create ServiceAccount with operator name in test namespace")
+
+			ginkgo.By("Creating MustGather with operator service account name in a non-operator namespace")
 			mg = createMustGatherCR(mustGatherName, ns.Name, mgconfig.OperatorName, false, nil)
 
-			ginkgo.By("Verifying MustGather status reports operator SA rejection")
-			Eventually(func() bool {
+			ginkgo.By("Verifying MustGather is NOT rejected due to operator SA name")
+			Consistently(func() bool {
 				fetchedMG := &mustgatherv1alpha1.MustGather{}
 				err := adminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
 				}, fetchedMG)
 				if err != nil {
-					return false
+					return true
 				}
 				for _, cond := range fetchedMG.Status.Conditions {
 					if cond.Type == "ReconcileError" && cond.Status == metav1.ConditionTrue {
 						if strings.Contains(cond.Message, "operator's own service account cannot be used") {
-							ginkgo.GinkgoWriter.Printf("Found expected error condition: %s\n", cond.Message)
-							return true
+							return false
 						}
 					}
 				}
-				return false
-			}).WithTimeout(1*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
-				"MustGather status should contain error about operator service account being disallowed")
+				return true
+			}).WithTimeout(30*time.Second).WithPolling(5*time.Second).Should(BeTrue(),
+				"MustGather should NOT be rejected for using operator SA name in a different namespace")
 
-			ginkgo.By("Verifying Job was not created")
-			job := &batchv1.Job{}
-			err := adminClient.Get(testCtx, client.ObjectKey{
-				Name:      mustGatherName,
-				Namespace: ns.Name,
-			}, job)
-			Expect(apierrors.IsNotFound(err)).To(BeTrue(),
-				"Job should not be created when operator service account is specified")
-
-			ginkgo.By("Verifying warning event was generated")
-			events := &corev1.EventList{}
-			err = adminClient.List(testCtx, events, client.InNamespace(ns.Name))
-			Expect(err).NotTo(HaveOccurred())
-
-			foundWarningEvent := false
-			for _, event := range events.Items {
-				if event.InvolvedObject.Name == mustGatherName &&
-					event.Type == corev1.EventTypeWarning &&
-					strings.Contains(event.Message, "operator's own service account") {
-					foundWarningEvent = true
-					ginkgo.GinkgoWriter.Printf("Found warning event: %s\n", event.Message)
-					break
-				}
-			}
-			Expect(foundWarningEvent).To(BeTrue(), "Warning event should be generated for operator service account rejection")
-
-			ginkgo.GinkgoWriter.Println("Operator service account validation correctly prevented Job creation")
+			ginkgo.GinkgoWriter.Println("Operator SA name correctly allowed in non-operator namespace")
 		})
 
 		ginkgo.It("should enforce ServiceAccount permissions during data collection", func() {

@@ -187,9 +187,9 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			log.Info("no serviceAccountName specified, defaulting to 'default'", "namespace", instance.Namespace)
 		}
 
-		if saName == config.OperatorName {
-			validationErr := fmt.Errorf("serviceAccountName %q is not allowed: the operator's own service account cannot be used for must-gather jobs", saName)
-			log.Error(validationErr, "operator service account usage rejected", "name", saName, "namespace", instance.Namespace)
+		if instance.Namespace == r.OperatorNamespace && saName == config.OperatorName {
+			validationErr := fmt.Errorf("serviceAccountName %q is not allowed in namespace %q: the operator's own service account cannot be used for must-gather jobs", saName, instance.Namespace)
+			log.Error(validationErr, "operator service account usage rejected", "name", saName, "namespace", instance.Namespace, "operatorNamespace", r.OperatorNamespace)
 			return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationServiceAccount, validationErr)
 		}
 
