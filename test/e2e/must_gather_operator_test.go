@@ -8,11 +8,15 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -79,13 +83,15 @@ const (
 	caseManagementSecretNameInvalid       = "case-management-creds-invalid"
 	caseManagementSecretNameEmptyUsername = "case-management-creds-empty-username"
 	caseManagementSecretNameEmptyPassword = "case-management-creds-empty-password"
-	stageHostName                         = "sftp.access.stage.redhat.com"
+	prodHostName                          = "sftp.access.redhat.com"
 
 	// PersistentVolume test constants
 	mustGatherPVCName        = "must-gather-pvc"
 	caseCredsConfigDirEnvVar = "CASE_MANAGEMENT_CREDS_CONFIG_DIR"
-	vaultUsernameKey         = "sftp-username-e2e"
-	vaultPasswordKey         = "sftp-password-e2e"
+	// vaultOfflineTokenKey is the RH SSO offline refresh token mounted from Vault for CI.
+	vaultOfflineTokenKey          = "offline-token-e2e"
+	refreshSFTPTokenScript        = "refresh-sftp-token.sh"
+	refreshSFTPTokenScriptTimeout = 60 * time.Second
 )
 
 //go:embed testdata/*
@@ -991,7 +997,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		ginkgo.It("should successfully upload must-gather data to SFTP server for external user", func() {
 			ginkgo.By("Getting SFTP credentials from Vault")
 
-			sftpUsername, sftpPassword, err := getCaseCredsFromVault()
+			sftpUsername, sftpPassword, err := getCaseCreds()
 			Expect(err).NotTo(HaveOccurred(), "Failed to get SFTP credentials from Vault")
 
 			ginkgo.By("Creating case-management-creds-valid secret")
@@ -1020,7 +1026,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.GinkgoWriter.Printf("Using unique caseID: %s\n", caseID)
 
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
-				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: stageHostName},
+				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: prodHostName},
 			})
 
 			ginkgo.By("Verifying MustGather CR has internalUser set to false")
@@ -1180,7 +1186,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Verifying file was uploaded to SFTP server at the correct path for external user")
 
 			// For external users (internal_user=false), the file should be uploaded directly to: <caseid>_<filename>.tar.gz
-			found, sftpLogs, err := verifySFTPUpload(ns.Name, caseManagementSecretNameValid, stageHostName, caseID, false)
+			found, sftpLogs, err := verifySFTPUpload(ns.Name, caseManagementSecretNameValid, prodHostName, caseID, false)
 			if err != nil {
 				ginkgo.GinkgoWriter.Printf("SFTP verification error: %v\n", err)
 			}
@@ -1208,9 +1214,6 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.GinkgoWriter.Printf("MustGather with UploadTarget completed - Status: %s, Reason: %s\n",
 				fetchedMG.Status.Status, fetchedMG.Status.Reason)
-
-			// Note: Uploaded test files are automatically purged by the SFTP server daily,
-			// so manual cleanup is not required.
 		})
 
 		ginkgo.It("should fail upload with invalid SFTP credentials", func() {
@@ -1223,7 +1226,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					CaseID:       "00000",
 					SecretName:   caseManagementSecretNameInvalid,
 					InternalUser: false,
-					Host:         stageHostName,
+					Host:         prodHostName,
 				},
 			})
 
@@ -1269,7 +1272,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					CaseID:       "00000",
 					SecretName:   caseManagementSecretNameEmptyUsername,
 					InternalUser: false,
-					Host:         stageHostName,
+					Host:         prodHostName,
 				},
 			})
 
@@ -1315,7 +1318,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					CaseID:       "00000",
 					SecretName:   caseManagementSecretNameEmptyPassword,
 					InternalUser: false,
-					Host:         stageHostName,
+					Host:         prodHostName,
 				},
 			})
 
@@ -1408,6 +1411,36 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.By("Verifying Job uses the custom image from ImageStream")
 			Expect(job.Spec.Template.Spec.Containers[0].Image).To(ContainSubstring(customImage))
+		})
+
+		ginkgo.It("should reject creation when gatherSpec.audit is true with imageStreamRef", func() {
+			ginkgo.By("Creating MustGather CR with custom image and audit enabled (invalid per CRD validation)")
+			retain := false
+			mg := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+					Labels: map[string]string{
+						"test": nonAdminLabel,
+					},
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName:          serviceAccount,
+					RetainResourcesOnCompletion: &retain,
+					ImageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{
+						Name: imageStreamName,
+						Tag:  "latest",
+					},
+					GatherSpec: &mustgatherv1alpha1.GatherSpec{
+						Audit: true,
+					},
+				},
+			}
+			err := nonAdminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "apiserver should reject MustGather with audit and imageStreamRef")
+			Expect(apierrors.IsInvalid(err)).To(BeTrue(), "expected Invalid (422) from CRD validation, got: %v", err)
+			Expect(strings.ToLower(err.Error())).To(ContainSubstring("audit"),
+				"error should describe audit validation failure")
 		})
 
 		ginkgo.It("should fail if the referenced ImageStream does not exist", func() {
@@ -1837,25 +1870,17 @@ func createMustGatherCR(name, namespace, serviceAccountName string, retainResour
 
 	return mg
 }
-func getCaseCredsFromVault() (string, string, error) {
-	// First, try to read from Vault-mounted files (CI/CD environment)
-	configDir := os.Getenv(caseCredsConfigDirEnvVar)
-	if configDir != "" {
-		// Check if the directory exists before trying to read
-		if _, err := os.Stat(configDir); err == nil {
-			sftpUsername, err := os.ReadFile(filepath.Join(configDir, vaultUsernameKey))
-			if err != nil {
-				return "", "", fmt.Errorf("failed to read sftp username from file: %w", err)
-			}
-			sftpPassword, err := os.ReadFile(filepath.Join(configDir, vaultPasswordKey))
-			if err != nil {
-				return "", "", fmt.Errorf("failed to read sftp password from file: %w", err)
-			}
-			return strings.TrimSpace(string(sftpUsername)), strings.TrimSpace(string(sftpPassword)), nil
-		}
+func getCaseCreds() (string, string, error) {
+	// Check for offline token in Vault first
+	offlineToken, err := readOfflineTokenFromVault()
+	if err != nil {
+		return "", "", err
+	}
+	if offlineToken != "" {
+		return refreshSFTPToken(offlineToken)
 	}
 
-	// Fallback: try direct environment variables (for local testing)
+	// Fall back to local credentials
 	sftpUsername := os.Getenv("SFTP_USERNAME_E2E")
 	sftpPassword := os.Getenv("SFTP_PASSWORD_E2E")
 	if sftpUsername != "" && sftpPassword != "" {
@@ -1863,8 +1888,76 @@ func getCaseCredsFromVault() (string, string, error) {
 	}
 
 	return "", "", fmt.Errorf("SFTP credentials not found. Set either:\n"+
-		"  1. CASE_MANAGEMENT_CREDS_CONFIG_DIR with Vault-mounted files (%s, %s), or\n"+
-		"  2. SFTP_USERNAME_E2E and SFTP_PASSWORD_E2E environment variables for local testing", vaultUsernameKey, vaultPasswordKey)
+		"  1. SFTP_USERNAME_E2E and SFTP_PASSWORD_E2E (typical for local runs), or\n"+
+		"  2. mount %q under CASE_MANAGEMENT_CREDS_CONFIG_DIR for refresh-sftp-token.sh", vaultOfflineTokenKey)
+}
+
+type sftpCreds struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// refreshSFTPToken runs test/e2e/refresh-sftp-token.sh script
+// to refresh the SFTP token when the offline token is provided
+func refreshSFTPToken(offlineToken string) (string, string, error) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		return "", "", fmt.Errorf("could not resolve path to %s", refreshSFTPTokenScript)
+	}
+	script := filepath.Join(filepath.Dir(thisFile), refreshSFTPTokenScript)
+	if _, err := os.Stat(script); err != nil {
+		return "", "", fmt.Errorf("SFTP token generation script %q: %w", script, err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), refreshSFTPTokenScriptTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "bash", script)
+	cmd.Env = append(os.Environ(), "RH_OFFLINE_TOKEN="+strings.TrimSpace(offlineToken))
+
+	out, err := cmd.Output()
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return "", "", fmt.Errorf("refresh-sftp-token script exceeded deadline %s: %w", refreshSFTPTokenScriptTimeout, err)
+		}
+		return "", "", fmt.Errorf("refresh-sftp-token script failed: %w", err)
+	}
+
+	var creds sftpCreds
+	if err := json.Unmarshal(bytes.TrimSpace(out), &creds); err != nil {
+		return "", "", fmt.Errorf("error in parsing generate script output: %w", err)
+	}
+	if creds.Username == "" || creds.Password == "" {
+		return "", "", fmt.Errorf("generate script returned empty username or password")
+	}
+	return creds.Username, creds.Password, nil
+}
+
+// readOfflineTokenFromVault returns the RH SSO offline refresh token for refresh-sftp-token.sh
+func readOfflineTokenFromVault() (string, error) {
+	configDir := os.Getenv(caseCredsConfigDirEnvVar)
+	if configDir == "" {
+		return "", nil
+	}
+	if _, err := os.Stat(configDir); err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("stat CASE_MANAGEMENT_CREDS_CONFIG_DIR %q: %w", configDir, err)
+	}
+
+	path := filepath.Join(configDir, vaultOfflineTokenKey)
+	offline_token, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("expected offline refresh token at %q (Vault key %s)", path, vaultOfflineTokenKey)
+		}
+		return "", fmt.Errorf("read offline token %q: %w", path, err)
+	}
+	if trimmed := strings.TrimSpace(string(offline_token)); trimmed != "" {
+		return trimmed, nil
+	}
+	return "", fmt.Errorf("offline token file %q is empty", path)
 }
 
 // getOperatorServiceAccountName retrieves the service account name from the operator deployment's pod template.
