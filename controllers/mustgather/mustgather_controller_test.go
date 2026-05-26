@@ -9,6 +9,7 @@ import (
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
+	imagev1 "github.com/openshift/api/image/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 	mgconfig "github.com/openshift/must-gather-operator/config"
 	"github.com/redhat-cop/operator-utils/pkg/util"
@@ -219,6 +220,33 @@ func TestCleanupMustGatherResources(t *testing.T) {
 			},
 			expectError:    true,
 			postTestChecks: func(t *testing.T, cl client.Client) {},
+		},
+		{
+			name: "cleanup_job_not_owned_by_instance_skips_cleanup",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: targetNamespace, UID: "mg-uid-owner"},
+					Spec:       mustgatherv1alpha1.MustGatherSpec{},
+				}
+				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{
+					Name: mg.Name, Namespace: targetNamespace, UID: "job-uid",
+					OwnerReferences: []metav1.OwnerReference{{
+						APIVersion: "operator.openshift.io/v1alpha1",
+						Kind:       "MustGather",
+						Name:       "other-mustgather",
+						UID:        "other-uid",
+					}},
+				}}
+				return []client.Object{mg, job}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				chkJob := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: targetNamespace, Name: "mg"}, chkJob); err != nil {
+					t.Fatalf("expected job to remain when not owned by instance, got error: %v", err)
+				}
+			},
 		},
 	}
 
@@ -1448,6 +1476,133 @@ func TestReconcile(t *testing.T) {
 			expectResult:   reconcile.Result{Requeue: true},
 			postTestChecks: func(t *testing.T, cl client.Client) {},
 		},
+		{
+			name: "reconcile_image_validation_error_sets_imagestream_failure_status",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ImageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{Name: "nonexistent-is", Tag: "latest"},
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}}},
+				}
+				return []client.Object{mg, sa, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				out := &mustgatherv1alpha1.MustGather{}
+				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
+					t.Fatalf("failed to get mustgather: %v", getErr)
+				}
+				if out.Status.Status != "Failed" {
+					t.Fatalf("expected status Failed, got %s", out.Status.Status)
+				}
+				if !out.Status.Completed {
+					t.Fatalf("expected Completed to be true")
+				}
+				var foundCondition bool
+				for _, cond := range out.Status.Conditions {
+					if cond.Type == "ReconcileError" {
+						foundCondition = true
+						if cond.Reason != "ValidationFailed" {
+							t.Fatalf("expected condition reason ValidationFailed, got %s", cond.Reason)
+						}
+						break
+					}
+				}
+				if !foundCondition {
+					t.Fatalf("expected ReconcileError condition to be set")
+				}
+			},
+		},
+		{
+			name: "reconcile_operator_sa_rejected_cleanup_error_returns_requeue",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}, UID: "mg-uid-cleanup"},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: mgconfig.OperatorName,
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: mgconfig.OperatorName, Namespace: operatorNs}}
+				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: operatorNs, UID: "job-uid", OwnerReferences: []metav1.OwnerReference{mustGatherOwnerRef(mg)}}}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}}},
+				}
+				return []client.Object{mg, sa, job, cv}
+			},
+			interceptors: func() interceptClient {
+				return interceptClient{
+					onDelete: func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+						if _, ok := obj.(*batchv1.Job); ok {
+							return errors.New("failed to delete job during cleanup")
+						}
+						return nil
+					},
+				}
+			},
+			expectError:  true,
+			expectResult: reconcile.Result{Requeue: true},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: operatorNs, Name: "example-mustgather"}, job); err != nil {
+					t.Fatalf("expected job to remain after failed cleanup, got: %v", err)
+				}
+			},
+		},
+		{
+			name: "reconcile_imagestream_tag_not_found_sets_validation_failure",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ImageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{Name: "my-is", Tag: "v2"},
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				is := &imagev1.ImageStream{
+					ObjectMeta: metav1.ObjectMeta{Name: "my-is", Namespace: operatorNs},
+					Status: imagev1.ImageStreamStatus{
+						Tags: []imagev1.NamedTagEventList{
+							{Tag: "v1", Items: []imagev1.TagEvent{{DockerImageReference: "quay.io/image:v1"}}},
+						},
+					},
+				}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}}},
+				}
+				return []client.Object{mg, sa, is, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				out := &mustgatherv1alpha1.MustGather{}
+				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
+					t.Fatalf("failed to get mustgather: %v", getErr)
+				}
+				if out.Status.Status != "Failed" {
+					t.Fatalf("expected status Failed, got %s", out.Status.Status)
+				}
+				if !out.Status.Completed {
+					t.Fatalf("expected Completed to be true")
+				}
+				if !strings.Contains(out.Status.Reason, "tag v2 not found") {
+					t.Fatalf("expected reason to mention tag not found, got %q", out.Status.Reason)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1459,6 +1614,7 @@ func TestReconcile(t *testing.T) {
 			_ = batchv1.AddToScheme(s)
 			_ = mustgatherv1alpha1.AddToScheme(s)
 			_ = configv1.AddToScheme(s)
+			_ = imagev1.Install(s)
 
 			// Setup objects and client
 			objects := tt.setupObjects()
@@ -2115,6 +2271,559 @@ func TestSFTPCredentialValidation(t *testing.T) {
 						}
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestEnsureTrustedCAConfigMap(t *testing.T) {
+	const operatorNs = "operator-ns"
+	const targetNs = "target-ns"
+	const cmName = "trusted-ca-bundle"
+
+	tests := []struct {
+		name           string
+		setupObjects   func() []client.Object
+		instanceNs     string
+		interceptors   func() interceptClient
+		expectError    bool
+		useRecorder    bool
+		postTestChecks func(t *testing.T, cl client.Client, recorder *record.FakeRecorder)
+	}{
+		{
+			name:           "same_namespace_skips_copy",
+			instanceNs:     operatorNs,
+			setupObjects:   func() []client.Object { return nil },
+			interceptors:   func() interceptClient { return interceptClient{} },
+			expectError:    false,
+			postTestChecks: func(t *testing.T, cl client.Client, recorder *record.FakeRecorder) {},
+		},
+		{
+			name:       "source_not_found_emits_warning_returns_nil",
+			instanceNs: targetNs,
+			setupObjects: func() []client.Object {
+				return nil
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			useRecorder:  true,
+			postTestChecks: func(t *testing.T, cl client.Client, recorder *record.FakeRecorder) {
+				select {
+				case event := <-recorder.Events:
+					if !strings.Contains(event, "TrustedCANotFound") {
+						t.Fatalf("expected TrustedCANotFound event, got %q", event)
+					}
+				default:
+					t.Fatalf("expected a warning event but none was recorded")
+				}
+			},
+		},
+		{
+			name:       "source_found_target_missing_creates_copy",
+			instanceNs: targetNs,
+			setupObjects: func() []client.Object {
+				source := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{Name: cmName, Namespace: operatorNs, Labels: map[string]string{"app": "test"}},
+					Data:       map[string]string{"ca-bundle.crt": "cert-data"},
+				}
+				return []client.Object{source}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			postTestChecks: func(t *testing.T, cl client.Client, recorder *record.FakeRecorder) {
+				cm := &corev1.ConfigMap{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Name: cmName, Namespace: targetNs}, cm); err != nil {
+					t.Fatalf("expected ConfigMap to be created in target namespace, got: %v", err)
+				}
+				if cm.Data["ca-bundle.crt"] != "cert-data" {
+					t.Fatalf("expected ca-bundle.crt data to be copied, got %q", cm.Data["ca-bundle.crt"])
+				}
+				if len(cm.OwnerReferences) != 1 {
+					t.Fatalf("expected 1 owner reference, got %d", len(cm.OwnerReferences))
+				}
+			},
+		},
+		{
+			name:       "source_found_target_exists_adds_owner_ref",
+			instanceNs: targetNs,
+			setupObjects: func() []client.Object {
+				source := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{Name: cmName, Namespace: operatorNs},
+					Data:       map[string]string{"ca-bundle.crt": "cert-data"},
+				}
+				existing := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: cmName, Namespace: targetNs,
+						OwnerReferences: []metav1.OwnerReference{{UID: "other-uid", Name: "other-mg"}},
+					},
+					Data: map[string]string{"ca-bundle.crt": "cert-data"},
+				}
+				return []client.Object{source, existing}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			postTestChecks: func(t *testing.T, cl client.Client, recorder *record.FakeRecorder) {
+				cm := &corev1.ConfigMap{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Name: cmName, Namespace: targetNs}, cm); err != nil {
+					t.Fatalf("failed to get ConfigMap: %v", err)
+				}
+				if len(cm.OwnerReferences) != 2 {
+					t.Fatalf("expected 2 owner references, got %d", len(cm.OwnerReferences))
+				}
+			},
+		},
+		{
+			name:       "source_found_target_has_owner_ref_noop",
+			instanceNs: targetNs,
+			setupObjects: func() []client.Object {
+				source := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{Name: cmName, Namespace: operatorNs},
+					Data:       map[string]string{"ca-bundle.crt": "cert-data"},
+				}
+				existing := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: cmName, Namespace: targetNs,
+						OwnerReferences: []metav1.OwnerReference{{UID: "mg-uid-existing", Name: "test-mg"}},
+					},
+					Data: map[string]string{"ca-bundle.crt": "cert-data"},
+				}
+				return []client.Object{source, existing}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			postTestChecks: func(t *testing.T, cl client.Client, recorder *record.FakeRecorder) {
+				cm := &corev1.ConfigMap{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Name: cmName, Namespace: targetNs}, cm); err != nil {
+					t.Fatalf("failed to get ConfigMap: %v", err)
+				}
+				if len(cm.OwnerReferences) != 1 {
+					t.Fatalf("expected 1 owner reference, got %d", len(cm.OwnerReferences))
+				}
+			},
+		},
+		{
+			name:       "source_get_error_returns_error",
+			instanceNs: targetNs,
+			setupObjects: func() []client.Object {
+				return nil
+			},
+			interceptors: func() interceptClient {
+				return interceptClient{
+					onGet: func(ctx context.Context, key client.ObjectKey, obj client.Object) error {
+						if _, ok := obj.(*corev1.ConfigMap); ok && key.Namespace == operatorNs {
+							return errors.New("API server error")
+						}
+						return nil
+					},
+				}
+			},
+			expectError:    true,
+			postTestChecks: func(t *testing.T, cl client.Client, recorder *record.FakeRecorder) {},
+		},
+		{
+			name:       "target_create_error_returns_error",
+			instanceNs: targetNs,
+			setupObjects: func() []client.Object {
+				source := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{Name: cmName, Namespace: operatorNs},
+					Data:       map[string]string{"ca-bundle.crt": "cert-data"},
+				}
+				return []client.Object{source}
+			},
+			interceptors: func() interceptClient {
+				return interceptClient{
+					onCreate: func(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+						if _, ok := obj.(*corev1.ConfigMap); ok {
+							return errors.New("create failed")
+						}
+						return nil
+					},
+				}
+			},
+			expectError:    true,
+			postTestChecks: func(t *testing.T, cl client.Client, recorder *record.FakeRecorder) {},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := runtime.NewScheme()
+			_ = corev1.AddToScheme(s)
+			_ = mustgatherv1alpha1.AddToScheme(s)
+
+			mg := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-mg", Namespace: tt.instanceNs, UID: "mg-uid-existing"},
+			}
+
+			objects := tt.setupObjects()
+			if objects == nil {
+				objects = []client.Object{}
+			}
+			objects = append(objects, mg)
+			base := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).Build()
+
+			interceptor := tt.interceptors()
+			var cl client.Client = base
+			if interceptor.onGet != nil || interceptor.onList != nil || interceptor.onDelete != nil || interceptor.onUpdate != nil || interceptor.onCreate != nil {
+				interceptor.Client = base
+				cl = interceptor
+			}
+
+			var recorder *record.FakeRecorder
+			if tt.useRecorder {
+				recorder = &record.FakeRecorder{Events: make(chan string, 10)}
+			} else {
+				recorder = &record.FakeRecorder{}
+			}
+
+			r := &MustGatherReconciler{
+				ReconcilerBase:     util.NewReconcilerBase(cl, s, &rest.Config{}, recorder, nil),
+				TrustedCAConfigMap: cmName,
+				OperatorNamespace:  operatorNs,
+			}
+
+			err := r.ensureTrustedCAConfigMap(context.TODO(), logf.Log, mg)
+
+			if tt.expectError && err == nil {
+				t.Fatalf("expected error but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			tt.postTestChecks(t, cl, recorder)
+		})
+	}
+}
+
+func TestCleanupTrustedCAConfigMap(t *testing.T) {
+	const operatorNs = "operator-ns"
+	const targetNs = "target-ns"
+	const cmName = "trusted-ca-bundle"
+
+	tests := []struct {
+		name           string
+		setupObjects   func() []client.Object
+		instanceNs     string
+		instanceUID    types.UID
+		interceptors   func() interceptClient
+		expectError    bool
+		postTestChecks func(t *testing.T, cl client.Client)
+	}{
+		{
+			name:           "same_namespace_returns_nil",
+			instanceNs:     operatorNs,
+			instanceUID:    "mg-uid",
+			setupObjects:   func() []client.Object { return nil },
+			interceptors:   func() interceptClient { return interceptClient{} },
+			expectError:    false,
+			postTestChecks: func(t *testing.T, cl client.Client) {},
+		},
+		{
+			name:           "configmap_not_found_returns_nil",
+			instanceNs:     targetNs,
+			instanceUID:    "mg-uid",
+			setupObjects:   func() []client.Object { return nil },
+			interceptors:   func() interceptClient { return interceptClient{} },
+			expectError:    false,
+			postTestChecks: func(t *testing.T, cl client.Client) {},
+		},
+		{
+			name:        "sole_owner_deletes_configmap",
+			instanceNs:  targetNs,
+			instanceUID: "sole-owner",
+			setupObjects: func() []client.Object {
+				cm := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: cmName, Namespace: targetNs,
+						OwnerReferences: []metav1.OwnerReference{{UID: "sole-owner", Name: "test-mg"}},
+					},
+					Data: map[string]string{"ca-bundle.crt": "cert-data"},
+				}
+				return []client.Object{cm}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				cm := &corev1.ConfigMap{}
+				err := cl.Get(context.TODO(), types.NamespacedName{Name: cmName, Namespace: targetNs}, cm)
+				if err == nil {
+					t.Fatalf("expected ConfigMap to be deleted")
+				}
+			},
+		},
+		{
+			name:        "multi_owner_removes_instance_ref",
+			instanceNs:  targetNs,
+			instanceUID: "owner-to-remove",
+			setupObjects: func() []client.Object {
+				cm := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: cmName, Namespace: targetNs,
+						OwnerReferences: []metav1.OwnerReference{
+							{UID: "owner-to-remove", Name: "test-mg"},
+							{UID: "other-owner", Name: "other-mg"},
+						},
+					},
+					Data: map[string]string{"ca-bundle.crt": "cert-data"},
+				}
+				return []client.Object{cm}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				cm := &corev1.ConfigMap{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Name: cmName, Namespace: targetNs}, cm); err != nil {
+					t.Fatalf("expected ConfigMap to still exist, got: %v", err)
+				}
+				if len(cm.OwnerReferences) != 1 {
+					t.Fatalf("expected 1 owner reference, got %d", len(cm.OwnerReferences))
+				}
+				if cm.OwnerReferences[0].UID != "other-owner" {
+					t.Fatalf("expected remaining owner to be other-owner, got %s", cm.OwnerReferences[0].UID)
+				}
+			},
+		},
+		{
+			name:         "get_error_returns_error",
+			instanceNs:   targetNs,
+			instanceUID:  "mg-uid",
+			setupObjects: func() []client.Object { return nil },
+			interceptors: func() interceptClient {
+				return interceptClient{
+					onGet: func(ctx context.Context, key client.ObjectKey, obj client.Object) error {
+						if _, ok := obj.(*corev1.ConfigMap); ok && key.Namespace == targetNs {
+							return errors.New("API server error")
+						}
+						return nil
+					},
+				}
+			},
+			expectError:    true,
+			postTestChecks: func(t *testing.T, cl client.Client) {},
+		},
+		{
+			name:        "delete_error_returns_error",
+			instanceNs:  targetNs,
+			instanceUID: "sole-owner",
+			setupObjects: func() []client.Object {
+				cm := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: cmName, Namespace: targetNs,
+						OwnerReferences: []metav1.OwnerReference{{UID: "sole-owner", Name: "test-mg"}},
+					},
+				}
+				return []client.Object{cm}
+			},
+			interceptors: func() interceptClient {
+				return interceptClient{
+					onDelete: func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+						if _, ok := obj.(*corev1.ConfigMap); ok {
+							return errors.New("delete failed")
+						}
+						return nil
+					},
+				}
+			},
+			expectError:    true,
+			postTestChecks: func(t *testing.T, cl client.Client) {},
+		},
+		{
+			name:        "update_error_returns_error",
+			instanceNs:  targetNs,
+			instanceUID: "owner-to-remove",
+			setupObjects: func() []client.Object {
+				cm := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: cmName, Namespace: targetNs,
+						OwnerReferences: []metav1.OwnerReference{
+							{UID: "owner-to-remove", Name: "test-mg"},
+							{UID: "other-owner", Name: "other-mg"},
+						},
+					},
+				}
+				return []client.Object{cm}
+			},
+			interceptors: func() interceptClient {
+				return interceptClient{
+					onUpdate: func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+						if _, ok := obj.(*corev1.ConfigMap); ok {
+							return errors.New("update failed")
+						}
+						return nil
+					},
+				}
+			},
+			expectError:    true,
+			postTestChecks: func(t *testing.T, cl client.Client) {},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := runtime.NewScheme()
+			_ = corev1.AddToScheme(s)
+			_ = mustgatherv1alpha1.AddToScheme(s)
+
+			mg := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-mg", Namespace: tt.instanceNs, UID: tt.instanceUID},
+			}
+
+			objects := tt.setupObjects()
+			if objects == nil {
+				objects = []client.Object{}
+			}
+			objects = append(objects, mg)
+			base := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).Build()
+
+			interceptor := tt.interceptors()
+			var cl client.Client = base
+			if interceptor.onGet != nil || interceptor.onList != nil || interceptor.onDelete != nil || interceptor.onUpdate != nil || interceptor.onCreate != nil {
+				interceptor.Client = base
+				cl = interceptor
+			}
+
+			r := &MustGatherReconciler{
+				ReconcilerBase:     util.NewReconcilerBase(cl, s, &rest.Config{}, &record.FakeRecorder{}, nil),
+				TrustedCAConfigMap: cmName,
+				OperatorNamespace:  operatorNs,
+			}
+
+			err := r.cleanupTrustedCAConfigMap(context.TODO(), logf.Log, mg)
+
+			if tt.expectError && err == nil {
+				t.Fatalf("expected error but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			tt.postTestChecks(t, cl)
+		})
+	}
+}
+
+func TestGetMustGatherImage(t *testing.T) {
+	const operatorNs = "operator-ns"
+
+	tests := []struct {
+		name           string
+		setupObjects   func() []client.Object
+		imageStreamRef *mustgatherv1alpha1.ImageStreamTagRef
+		expectError    bool
+		expectedImage  string
+		errContains    string
+	}{
+		{
+			name:           "no_imagestream_ref_returns_default",
+			setupObjects:   func() []client.Object { return nil },
+			imageStreamRef: nil,
+			expectError:    false,
+			expectedImage:  "test-must-gather-image",
+		},
+		{
+			name: "imagestream_found_tag_pullable",
+			setupObjects: func() []client.Object {
+				is := &imagev1.ImageStream{
+					ObjectMeta: metav1.ObjectMeta{Name: "my-is", Namespace: operatorNs},
+					Status: imagev1.ImageStreamStatus{
+						Tags: []imagev1.NamedTagEventList{
+							{Tag: "latest", Items: []imagev1.TagEvent{{DockerImageReference: "quay.io/image:latest"}}},
+						},
+					},
+				}
+				return []client.Object{is}
+			},
+			imageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{Name: "my-is", Tag: "latest"},
+			expectError:    false,
+			expectedImage:  "quay.io/image:latest",
+		},
+		{
+			name:           "imagestream_not_found",
+			setupObjects:   func() []client.Object { return nil },
+			imageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{Name: "nonexistent", Tag: "latest"},
+			expectError:    true,
+			errContains:    "failed to get imagestream",
+		},
+		{
+			name: "tag_not_found",
+			setupObjects: func() []client.Object {
+				is := &imagev1.ImageStream{
+					ObjectMeta: metav1.ObjectMeta{Name: "my-is", Namespace: operatorNs},
+					Status: imagev1.ImageStreamStatus{
+						Tags: []imagev1.NamedTagEventList{
+							{Tag: "v1", Items: []imagev1.TagEvent{{DockerImageReference: "quay.io/image:v1"}}},
+						},
+					},
+				}
+				return []client.Object{is}
+			},
+			imageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{Name: "my-is", Tag: "v2"},
+			expectError:    true,
+			errContains:    "tag v2 not found",
+		},
+		{
+			name: "tag_not_pullable",
+			setupObjects: func() []client.Object {
+				is := &imagev1.ImageStream{
+					ObjectMeta: metav1.ObjectMeta{Name: "my-is", Namespace: operatorNs},
+					Status: imagev1.ImageStreamStatus{
+						Tags: []imagev1.NamedTagEventList{
+							{Tag: "latest", Items: []imagev1.TagEvent{}},
+						},
+					},
+				}
+				return []client.Object{is}
+			},
+			imageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{Name: "my-is", Tag: "latest"},
+			expectError:    true,
+			errContains:    "is not pullable",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := runtime.NewScheme()
+			_ = corev1.AddToScheme(s)
+			_ = mustgatherv1alpha1.AddToScheme(s)
+			_ = imagev1.Install(s)
+
+			mg := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-mg", Namespace: "test-ns"},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ImageStreamRef: tt.imageStreamRef,
+				},
+			}
+
+			objects := tt.setupObjects()
+			if objects == nil {
+				objects = []client.Object{}
+			}
+			objects = append(objects, mg)
+			cl := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).Build()
+
+			r := &MustGatherReconciler{
+				ReconcilerBase:         util.NewReconcilerBase(cl, s, &rest.Config{}, &record.FakeRecorder{}, nil),
+				DefaultMustGatherImage: "test-must-gather-image",
+				OperatorNamespace:      operatorNs,
+			}
+
+			image, err := r.getMustGatherImage(context.TODO(), mg)
+
+			if tt.expectError {
+				if err == nil {
+					t.Fatalf("expected error but got none")
+				}
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Fatalf("expected error containing %q, got %q", tt.errContains, err.Error())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if image != tt.expectedImage {
+				t.Fatalf("expected image %q, got %q", tt.expectedImage, image)
 			}
 		})
 	}
