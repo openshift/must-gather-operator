@@ -1275,7 +1275,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 		ginkgo.It("should propagate proxy environment variables to upload container", func() {
 			ginkgo.By("Getting SFTP credentials from Vault")
-			sftpUsername, sftpPassword, err := getCaseCredsFromVault()
+			sftpUsername, sftpPassword, err := getCaseCreds()
 			Expect(err).NotTo(HaveOccurred(), "Failed to get SFTP credentials from Vault")
 
 			ginkgo.By("Creating case management secret")
@@ -1299,7 +1299,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Creating MustGather CR with UploadTarget")
 			caseID := generateTestCaseID()
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
-				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: stageHostName},
+				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: prodHostName},
 			})
 
 			ginkgo.By("Waiting for Job to be created")
@@ -1363,7 +1363,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 		ginkgo.It("should successfully upload must-gather data through proxy for external user", func() {
 			ginkgo.By("Getting SFTP credentials from Vault")
-			sftpUsername, sftpPassword, err := getCaseCredsFromVault()
+			sftpUsername, sftpPassword, err := getCaseCreds()
 			Expect(err).NotTo(HaveOccurred(), "Failed to get SFTP credentials from Vault")
 
 			ginkgo.By("Creating case management secret")
@@ -1389,7 +1389,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.GinkgoWriter.Printf("Using unique caseID: %s\n", caseID)
 
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
-				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: stageHostName},
+				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: prodHostName},
 			})
 
 			ginkgo.By("Waiting for Job to be created")
@@ -1519,7 +1519,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				"Job should complete successfully through proxy")
 
 			ginkgo.By("Verifying file was uploaded to SFTP server for external user through proxy")
-			found, sftpLogs, err := verifySFTPUpload(ns.Name, caseManagementSecretNameValid, stageHostName, caseID, false)
+			found, sftpLogs, err := verifySFTPUpload(ns.Name, caseManagementSecretNameValid, prodHostName, caseID, false)
 			if err != nil {
 				ginkgo.GinkgoWriter.Printf("SFTP verification error: %v\n", err)
 			}
@@ -1549,7 +1549,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 		ginkgo.It("should successfully upload must-gather data through proxy for internal user", func() {
 			ginkgo.By("Getting SFTP credentials from Vault")
-			sftpUsername, sftpPassword, err := getCaseCredsFromVault()
+			sftpUsername, sftpPassword, err := getCaseCreds()
 			Expect(err).NotTo(HaveOccurred(), "Failed to get SFTP credentials from Vault")
 
 			ginkgo.By("Creating case management secret")
@@ -1575,7 +1575,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.GinkgoWriter.Printf("Using unique caseID: %s\n", caseID)
 
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
-				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: true, Host: stageHostName},
+				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: true, Host: prodHostName},
 			})
 
 			ginkgo.By("Verifying MustGather CR has internalUser set to true")
@@ -1716,7 +1716,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				"Job should complete successfully through proxy (internal user)")
 
 			ginkgo.By("Verifying file was uploaded to SFTP server for internal user through proxy")
-			found, sftpLogs, err := verifySFTPUpload(ns.Name, caseManagementSecretNameValid, stageHostName, caseID, true)
+			found, sftpLogs, err := verifySFTPUpload(ns.Name, caseManagementSecretNameValid, prodHostName, caseID, true)
 			if err != nil {
 				ginkgo.GinkgoWriter.Printf("SFTP verification error: %v\n", err)
 			}
