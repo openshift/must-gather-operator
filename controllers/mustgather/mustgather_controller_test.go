@@ -739,12 +739,12 @@ func TestReconcile(t *testing.T) {
 			},
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
-					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
 						ServiceAccountName: mgconfig.OperatorName,
 					},
 				}
-				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "must-gather-operator", Namespace: "ns"}}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "must-gather-operator", Namespace: operatorNs}}
 				cv := &configv1.ClusterVersion{
 					ObjectMeta: metav1.ObjectMeta{Name: "version"},
 					Status: configv1.ClusterVersionStatus{
@@ -758,7 +758,7 @@ func TestReconcile(t *testing.T) {
 			expectResult: reconcile.Result{},
 			postTestChecks: func(t *testing.T, cl client.Client) {
 				out := &mustgatherv1alpha1.MustGather{}
-				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
+				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, out); getErr != nil {
 					t.Fatalf("failed to get mustgather: %v", getErr)
 				}
 				if out.Status.Status != "Failed" {
@@ -792,9 +792,43 @@ func TestReconcile(t *testing.T) {
 				}
 				// Verify no job was created
 				job := &batchv1.Job{}
-				err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job)
+				err := cl.Get(context.TODO(), types.NamespacedName{Namespace: operatorNs, Name: "example-mustgather"}, job)
 				if err == nil {
 					t.Fatalf("expected no job to be created when operator service account is used")
+				}
+			},
+		},
+		{
+			name: "reconcile_operator_sa_name_allowed_in_different_namespace",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "other-ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: mgconfig.OperatorName,
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "must-gather-operator", Namespace: "other-ns"}}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status: configv1.ClusterVersionStatus{
+						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
+					},
+				}
+				return []client.Object{mg, sa, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				out := &mustgatherv1alpha1.MustGather{}
+				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "other-ns"}, out); getErr != nil {
+					t.Fatalf("failed to get mustgather: %v", getErr)
+				}
+				if out.Status.Status == "Failed" && strings.Contains(out.Status.Reason, "operator's own service account cannot be used") {
+					t.Fatalf("CR in a different namespace should not be rejected for using the operator SA name, but got: %q", out.Status.Reason)
 				}
 			},
 		},
