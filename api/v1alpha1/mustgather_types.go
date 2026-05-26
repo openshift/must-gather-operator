@@ -227,7 +227,7 @@ func (m *MustGather) SetConditions(conditions []metav1.Condition) {
 //+kubebuilder:subresource:status
 
 // MustGather is the Schema for the mustgathers API
-// +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec) || self.spec == oldSelf.spec",message="spec values are immutable once set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec) || self.spec == oldSelf.spec",message="spec values are immutable once set; to change spec fields, delete and recreate the MustGather resource"
 type MustGather struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

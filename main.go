@@ -48,6 +48,8 @@ import (
 	"github.com/openshift/must-gather-operator/controllers/mustgather"
 	"github.com/openshift/must-gather-operator/pkg/k8sutil"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	//+kubebuilder:scaffold:imports
 )
@@ -159,11 +161,43 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Discover the operator's service account name from the running pod.
+	// Falls back to config.OperatorName in local mode only.
+	// In cluster mode, discovery failure is fatal because the SA rejection guard
+	// would be ineffective if the operator doesn't know its own SA name.
+	operatorSAName := config.OperatorName
+	if strings.ToLower(os.Getenv(ForceRunModeEnv)) != LocalRunMode {
+		podName := os.Getenv("POD_NAME")
+		if podName == "" {
+			hostname, hostnameErr := os.Hostname()
+			if hostnameErr != nil {
+				setupLog.Error(hostnameErr, "could not get hostname for operator SA discovery")
+				os.Exit(1)
+			}
+			podName = hostname
+		}
+		pod := &corev1.Pod{}
+		if lookupErr := mgr.GetAPIReader().Get(ctx, types.NamespacedName{
+			Name:      podName,
+			Namespace: operatorNamespace,
+		}, pod); lookupErr != nil {
+			setupLog.Error(lookupErr, "could not discover operator service account from pod", "podName", podName)
+			os.Exit(1)
+		}
+		if pod.Spec.ServiceAccountName == "" {
+			setupLog.Error(fmt.Errorf("pod has empty ServiceAccountName"), "operator SA discovery returned empty name")
+			os.Exit(1)
+		}
+		operatorSAName = pod.Spec.ServiceAccountName
+		setupLog.Info("discovered operator service account", "name", operatorSAName)
+	}
+
 	if err = (&mustgather.MustGatherReconciler{
-		ReconcilerBase:         util.NewReconcilerBase(mgr.GetClient(), mgr.GetScheme(), mgr.GetConfig(), mgr.GetEventRecorderFor("must-gather-controller"), mgr.GetAPIReader()),
-		TrustedCAConfigMap:     trustedCAConfigMapName,
-		OperatorNamespace:      operatorNamespace,
-		DefaultMustGatherImage: defaultMustGatherImage,
+		ReconcilerBase:             util.NewReconcilerBase(mgr.GetClient(), mgr.GetScheme(), mgr.GetConfig(), mgr.GetEventRecorderFor("must-gather-controller"), mgr.GetAPIReader()),
+		TrustedCAConfigMap:         trustedCAConfigMapName,
+		OperatorNamespace:          operatorNamespace,
+		DefaultMustGatherImage:     defaultMustGatherImage,
+		OperatorServiceAccountName: operatorSAName,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MustGather")
 		os.Exit(1)

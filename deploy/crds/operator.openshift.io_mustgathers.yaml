@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.16.4
   name: mustgathers.operator.openshift.io
 spec:
   group: operator.openshift.io
@@ -308,7 +308,8 @@ spec:
             type: object
         type: object
         x-kubernetes-validations:
-        - message: spec values are immutable once set
+        - message: spec values are immutable once set; to change spec fields, delete
+            and recreate the MustGather resource
           rule: '!has(oldSelf.spec) || self.spec == oldSelf.spec'
     served: true
     storage: true
