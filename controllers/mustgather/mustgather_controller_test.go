@@ -10,6 +10,7 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
+	mgconfig "github.com/openshift/must-gather-operator/config"
 	"github.com/redhat-cop/operator-utils/pkg/util"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -728,6 +729,72 @@ func TestReconcile(t *testing.T) {
 				expectedReason := "Service Account validation failed"
 				if !strings.Contains(out.Status.Reason, expectedReason) {
 					t.Fatalf("expected reason to contain %q, got %q", expectedReason, out.Status.Reason)
+				}
+			},
+		},
+		{
+			name: "reconcile_operator_service_account_rejected",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: mgconfig.OperatorName,
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "must-gather-operator", Namespace: "ns"}}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status: configv1.ClusterVersionStatus{
+						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
+					},
+				}
+				return []client.Object{mg, sa, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				out := &mustgatherv1alpha1.MustGather{}
+				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
+					t.Fatalf("failed to get mustgather: %v", getErr)
+				}
+				if out.Status.Status != "Failed" {
+					t.Fatalf("expected status to be Failed, got %s", out.Status.Status)
+				}
+				if !out.Status.Completed {
+					t.Fatalf("expected Completed to be true")
+				}
+				if !strings.Contains(out.Status.Reason, "operator's own service account cannot be used") {
+					t.Fatalf("expected reason to mention operator SA restriction, got %q", out.Status.Reason)
+				}
+				// Verify ReconcileError condition is set
+				var foundCondition bool
+				for _, cond := range out.Status.Conditions {
+					if cond.Type == "ReconcileError" {
+						foundCondition = true
+						if cond.Status != metav1.ConditionTrue {
+							t.Fatalf("expected ReconcileError condition status to be True, got %s", cond.Status)
+						}
+						if cond.Reason != "ValidationFailed" {
+							t.Fatalf("expected ReconcileError condition reason to be ValidationFailed, got %s", cond.Reason)
+						}
+						if !strings.Contains(cond.Message, "operator's own service account cannot be used") {
+							t.Fatalf("expected ReconcileError condition message to mention operator SA restriction, got %q", cond.Message)
+						}
+						break
+					}
+				}
+				if !foundCondition {
+					t.Fatalf("expected ReconcileError condition to be set")
+				}
+				// Verify no job was created
+				job := &batchv1.Job{}
+				err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job)
+				if err == nil {
+					t.Fatalf("expected no job to be created when operator service account is used")
 				}
 			},
 		},

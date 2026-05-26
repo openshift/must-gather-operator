@@ -26,6 +26,7 @@ import (
 	"github.com/go-logr/logr"
 	imagev1 "github.com/openshift/api/image/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
+	"github.com/openshift/must-gather-operator/config"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
 	"github.com/redhat-cop/operator-utils/pkg/util"
 	batchv1 "k8s.io/api/batch/v1"
@@ -185,6 +186,13 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			saName = "default"
 			log.Info("no serviceAccountName specified, defaulting to 'default'", "namespace", instance.Namespace)
 		}
+
+		if saName == config.OperatorName {
+			validationErr := fmt.Errorf("serviceAccountName %q is not allowed: the operator's own service account cannot be used for must-gather jobs", saName)
+			log.Error(validationErr, "operator service account usage rejected", "name", saName, "namespace", instance.Namespace)
+			return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationServiceAccount, validationErr)
+		}
+
 		serviceAccount := &corev1.ServiceAccount{}
 		err = r.GetClient().Get(ctx, types.NamespacedName{
 			Namespace: instance.Namespace,
