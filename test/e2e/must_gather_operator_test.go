@@ -20,7 +20,6 @@ import (
 	. "github.com/onsi/gomega"
 	imagev1 "github.com/openshift/api/image/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
-	mgconfig "github.com/openshift/must-gather-operator/config"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -841,37 +840,32 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Creating MustGather with operator service account name in a non-operator namespace")
 			mg = createMustGatherCR(mustGatherName, ns.Name, operatorSAName, false, nil)
 
-			ginkgo.By("Verifying MustGather is NOT rejected due to operator SA name")
-			Consistently(func() bool {
+			ginkgo.By("Verifying MustGather is accepted and Job is created without operator SA rejection")
+			Eventually(func() bool {
 				fetchedMG := &mustgatherv1alpha1.MustGather{}
-				err := adminClient.Get(testCtx, client.ObjectKey{
+				if err := adminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
-				}, fetchedMG)
-				if err != nil {
-					return true
+				}, fetchedMG); err != nil {
+					return false
 				}
 				for _, cond := range fetchedMG.Status.Conditions {
 					if cond.Type == "ReconcileError" && cond.Status == metav1.ConditionTrue {
 						if strings.Contains(cond.Message, "operator's own service account cannot be used") {
-							return false
+							ginkgo.Fail("MustGather was rejected with operator SA error in non-operator namespace")
 						}
 					}
 				}
-				return true
-			}).WithTimeout(30*time.Second).WithPolling(5*time.Second).Should(BeTrue(),
-				"MustGather should NOT be rejected for using operator SA name in a different namespace")
-
-			ginkgo.By("Verifying Job was created (CR progressed past SA validation)")
-			Eventually(func() bool {
 				job := &batchv1.Job{}
-				err := adminClient.Get(testCtx, client.ObjectKey{
+				if err := adminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
-				}, job)
-				return err == nil
+				}, job); err != nil {
+					return false
+				}
+				return true
 			}).WithTimeout(1*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
-				"Job should be created when operator SA name is used in a different namespace")
+				"Job should be created and no operator SA rejection should occur in a different namespace")
 
 			ginkgo.GinkgoWriter.Println("Operator SA name correctly allowed in non-operator namespace")
 		})
@@ -1874,7 +1868,7 @@ func getCaseCredsFromVault() (string, string, error) {
 }
 
 // getOperatorServiceAccountName retrieves the service account name from the operator deployment's pod template.
-// Falls back to mgconfig.OperatorName if the deployment doesn't specify one.
+// Falls back to "default" if the deployment doesn't specify one.
 func getOperatorServiceAccountName() (string, error) {
 	deployment := &appsv1.Deployment{}
 	err := adminClient.Get(testCtx, client.ObjectKey{
@@ -1887,7 +1881,7 @@ func getOperatorServiceAccountName() (string, error) {
 
 	saName := deployment.Spec.Template.Spec.ServiceAccountName
 	if saName == "" {
-		return mgconfig.OperatorName, nil
+		return "default", nil
 	}
 	return saName, nil
 }

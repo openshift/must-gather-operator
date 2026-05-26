@@ -843,6 +843,10 @@ func TestReconcile(t *testing.T) {
 				if out.Status.Status == "Failed" && strings.Contains(out.Status.Reason, "operator's own service account cannot be used") {
 					t.Fatalf("CR in a different namespace should not be rejected for using the operator SA name, but got: %q", out.Status.Reason)
 				}
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "other-ns"}, job); err != nil {
+					t.Fatalf("expected Job to be created for MustGather in non-operator namespace, but got: %v", err)
+				}
 			},
 		},
 		{
