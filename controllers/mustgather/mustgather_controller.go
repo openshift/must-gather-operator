@@ -64,9 +64,13 @@ type MustGatherReconciler struct {
 	OperatorNamespace string
 	// DefaultMustGatherImage is the default must-gather image
 	DefaultMustGatherImage string
+	// OperatorServiceAccountName is the SA the operator pod runs as, discovered at startup
+	OperatorServiceAccountName string
 }
 
 const mustGatherFinalizer = "finalizer.mustgathers.operator.openshift.io"
+
+var errImageValidation = goerror.New("image validation failed")
 
 //+kubebuilder:rbac:groups=operator.openshift.io,resources=mustgathers,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=operator.openshift.io,resources=mustgathers/status,verbs=get;update;patch
@@ -146,17 +150,42 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		return reconcile.Result{}, r.addFinalizer(ctx, reqLogger, instance)
 	}
 
+	// Reject the operator's own service account before any other validation.
+	// This runs on every reconcile (even if a Job already exists) so that
+	// pre-existing CRs created before this check was introduced are flagged.
+	saName := instance.Spec.ServiceAccountName
+	if saName == "" {
+		saName = "default"
+	}
+
+	if instance.Namespace == r.OperatorNamespace && saName == r.OperatorServiceAccountName {
+		validationErr := fmt.Errorf("serviceAccountName %q is not allowed in namespace %q: the operator's own service account cannot be used for must-gather jobs", saName, instance.Namespace)
+		reqLogger.Error(validationErr, "operator service account usage rejected", "name", saName, "namespace", instance.Namespace, "operatorNamespace", r.OperatorNamespace)
+		result, statusErr := r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationServiceAccount, validationErr)
+		if statusErr != nil {
+			return result, statusErr
+		}
+		if cleanupErr := r.cleanupMustGatherResources(ctx, reqLogger, instance); cleanupErr != nil {
+			reqLogger.Error(cleanupErr, "failed to cleanup resources during operator SA validation rejection, will retry")
+			return reconcile.Result{Requeue: true}, cleanupErr
+		}
+		return result, nil
+	}
+
 	// perform CA config map copy, iff set in caller
 	if r.TrustedCAConfigMap != "" {
 		if err := r.ensureTrustedCAConfigMap(ctx, reqLogger, instance); err != nil {
-			log.Error(err, "failed to ensure trustedCA ConfigMap exists")
+			reqLogger.Error(err, "failed to ensure trustedCA ConfigMap exists")
 			return r.ManageError(ctx, instance, err)
 		}
 	}
 
-	job, err := r.getJobFromInstance(ctx, instance)
+	job, err := r.getJobFromInstance(ctx, reqLogger, instance)
 	if err != nil {
-		log.Error(err, "unable to get job from", "instance", instance)
+		if goerror.Is(err, errImageValidation) {
+			return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationImageStream, err)
+		}
+		reqLogger.Error(err, "unable to get job from", "instance", instance)
 		return r.ManageError(ctx, instance, err)
 	}
 
@@ -169,7 +198,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	if err != nil {
 		if !errors.IsNotFound(err) {
 			// Error reading the object - requeue the request.
-			log.Error(err, "unable to look up", "job", types.NamespacedName{
+			reqLogger.Error(err, "unable to look up", "job", types.NamespacedName{
 				Name:      job.GetName(),
 				Namespace: job.GetNamespace(),
 			})
@@ -177,14 +206,6 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		}
 
 		// Validate that the ServiceAccount exists before creating the Job.
-		// This prevents the Job from being stuck in pending state due to a missing ServiceAccount.
-		// If no ServiceAccount is specified, default to "default" which should exist in all namespaces.
-		// Note: If the "default" SA has been deleted, this validation will catch it and report an error.
-		saName := instance.Spec.ServiceAccountName
-		if saName == "" {
-			saName = "default"
-			log.Info("no serviceAccountName specified, defaulting to 'default'", "namespace", instance.Namespace)
-		}
 		serviceAccount := &corev1.ServiceAccount{}
 		err = r.GetClient().Get(ctx, types.NamespacedName{
 			Namespace: instance.Namespace,
@@ -192,11 +213,11 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		}, serviceAccount)
 		if err != nil {
 			if errors.IsNotFound(err) {
-				log.Error(err, "service account not found", "name", saName, "namespace", instance.Namespace)
+				reqLogger.Error(err, "service account not found", "name", saName, "namespace", instance.Namespace)
 				return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationServiceAccount, err)
 			}
 
-			log.Error(err, "failed to get service account (transient error, will retry)", "name", saName, "namespace", instance.Namespace)
+			reqLogger.Error(err, "failed to get service account (transient error, will retry)", "name", saName, "namespace", instance.Namespace)
 			return reconcile.Result{Requeue: true}, err
 		}
 
@@ -210,10 +231,10 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			}, userSecret)
 			if err != nil {
 				if errors.IsNotFound(err) {
-					log.Error(err, "secret not found", "secret", secretName, "namespace", instance.Namespace)
+					reqLogger.Error(err, "secret not found", "secret", secretName, "namespace", instance.Namespace)
 					return r.ManageError(ctx, instance, fmt.Errorf("secret %s not found in namespace %s: Please create the secret referenced by caseManagementAccountSecretRef", secretName, instance.Namespace))
 				}
-				log.Error(err, "error getting secret", "secret", secretName)
+				reqLogger.Error(err, "error getting secret", "secret", secretName)
 				return reconcile.Result{Requeue: true}, err
 			}
 
@@ -253,7 +274,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		// job is not there, create it.
 		err = r.CreateResourceIfNotExists(ctx, instance, instance.Namespace, job)
 		if err != nil {
-			log.Error(err, "unable to create", "job", job)
+			reqLogger.Error(err, "unable to create", "job", job)
 			return r.ManageError(ctx, instance, err)
 		}
 		// Increment prometheus metrics for must gather total
@@ -378,22 +399,18 @@ func (r *MustGatherReconciler) addFinalizer(ctx context.Context, reqLogger logr.
 	return nil
 }
 
-func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, instance *mustgatherv1alpha1.MustGather) (*batchv1.Job, error) {
+func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather) (*batchv1.Job, error) {
 
 	image, err := r.getMustGatherImage(ctx, instance)
 	if err != nil {
-		_, validationErr := r.setValidationFailureStatus(ctx, log, instance, ValidationImageStream, err)
-		if validationErr != nil {
-			return nil, fmt.Errorf("failed to set validation failure status for original error %v: %w", err, validationErr)
-		}
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", errImageValidation, err)
 	}
 
 	// Inject the operator image URI from the pod's env variables
 	operatorImage, varPresent := os.LookupEnv("OPERATOR_IMAGE")
 	if !varPresent {
 		err := goerror.New("operator image environment variable not found")
-		log.Error(err, "Error: no operator image found for job template")
+		reqLogger.Error(err, "Error: no operator image found for job template")
 		return nil, err
 	}
 
@@ -459,6 +476,20 @@ func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, r
 		return nil
 	}
 
+	// Only delete Jobs owned by this MustGather instance to avoid deleting unrelated Jobs.
+	ownedByInstance := false
+	for _, ref := range tmpJob.GetOwnerReferences() {
+		if ref.UID == instance.UID {
+			ownedByInstance = true
+			break
+		}
+	}
+	if !ownedByInstance {
+		reqLogger.Info("job exists but is not owned by this MustGather instance, skipping cleanup",
+			"job", tmpJob.Name, "jobUID", tmpJob.UID, "instanceUID", instance.UID)
+		return nil
+	}
+
 	// delete pods owned by job
 	podList := &corev1.PodList{}
 	listOpts := []client.ListOption{
@@ -517,8 +548,12 @@ func (r *MustGatherReconciler) ensureTrustedCAConfigMap(ctx context.Context, req
 	}, sourceConfigMap)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			reqLogger.V(2).Info("trustedCA ConfigMap not found in operator namespace, skipping copy",
+			reqLogger.Info("trustedCA ConfigMap not found in operator namespace, proceeding without trusted CA bundle",
 				"configMapName", r.TrustedCAConfigMap, "operatorNamespace", r.OperatorNamespace)
+			r.GetRecorder().Eventf(instance, "Warning", "TrustedCANotFound",
+				"trustedCA ConfigMap %q not found in operator namespace %q, proceeding without trusted CA bundle",
+				r.TrustedCAConfigMap, r.OperatorNamespace)
+			return nil
 		}
 
 		return fmt.Errorf("failed to get trustedCA ConfigMap from operator namespace: %w", err)
