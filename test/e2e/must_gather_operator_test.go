@@ -1392,6 +1392,9 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Creating a valid ImageStream")
 			createImageStream(imageStreamName, customImage, "latest")
 
+			ginkgo.By("Waiting for ImageStream tag to be imported")
+			waitForImageStreamTag(imageStreamName, "latest")
+
 			ginkgo.By("Creating MustGather CR with ImageStreamRef")
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
 				ImageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{
@@ -1495,6 +1498,9 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		ginkgo.It("should successfully run with command and args override", func() {
 			ginkgo.By("Creating a valid ImageStream")
 			createImageStream(imageStreamName, customImage, "latest")
+
+			ginkgo.By("Waiting for ImageStream tag to be imported")
+			waitForImageStreamTag(imageStreamName, "latest")
 
 			ginkgo.By("Creating MustGather CR with command and args override")
 			command := []string{"/bin/bash"}
@@ -2191,6 +2197,26 @@ func createImageStream(name, imageName, tagName string) {
 	}
 	err := adminClient.Create(testCtx, imageStream)
 	Expect(err).NotTo(HaveOccurred(), "Failed to create ImageStream")
+}
+
+func waitForImageStreamTag(name, tagName string) {
+	Eventually(func() bool {
+		is := &imagev1.ImageStream{}
+		err := adminClient.Get(testCtx, client.ObjectKey{
+			Name:      name,
+			Namespace: operatorNamespace,
+		}, is)
+		if err != nil {
+			return false
+		}
+		for _, tag := range is.Status.Tags {
+			if tag.Tag == tagName && len(tag.Items) > 0 && tag.Items[0].DockerImageReference != "" {
+				return true
+			}
+		}
+		return false
+	}).WithTimeout(3*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
+		"ImageStream tag %s should be imported in imagestream %s", tagName, name)
 }
 
 func deleteImageStream(name string) {
