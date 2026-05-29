@@ -7,6 +7,15 @@ COPY . /go/src/github.com/openshift/must-gather-operator
 
 RUN make go-build
 
+# Test extension builder stage
+FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.25-openshift-4.22 AS test-extension-builder
+WORKDIR /go/src/github.com/openshift/must-gather-operator
+COPY . .
+RUN make tests-ext-build && \
+    cd bin && \
+    tar -czvf must-gather-operator-test-extension.tar.gz must-gather-operator-tests-ext && \
+    rm -f must-gather-operator-tests-ext
+
 FROM registry.ci.openshift.org/ocp/4.22:base-rhel9
 
 RUN dnf install -y tar gzip openssh-clients wget shadow-utils procps sshpass nc && \
@@ -14,6 +23,9 @@ RUN dnf install -y tar gzip openssh-clients wget shadow-utils procps sshpass nc 
 
 COPY --from=builder /go/src/github.com/openshift/must-gather-operator/build/_output/bin/must-gather-operator /usr/local/bin/must-gather-operator
 COPY --from=builder /go/src/github.com/openshift/must-gather-operator/build/bin /usr/local/bin
+
+# Copy test extension binary
+COPY --from=test-extension-builder /go/src/github.com/openshift/must-gather-operator/bin/must-gather-operator-test-extension.tar.gz /usr/bin/
 
 USER 65534:65534
 ENTRYPOINT ["/usr/local/bin/must-gather-operator"]
