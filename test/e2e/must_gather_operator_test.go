@@ -1429,7 +1429,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.GinkgoWriter.Println("Verified: No Job created due to invalid SFTP credentials (fail-fast validation)")
 		})
 
-		ginkgo.It("should fail validation with empty username", func() {
+		ginkgo.It("should fail validation with empty username [Skipped:Disconnected]", func() {
 			ginkgo.By("Creating secret with empty username")
 			loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "case-management-secret-empty-username.yaml"), ns.Name)
 
@@ -1475,7 +1475,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.GinkgoWriter.Println("Verified: No Job created due to empty username (fail-fast validation)")
 		})
 
-		ginkgo.It("should fail validation with empty password", func() {
+		ginkgo.It("should fail validation with empty password [Skipped:Disconnected]", func() {
 			ginkgo.By("Creating secret with empty password")
 			loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "case-management-secret-empty-password.yaml"), ns.Name)
 
