@@ -145,7 +145,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 		ginkgo.By("STEP 2: Creates test namespace")
 		namespace, err := loader.CreateTestNS("must-gather-operator-e2e", false)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(err).NotTo(HaveOccurred(), "Failed to create test namespace")
 		ns = namespace
 
 		ginkgo.By("STEP 3: Creating ClusterRole for MustGather CRs")
@@ -236,8 +236,9 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Name:      mustGatherName,
 				Namespace: ns.Name,
 			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(fetchedMG.Spec.ServiceAccountName).To(Equal(serviceAccount))
+			Expect(err).NotTo(HaveOccurred(), "Failed to fetch MustGather CR")
+			Expect(fetchedMG.Spec.ServiceAccountName).To(Equal(serviceAccount),
+				"ServiceAccountName should match the configured service account")
 
 			ginkgo.GinkgoWriter.Printf("Non-admin user '%s' successfully created MustGather CR: %s\n",
 				nonAdminUser, mustGatherName)
@@ -435,7 +436,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.By("Deleting MustGather CR")
 			err := nonAdminClient.Delete(testCtx, mg)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred(), "Non-admin should be able to delete MustGather CR")
 
 			ginkgo.By("Verifying Job is eventually cleaned up")
 			Eventually(func() bool {
@@ -473,7 +474,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Name:      mustGatherName,
 				Namespace: ns.Name,
 			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for timeout verification")
 			Expect(fetchedMG.Spec.MustGatherTimeout).NotTo(BeNil(), "MustGatherTimeout should be set")
 			Expect(fetchedMG.Spec.MustGatherTimeout.Duration).To(Equal(timeout),
 				"MustGatherTimeout should be 1 minute")
@@ -521,7 +522,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Name:      mustGatherName,
 				Namespace: ns.Name,
 			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR after completion")
 			Expect(fetchedMG.Status.Completed).To(BeTrue(), "MustGather should be marked as completed")
 
 			ginkgo.GinkgoWriter.Printf("MustGather with timeout completed - Status: %s, Reason: %s\n",
@@ -544,7 +545,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Namespace: ns.Name,
 			}, fetchedMG)
 			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for 10s timeout")
-			Expect(fetchedMG.Spec.MustGatherTimeout).NotTo(BeNil())
+			Expect(fetchedMG.Spec.MustGatherTimeout).NotTo(BeNil(), "MustGatherTimeout should be set for 10s CR")
 			Expect(fetchedMG.Spec.MustGatherTimeout.Duration).To(Equal(10*time.Second),
 				"MustGatherTimeout should be 10s")
 
@@ -590,7 +591,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Namespace: ns.Name,
 			}, fetchedMG10m)
 			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for 10m timeout")
-			Expect(fetchedMG10m.Spec.MustGatherTimeout).NotTo(BeNil())
+			Expect(fetchedMG10m.Spec.MustGatherTimeout).NotTo(BeNil(), "MustGatherTimeout should be set for 10m CR")
 			Expect(fetchedMG10m.Spec.MustGatherTimeout.Duration).To(Equal(10*time.Minute),
 				"MustGatherTimeout should be 10m0s")
 		})
@@ -611,7 +612,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Namespace: ns.Name,
 			}, fetchedMG10h)
 			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for 10h timeout")
-			Expect(fetchedMG10h.Spec.MustGatherTimeout).NotTo(BeNil())
+			Expect(fetchedMG10h.Spec.MustGatherTimeout).NotTo(BeNil(), "MustGatherTimeout should be set for 10h CR")
 			Expect(fetchedMG10h.Spec.MustGatherTimeout.Duration).To(Equal(10*time.Hour),
 				"MustGatherTimeout should be 10h0m0s")
 		})
@@ -772,7 +773,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			err = nonAdminClient.List(testCtx, retainedPodList,
 				client.InNamespace(ns.Name),
 				client.MatchingLabels{jobNameLabelKey: mustGatherName})
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred(), "Failed to list retained pods")
 			Expect(retainedPodList.Items).NotTo(BeEmpty(),
 				"Pod should still exist when RetainResourcesOnCompletion is true")
 			ginkgo.GinkgoWriter.Printf("Pod %s is retained after completion\n", retainedPodList.Items[0].Name)
@@ -804,7 +805,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Name:      mustGatherName,
 				Namespace: ns.Name,
 			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for retain resources check")
 			if fetchedMG.Spec.RetainResourcesOnCompletion != nil {
 				Expect(*fetchedMG.Spec.RetainResourcesOnCompletion).To(BeFalse(),
 					"retainResourcesOnCompletion should default to false")
@@ -911,7 +912,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Verifying warning event was generated")
 			events := &corev1.EventList{}
 			err = adminClient.List(testCtx, events, client.InNamespace(ns.Name))
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred(), "Failed to list events in test namespace")
 
 			foundWarningEvent := false
 			for _, event := range events.Items {
@@ -951,7 +952,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
 			ginkgo.By("Verifying Pod has no privilege escalation")
-			Expect(gatherPod.Spec.ServiceAccountName).To(Equal(serviceAccount))
+			Expect(gatherPod.Spec.ServiceAccountName).To(Equal(serviceAccount),
+				"Pod should use the configured service account")
 
 			// Check that pod doesn't request privileged mode
 			for _, container := range gatherPod.Spec.Containers {
@@ -1087,7 +1089,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Name:      mustGatherName,
 				Namespace: ns.Name,
 			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for external user upload test")
 			Expect(fetchedMG.Spec.UploadTarget.SFTP.InternalUser).To(BeFalse(),
 				"InternalUser flag should be false for external user")
 
@@ -1308,7 +1310,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Name:      mustGatherName,
 				Namespace: ns.Name,
 			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for internal user upload test")
 			Expect(fetchedMG.Spec.UploadTarget.SFTP.InternalUser).To(BeTrue(),
 				"InternalUser flag should be true for internal user")
 
@@ -1402,7 +1404,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					Name:      mustGatherName,
 					Namespace: ns.Name,
 				}, fetchedMG)
-				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for SFTP validation check")
 				g.Expect(fetchedMG.Status.Status).To(Equal("Failed"),
 					"MustGather should fail fast with invalid SFTP credentials")
 				g.Expect(fetchedMG.Status.Reason).To(ContainSubstring("SFTP"),
@@ -1448,7 +1450,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					Name:      mustGatherName,
 					Namespace: ns.Name,
 				}, fetchedMG)
-				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for username validation check")
 				g.Expect(fetchedMG.Status.Status).To(Equal("Failed"),
 					"MustGather should fail with empty username")
 				g.Expect(fetchedMG.Status.Reason).To(ContainSubstring("username"),
@@ -1494,7 +1496,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					Name:      mustGatherName,
 					Namespace: ns.Name,
 				}, fetchedMG)
-				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for password validation check")
 				g.Expect(fetchedMG.Status.Status).To(Equal("Failed"),
 					"MustGather should fail with empty password")
 				g.Expect(fetchedMG.Status.Reason).To(ContainSubstring("password"),
@@ -1575,7 +1577,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
 			ginkgo.By("Verifying Job uses the custom image from ImageStream")
-			Expect(job.Spec.Template.Spec.Containers[0].Image).To(ContainSubstring(customImage))
+			Expect(job.Spec.Template.Spec.Containers[0].Image).To(ContainSubstring(customImage),
+				"Job container image should reference the custom ImageStream image")
 		})
 
 		ginkgo.It("should reject creation when gatherSpec.audit is true with imageStreamRef", func() {
@@ -1685,8 +1688,10 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
 			ginkgo.By("Verifying Job has the command and args override")
-			Expect(job.Spec.Template.Spec.Containers[0].Command).To(Equal(command))
-			Expect(job.Spec.Template.Spec.Containers[0].Args).To(Equal(args))
+			Expect(job.Spec.Template.Spec.Containers[0].Command).To(Equal(command),
+				"Job container command should match the configured override")
+			Expect(job.Spec.Template.Spec.Containers[0].Args).To(Equal(args),
+				"Job container args should match the configured override")
 		})
 	})
 
@@ -1756,8 +1761,9 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Name:      mustGatherName,
 				Namespace: ns.Name,
 			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(fetchedMG.Spec.Storage.PersistentVolume.SubPath).To(Equal(subPath))
+			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for subPath verification")
+			Expect(fetchedMG.Spec.Storage.PersistentVolume.SubPath).To(Equal(subPath),
+				"PersistentVolume subPath should match the configured value")
 
 			ginkgo.By("Waiting for Job to be created")
 			job := &batchv1.Job{}
@@ -1802,10 +1808,12 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Name:      mustGatherName,
 				Namespace: ns.Name,
 			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for PV storage verification")
 			Expect(fetchedMG.Spec.Storage).NotTo(BeNil(), "Storage should be set")
-			Expect(fetchedMG.Spec.Storage.Type).To(Equal(mustgatherv1alpha1.StorageTypePersistentVolume))
-			Expect(fetchedMG.Spec.Storage.PersistentVolume.Claim.Name).To(Equal(mustGatherPVCName))
+			Expect(fetchedMG.Spec.Storage.Type).To(Equal(mustgatherv1alpha1.StorageTypePersistentVolume),
+				"Storage type should be PersistentVolume")
+			Expect(fetchedMG.Spec.Storage.PersistentVolume.Claim.Name).To(Equal(mustGatherPVCName),
+				"PVC name should match the configured value")
 
 			ginkgo.GinkgoWriter.Printf("MustGather CR created with PersistentVolume storage using PVC: %s\n", mustGatherPVCName)
 
@@ -2095,7 +2103,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Name:      mustGatherName,
 				Namespace: ns.Name,
 			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for no-upload verification")
 			Expect(fetchedMG.Spec.UploadTarget).To(BeNil(),
 				"UploadTarget should not be set")
 
@@ -2149,7 +2157,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Name:      mustGatherName,
 				Namespace: ns.Name,
 			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR status after no-upload completion")
 			Expect(fetchedMG.Status.Completed).To(BeTrue(),
 				"MustGather should be marked as completed")
 
@@ -2228,7 +2236,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Name:      mustGatherName,
 				Namespace: ns.Name,
 			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for audit log defaults check")
 			if fetchedMG.Spec.GatherSpec != nil {
 				Expect(fetchedMG.Spec.GatherSpec.Audit).To(BeFalse(),
 					"Audit field should default to false")
@@ -2608,6 +2616,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 // Helper Functions
 
+// createNonAdminClient creates a Kubernetes client that impersonates a non-admin user for RBAC testing.
 func createNonAdminClient() client.Client {
 	ginkgo.By("Creating impersonated non-admin client")
 	nonAdminConfig := rest.CopyConfig(adminRestConfig)
@@ -2626,6 +2635,7 @@ func createNonAdminClient() client.Client {
 	return c
 }
 
+// verifyOperatorDeployment asserts that the must-gather-operator deployment exists and has ready replicas.
 func verifyOperatorDeployment() {
 	ginkgo.By("Checking must-gather-operator namespace exists")
 	ns := &corev1.Namespace{}
@@ -2648,6 +2658,7 @@ func verifyOperatorDeployment() {
 		deployment.Status.ReadyReplicas)
 }
 
+// createMustGatherCR builds and creates a MustGather custom resource with the given parameters.
 func createMustGatherCR(name, namespace, serviceAccountName string, retainResources bool, opts *MustGatherCROptions) *mustgatherv1alpha1.MustGather {
 	mg := &mustgatherv1alpha1.MustGather{
 		ObjectMeta: metav1.ObjectMeta{
@@ -2708,6 +2719,8 @@ func createMustGatherCR(name, namespace, serviceAccountName string, retainResour
 
 	return mg
 }
+
+// getCaseCreds retrieves SFTP credentials from Vault or environment variables for case upload tests.
 func getCaseCreds() (string, string, error) {
 	// Check for offline token in Vault first
 	offlineToken, err := readOfflineTokenFromVault()
@@ -2984,6 +2997,7 @@ EOF
 	return found, logs, nil
 }
 
+// createImageStream creates an OpenShift ImageStream referencing the given Docker image and tag.
 func createImageStream(name, imageName, tagName string) {
 	imageStream := &imagev1.ImageStream{
 		ObjectMeta: metav1.ObjectMeta{
@@ -3012,6 +3026,7 @@ func createImageStream(name, imageName, tagName string) {
 	Expect(err).NotTo(HaveOccurred(), "Failed to create ImageStream")
 }
 
+// deleteImageStream removes the named ImageStream from the operator namespace.
 func deleteImageStream(name string) {
 	imageStream := &imagev1.ImageStream{
 		ObjectMeta: metav1.ObjectMeta{
@@ -3025,9 +3040,13 @@ func deleteImageStream(name string) {
 	}
 }
 
+// sanitizeProxyURL strips user credentials from a proxy URL to prevent sensitive data in logs.
 func sanitizeProxyURL(raw string) string {
 	u, err := url.Parse(raw)
-	if err != nil || u.User == nil {
+	if err != nil {
+		return "<redacted>"
+	}
+	if u.User == nil {
 		return raw
 	}
 	u.User = nil
