@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -1526,11 +1527,15 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		var mustGatherName string
 		var mustGatherCR *mustgatherv1alpha1.MustGather
 		var imageStreamName string
-		var customImage = "quay.io/kubevirt/must-gather"
+		var customImage string
 
 		ginkgo.BeforeEach(func() {
 			mustGatherName = fmt.Sprintf("mg-custom-image-e2e-test-%d", time.Now().UnixNano())
 			imageStreamName = fmt.Sprintf("custom-image-stream-%d", time.Now().UnixNano())
+			customImage = os.Getenv("CUSTOM_MUST_GATHER_IMAGE")
+			if customImage == "" {
+				customImage = operatorImage
+			}
 		})
 
 		ginkgo.AfterEach(func() {
@@ -1939,6 +1944,30 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 	})
 
 	ginkgo.Context("Proxy Configuration Tests", func() {
+		var mustGatherName string
+		var mustGatherCR *mustgatherv1alpha1.MustGather
+
+		ginkgo.BeforeEach(func() {
+			mustGatherName = fmt.Sprintf("mg-proxy-verify-%d", time.Now().UnixNano())
+		})
+
+		ginkgo.AfterEach(func() {
+			if mustGatherCR != nil {
+				ginkgo.By("Cleaning up MustGather CR")
+				_ = nonAdminClient.Delete(testCtx, mustGatherCR)
+
+				Eventually(func() bool {
+					err := nonAdminClient.Get(testCtx, client.ObjectKey{
+						Name:      mustGatherName,
+						Namespace: ns.Name,
+					}, &mustgatherv1alpha1.MustGather{})
+					return apierrors.IsNotFound(err)
+				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+
+				mustGatherCR = nil
+			}
+		})
+
 		ginkgo.It("should verify operator pod has proxy environment variables matching cluster proxy config [Skipped:Disconnected]", func() {
 			ginkgo.By("Checking if cluster is proxy-enabled")
 
@@ -2017,8 +2046,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				"Operator pod NO_PROXY should match deployment spec")
 
 			ginkgo.By("Verifying proxy vars would propagate to must-gather Jobs")
-			mustGatherName := fmt.Sprintf("mg-proxy-verify-%d", time.Now().UnixNano())
-			mg := createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
 				UploadTarget: &UploadTargetOptions{
 					CaseID:       "00000",
 					SecretName:   caseManagementSecretNameInvalid,
@@ -2026,9 +2054,6 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					Host:         prodHostName,
 				},
 			})
-			defer func() {
-				_ = nonAdminClient.Delete(testCtx, mg)
-			}()
 
 			job := &batchv1.Job{}
 			Eventually(func() error {
@@ -2266,172 +2291,181 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				"Gather container command should NOT use gather_audit_logs when audit is not enabled")
 		})
 
-		ginkgo.It("should collect audit logs to PVC when audit is enabled", func() {
-			ginkgo.By("Checking if cluster has StorageClass available")
-			scList := &corev1.PersistentVolumeList{}
-			err := adminClient.List(testCtx, scList)
-			// Use a simple check: try to create PVC and skip if no StorageClass
-			pvcName := fmt.Sprintf("audit-pvc-%d", time.Now().UnixNano())
-			auditPVC := &corev1.PersistentVolumeClaim{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      pvcName,
-					Namespace: ns.Name,
-				},
-				Spec: corev1.PersistentVolumeClaimSpec{
-					AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-					Resources: corev1.VolumeResourceRequirements{
-						Requests: corev1.ResourceList{
-							corev1.ResourceStorage: resource.MustParse("5Gi"),
-						},
-					},
-				},
-			}
-			err = adminClient.Create(testCtx, auditPVC)
-			if err != nil {
-				ginkgo.Skip(fmt.Sprintf("Skip: Cannot create PVC (no StorageClass available): %v", err))
-			}
-			defer func() {
-				_ = adminClient.Delete(testCtx, auditPVC)
-			}()
+		ginkgo.Context("PVC audit log collection", ginkgo.Ordered, func() {
+			var pvcName string
+			var auditPVC *corev1.PersistentVolumeClaim
+			var auditMustGatherName string
+			var auditMustGatherCR *mustgatherv1alpha1.MustGather
 
-			ginkgo.By("Creating MustGather CR with audit enabled and PVC storage")
-			subPath := fmt.Sprintf("audit-test-%d", time.Now().UnixNano())
-			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
-				GatherSpec: &mustgatherv1alpha1.GatherSpec{
-					Audit: true,
-				},
-				PersistentVolume: &PersistentVolumeOptions{
-					PVCName: pvcName,
-					SubPath: subPath,
-				},
+			ginkgo.BeforeAll(func() {
+				auditMustGatherName = fmt.Sprintf("mg-audit-pvc-%d", time.Now().UnixNano())
+				pvcName = fmt.Sprintf("audit-pvc-%d", time.Now().UnixNano())
 			})
 
-			ginkgo.By("Waiting for PVC to become Bound")
-			pvcBound := false
-			Eventually(func() corev1.PersistentVolumeClaimPhase {
-				pvc := &corev1.PersistentVolumeClaim{}
-				if err := adminClient.Get(testCtx, client.ObjectKey{
-					Name:      pvcName,
-					Namespace: ns.Name,
-				}, pvc); err != nil {
-					return ""
+			ginkgo.AfterAll(func() {
+				if auditMustGatherCR != nil {
+					_ = nonAdminClient.Delete(testCtx, auditMustGatherCR)
+					Eventually(func() bool {
+						err := nonAdminClient.Get(testCtx, client.ObjectKey{
+							Name:      auditMustGatherName,
+							Namespace: ns.Name,
+						}, &mustgatherv1alpha1.MustGather{})
+						return apierrors.IsNotFound(err)
+					}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 				}
-				if pvc.Status.Phase == corev1.ClaimBound {
-					pvcBound = true
+				if auditPVC != nil {
+					_ = adminClient.Delete(testCtx, auditPVC)
 				}
-				return pvc.Status.Phase
-			}).WithTimeout(3 * time.Minute).WithPolling(5 * time.Second).Should(
-				Or(Equal(corev1.ClaimBound), Equal(corev1.ClaimPending)),
-			)
-			if !pvcBound {
-				ginkgo.Skip("Skip: PVC did not become Bound within timeout (no dynamic provisioner available)")
-			}
+			})
 
-			ginkgo.By("Waiting for Job to be created and complete")
-			job := &batchv1.Job{}
-			Eventually(func() error {
-				return nonAdminClient.Get(testCtx, client.ObjectKey{
-					Name:      mustGatherName,
-					Namespace: ns.Name,
-				}, job)
-			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
-				"Job should be created")
-
-			Eventually(func() bool {
-				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
-					Name:      mustGatherName,
-					Namespace: ns.Name,
-				}, job); err != nil {
-					return false
-				}
-				return job.Status.Succeeded > 0 || job.Status.Failed > 0
-			}).WithTimeout(10*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
-				"Job should complete")
-
-			ginkgo.By("Creating reader pod to verify audit_logs directory on PVC")
-			readerPodName := fmt.Sprintf("audit-reader-%d", time.Now().UnixNano())
-			readerPod := &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      readerPodName,
-					Namespace: ns.Name,
-				},
-				Spec: corev1.PodSpec{
-					RestartPolicy:      corev1.RestartPolicyNever,
-					ServiceAccountName: serviceAccount,
-					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot: func() *bool { b := true; return &b }(),
-						SeccompProfile: &corev1.SeccompProfile{
-							Type: corev1.SeccompProfileTypeRuntimeDefault,
-						},
+			ginkgo.It("should bind PVC for audit storage", func() {
+				auditPVC = &corev1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      pvcName,
+						Namespace: ns.Name,
 					},
-					Containers: []corev1.Container{
-						{
-							Name:  "audit-reader",
-							Image: operatorImage,
-							Command: []string{
-								"/bin/sh", "-c",
-								`ls -la /must-gather && find /must-gather -type d -name 'audit_logs' 2>/dev/null | grep . && find /must-gather -type d 2>/dev/null | head -30`,
-							},
-							SecurityContext: &corev1.SecurityContext{
-								AllowPrivilegeEscalation: func() *bool { b := false; return &b }(),
-								Capabilities: &corev1.Capabilities{
-									Drop: []corev1.Capability{"ALL"},
-								},
-								RunAsNonRoot: func() *bool { b := true; return &b }(),
-							},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "pvc-data",
-									MountPath: "/must-gather",
-								},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+						Resources: corev1.VolumeResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse("5Gi"),
 							},
 						},
 					},
-					Volumes: []corev1.Volume{
-						{
-							Name: "pvc-data",
-							VolumeSource: corev1.VolumeSource{
-								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-									ClaimName: pvcName,
+				}
+				err := adminClient.Create(testCtx, auditPVC)
+				if err != nil {
+					ginkgo.Skip(fmt.Sprintf("Skip: Cannot create PVC (no StorageClass available): %v", err))
+				}
+
+				Eventually(func() corev1.PersistentVolumeClaimPhase {
+					pvc := &corev1.PersistentVolumeClaim{}
+					if err := adminClient.Get(testCtx, client.ObjectKey{
+						Name:      pvcName,
+						Namespace: ns.Name,
+					}, pvc); err != nil {
+						return ""
+					}
+					return pvc.Status.Phase
+				}).WithTimeout(3*time.Minute).WithPolling(5*time.Second).Should(
+					Equal(corev1.ClaimBound),
+					"PVC should become Bound")
+			})
+
+			ginkgo.It("should create and complete audit gather Job with PVC", func() {
+				subPath := fmt.Sprintf("audit-test-%d", time.Now().UnixNano())
+				auditMustGatherCR = createMustGatherCR(auditMustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
+					GatherSpec: &mustgatherv1alpha1.GatherSpec{
+						Audit: true,
+					},
+					PersistentVolume: &PersistentVolumeOptions{
+						PVCName: pvcName,
+						SubPath: subPath,
+					},
+				})
+
+				job := &batchv1.Job{}
+				Eventually(func() error {
+					return nonAdminClient.Get(testCtx, client.ObjectKey{
+						Name:      auditMustGatherName,
+						Namespace: ns.Name,
+					}, job)
+				}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+					"Job should be created")
+
+				Eventually(func() bool {
+					if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+						Name:      auditMustGatherName,
+						Namespace: ns.Name,
+					}, job); err != nil {
+						return false
+					}
+					return job.Status.Succeeded > 0 || job.Status.Failed > 0
+				}).WithTimeout(10*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
+					"Job should complete")
+			})
+
+			ginkgo.It("should contain audit_logs directory on PVC", func() {
+				readerPodName := fmt.Sprintf("audit-reader-%d", time.Now().UnixNano())
+				readerPod := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      readerPodName,
+						Namespace: ns.Name,
+					},
+					Spec: corev1.PodSpec{
+						RestartPolicy:      corev1.RestartPolicyNever,
+						ServiceAccountName: serviceAccount,
+						SecurityContext: &corev1.PodSecurityContext{
+							RunAsNonRoot: func() *bool { b := true; return &b }(),
+							SeccompProfile: &corev1.SeccompProfile{
+								Type: corev1.SeccompProfileTypeRuntimeDefault,
+							},
+						},
+						Containers: []corev1.Container{
+							{
+								Name:  "audit-reader",
+								Image: operatorImage,
+								Command: []string{
+									"/bin/sh", "-c",
+									`ls -la /must-gather && find /must-gather -type d -name 'audit_logs' 2>/dev/null | grep . && find /must-gather -type d 2>/dev/null | head -30`,
+								},
+								SecurityContext: &corev1.SecurityContext{
+									AllowPrivilegeEscalation: func() *bool { b := false; return &b }(),
+									Capabilities: &corev1.Capabilities{
+										Drop: []corev1.Capability{"ALL"},
+									},
+									RunAsNonRoot: func() *bool { b := true; return &b }(),
+								},
+								VolumeMounts: []corev1.VolumeMount{
+									{
+										Name:      "pvc-data",
+										MountPath: "/must-gather",
+									},
+								},
+							},
+						},
+						Volumes: []corev1.Volume{
+							{
+								Name: "pvc-data",
+								VolumeSource: corev1.VolumeSource{
+									PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+										ClaimName: pvcName,
+									},
 								},
 							},
 						},
 					},
-				},
-			}
-
-			err = nonAdminClient.Create(testCtx, readerPod)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create reader pod")
-			defer func() {
-				_ = nonAdminClient.Delete(testCtx, readerPod)
-			}()
-
-			ginkgo.By("Waiting for reader pod to complete")
-			Eventually(func() corev1.PodPhase {
-				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
-					Name:      readerPodName,
-					Namespace: ns.Name,
-				}, readerPod); err != nil {
-					return corev1.PodUnknown
 				}
-				return readerPod.Status.Phase
-			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(
-				Or(Equal(corev1.PodSucceeded), Equal(corev1.PodFailed)),
-				"Reader pod should complete")
 
-			Expect(readerPod.Status.Phase).To(Equal(corev1.PodSucceeded),
-				"Reader pod should succeed, indicating audit_logs directory was found on PVC")
+				err := nonAdminClient.Create(testCtx, readerPod)
+				Expect(err).NotTo(HaveOccurred(), "Failed to create reader pod")
+				defer func() {
+					_ = nonAdminClient.Delete(testCtx, readerPod)
+				}()
 
-			ginkgo.By("Checking reader pod logs for audit_logs directory")
-			logs, err := getContainerLogs(ns.Name, readerPodName, "audit-reader")
-			Expect(err).NotTo(HaveOccurred(), "Failed to get reader pod logs")
+				Eventually(func() corev1.PodPhase {
+					if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+						Name:      readerPodName,
+						Namespace: ns.Name,
+					}, readerPod); err != nil {
+						return corev1.PodUnknown
+					}
+					return readerPod.Status.Phase
+				}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(
+					Or(Equal(corev1.PodSucceeded), Equal(corev1.PodFailed)),
+					"Reader pod should complete")
 
-			ginkgo.GinkgoWriter.Printf("Reader Pod logs:\n%s\n", logs)
+				Expect(readerPod.Status.Phase).To(Equal(corev1.PodSucceeded),
+					"Reader pod should succeed, indicating audit_logs directory was found on PVC")
 
-			Expect(logs).To(ContainSubstring("audit_logs"),
-				"PVC should contain audit_logs directory when audit is enabled")
+				logs, err := getContainerLogs(ns.Name, readerPodName, "audit-reader")
+				Expect(err).NotTo(HaveOccurred(), "Failed to get reader pod logs")
 
-			ginkgo.GinkgoWriter.Println("Verified: audit_logs directory exists on PVC when audit is enabled")
+				ginkgo.GinkgoWriter.Printf("Reader Pod logs:\n%s\n", logs)
+
+				Expect(logs).To(ContainSubstring("audit_logs"),
+					"PVC should contain audit_logs directory when audit is enabled")
+			})
 		})
 	})
 
@@ -2892,6 +2926,11 @@ func verifySFTPUpload(namespace, secretName, host, caseID string, internalUser b
 		sftpListCommand = "ls -la ."
 	}
 
+	sftpHost := host
+	if net.ParseIP(host) != nil && strings.Contains(host, ":") {
+		sftpHost = "[" + host + "]"
+	}
+
 	sftpCommand := fmt.Sprintf(`
 		mkdir -p /tmp/.ssh
 		touch /tmp/.ssh/known_hosts
@@ -2903,7 +2942,7 @@ func verifySFTPUpload(namespace, secretName, host, caseID string, internalUser b
 %s
 bye
 EOF
-	`, internalUser, host, sftpListCommand)
+	`, internalUser, sftpHost, sftpListCommand)
 
 	verifyPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
