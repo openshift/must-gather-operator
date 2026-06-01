@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -527,8 +528,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				fetchedMG.Status.Status, fetchedMG.Status.Reason)
 		})
 
-		ginkgo.It("should store multiple timeout units correctly and destroy pod after short timeout", func() {
-			ginkgo.By("Testing timeout with 10s value")
+		ginkgo.It("should store 10s timeout correctly and destroy pod after completion", func() {
 			mgName10s := fmt.Sprintf("non-admin-timeout-10s-%d", time.Now().UnixNano())
 			timeout10s := 10 * time.Second
 			mg10s := createMustGatherCR(mgName10s, ns.Name, serviceAccount, false, &MustGatherCROptions{
@@ -543,7 +543,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Name:      mgName10s,
 				Namespace: ns.Name,
 			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for 10s timeout")
 			Expect(fetchedMG.Spec.MustGatherTimeout).NotTo(BeNil())
 			Expect(fetchedMG.Spec.MustGatherTimeout.Duration).To(Equal(10*time.Second),
 				"MustGatherTimeout should be 10s")
@@ -572,10 +572,9 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				return len(podList.Items)
 			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Equal(0),
 				"Pod should be destroyed after timeout when retainResources is false")
+		})
 
-			ginkgo.GinkgoWriter.Println("10s timeout: pod destroyed after completion")
-
-			ginkgo.By("Testing timeout with 10m value")
+		ginkgo.It("should store 10m timeout correctly", func() {
 			mgName10m := fmt.Sprintf("non-admin-timeout-10m-%d", time.Now().UnixNano())
 			timeout10m := 10 * time.Minute
 			mg10m := createMustGatherCR(mgName10m, ns.Name, serviceAccount, false, &MustGatherCROptions{
@@ -586,18 +585,17 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}()
 
 			fetchedMG10m := &mustgatherv1alpha1.MustGather{}
-			err = nonAdminClient.Get(testCtx, client.ObjectKey{
+			err := nonAdminClient.Get(testCtx, client.ObjectKey{
 				Name:      mgName10m,
 				Namespace: ns.Name,
 			}, fetchedMG10m)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for 10m timeout")
 			Expect(fetchedMG10m.Spec.MustGatherTimeout).NotTo(BeNil())
 			Expect(fetchedMG10m.Spec.MustGatherTimeout.Duration).To(Equal(10*time.Minute),
 				"MustGatherTimeout should be 10m0s")
+		})
 
-			ginkgo.GinkgoWriter.Println("10m timeout: field stored correctly as 10m0s")
-
-			ginkgo.By("Testing timeout with 10h value")
+		ginkgo.It("should store 10h timeout correctly", func() {
 			mgName10h := fmt.Sprintf("non-admin-timeout-10h-%d", time.Now().UnixNano())
 			timeout10h := 10 * time.Hour
 			mg10h := createMustGatherCR(mgName10h, ns.Name, serviceAccount, false, &MustGatherCROptions{
@@ -608,17 +606,14 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}()
 
 			fetchedMG10h := &mustgatherv1alpha1.MustGather{}
-			err = nonAdminClient.Get(testCtx, client.ObjectKey{
+			err := nonAdminClient.Get(testCtx, client.ObjectKey{
 				Name:      mgName10h,
 				Namespace: ns.Name,
 			}, fetchedMG10h)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for 10h timeout")
 			Expect(fetchedMG10h.Spec.MustGatherTimeout).NotTo(BeNil())
 			Expect(fetchedMG10h.Spec.MustGatherTimeout.Duration).To(Equal(10*time.Hour),
 				"MustGatherTimeout should be 10h0m0s")
-
-			ginkgo.GinkgoWriter.Println("10h timeout: field stored correctly as 10h0m0s")
-			ginkgo.GinkgoWriter.Println("Successfully verified mustGatherTimeout with multiple units (10s, 10m, 10h)")
 		})
 	})
 
@@ -1051,7 +1046,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}
 		})
 
-		ginkgo.It("should successfully upload must-gather data to SFTP server for external user", func() {
+		ginkgo.It("should successfully upload must-gather data to SFTP server for external user [Skipped:Disconnected]", func() {
 			ginkgo.By("Getting SFTP credentials from Vault")
 
 			sftpUsername, sftpPassword, err := getCaseCreds()
@@ -1273,7 +1268,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				fetchedMG.Status.Status, fetchedMG.Status.Reason)
 		})
 
-		ginkgo.It("should successfully upload must-gather data to SFTP server for internal user", func() {
+		ginkgo.It("should successfully upload must-gather data to SFTP server for internal user [Skipped:Disconnected]", func() {
 			ginkgo.By("Getting SFTP credentials from Vault")
 
 			sftpUsername, sftpPassword, err := getCaseCreds()
@@ -1386,7 +1381,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.GinkgoWriter.Printf("Verified upload path format: username/%s_<filename>.tar.gz\n", caseID)
 		})
 
-		ginkgo.It("should fail upload with invalid SFTP credentials", func() {
+		ginkgo.It("should fail upload with invalid SFTP credentials [Skipped:Disconnected]", func() {
 			ginkgo.By("Creating invalid case management secret")
 			loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "case-management-secret-invalid.yaml"), ns.Name)
 
@@ -1525,7 +1520,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		})
 	})
 
-	ginkgo.Context("Custom Image", func() {
+	ginkgo.Context("Custom Image [apigroup:image.openshift.io] [Skipped:Disconnected]", func() {
 		var mustGatherName string
 		var mustGatherCR *mustgatherv1alpha1.MustGather
 		var imageStreamName string
@@ -1938,17 +1933,12 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 	})
 
 	ginkgo.Context("Proxy Configuration Tests", func() {
-		ginkgo.It("should verify operator pod has proxy environment variables matching cluster proxy config", func() {
+		ginkgo.It("should verify operator pod has proxy environment variables matching cluster proxy config [Skipped:Disconnected]", func() {
 			ginkgo.By("Checking if cluster is proxy-enabled")
-			proxyConfig := &corev1.ConfigMap{}
-			err := adminClient.Get(testCtx, client.ObjectKey{
-				Name:      "cluster-proxy-config",
-				Namespace: operatorNamespace,
-			}, proxyConfig)
 
 			// Read proxy config directly from cluster proxy object via operator pod env vars
 			deployment := &appsv1.Deployment{}
-			err = adminClient.Get(testCtx, client.ObjectKey{
+			err := adminClient.Get(testCtx, client.ObjectKey{
 				Name:      operatorDeployment,
 				Namespace: operatorNamespace,
 			}, deployment)
@@ -1977,8 +1967,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}
 
 			ginkgo.GinkgoWriter.Printf("Operator deployment proxy configuration:\n")
-			ginkgo.GinkgoWriter.Printf("  HTTP_PROXY: %s\n", operatorHTTPProxy)
-			ginkgo.GinkgoWriter.Printf("  HTTPS_PROXY: %s\n", operatorHTTPSProxy)
+			ginkgo.GinkgoWriter.Printf("  HTTP_PROXY: %s\n", sanitizeProxyURL(operatorHTTPProxy))
+			ginkgo.GinkgoWriter.Printf("  HTTPS_PROXY: %s\n", sanitizeProxyURL(operatorHTTPSProxy))
 			ginkgo.GinkgoWriter.Printf("  NO_PROXY: %s\n", operatorNoProxy)
 
 			ginkgo.By("Verifying operator pod has the proxy environment variables from the deployment spec")
@@ -2009,8 +1999,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}
 
 			ginkgo.GinkgoWriter.Printf("Operator pod proxy configuration:\n")
-			ginkgo.GinkgoWriter.Printf("  HTTP_PROXY: %s\n", podHTTPProxy)
-			ginkgo.GinkgoWriter.Printf("  HTTPS_PROXY: %s\n", podHTTPSProxy)
+			ginkgo.GinkgoWriter.Printf("  HTTP_PROXY: %s\n", sanitizeProxyURL(podHTTPProxy))
+			ginkgo.GinkgoWriter.Printf("  HTTPS_PROXY: %s\n", sanitizeProxyURL(podHTTPSProxy))
 			ginkgo.GinkgoWriter.Printf("  NO_PROXY: %s\n", podNoProxy)
 
 			Expect(podHTTPProxy).To(Equal(operatorHTTPProxy),
@@ -3033,4 +3023,13 @@ func deleteImageStream(name string) {
 	if err != nil && !apierrors.IsNotFound(err) {
 		Expect(err).NotTo(HaveOccurred(), "Failed to delete ImageStream")
 	}
+}
+
+func sanitizeProxyURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.User == nil {
+		return raw
+	}
+	u.User = nil
+	return u.String()
 }
