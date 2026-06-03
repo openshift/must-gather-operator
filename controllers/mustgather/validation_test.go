@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -715,4 +717,259 @@ func Test_validateSFTPWithRetry(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_proxyDialContext(t *testing.T) {
+	t.Run("successful CONNECT tunnel", func(t *testing.T) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to start listener: %v", err)
+		}
+		defer ln.Close()
+
+		go func() {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 4096)
+			n, _ := conn.Read(buf)
+			request := string(buf[:n])
+
+			if !strings.Contains(request, "CONNECT sftp.example.com:22 HTTP/1.1") {
+				conn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n"))
+				return
+			}
+			conn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
+			// Echo back anything the client sends to verify tunnel works
+			io.Copy(conn, conn)
+		}()
+
+		proxyURL, _ := url.Parse("http://" + ln.Addr().String())
+		conn, err := proxyDialContext(context.Background(), proxyURL, "sftp.example.com:22")
+		if err != nil {
+			t.Fatalf("proxyDialContext() error = %v", err)
+		}
+		defer conn.Close()
+
+		// Verify the tunnel is live by writing/reading
+		testData := []byte("hello")
+		if _, err := conn.Write(testData); err != nil {
+			t.Fatalf("write through tunnel failed: %v", err)
+		}
+		reply := make([]byte, len(testData))
+		if _, err := io.ReadFull(conn, reply); err != nil {
+			t.Fatalf("read through tunnel failed: %v", err)
+		}
+		if string(reply) != string(testData) {
+			t.Errorf("tunnel echo: got %q, want %q", reply, testData)
+		}
+	})
+
+	t.Run("proxy auth header sent", func(t *testing.T) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to start listener: %v", err)
+		}
+		defer ln.Close()
+
+		var receivedAuth string
+		go func() {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 4096)
+			n, _ := conn.Read(buf)
+			request := string(buf[:n])
+
+			for _, line := range strings.Split(request, "\r\n") {
+				if strings.HasPrefix(line, "Proxy-Authorization:") {
+					receivedAuth = strings.TrimSpace(strings.TrimPrefix(line, "Proxy-Authorization:"))
+				}
+			}
+			conn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
+		}()
+
+		proxyURL, _ := url.Parse("http://myuser:mypass@" + ln.Addr().String())
+		conn, err := proxyDialContext(context.Background(), proxyURL, "sftp.example.com:22")
+		if err != nil {
+			t.Fatalf("proxyDialContext() error = %v", err)
+		}
+		conn.Close()
+
+		if receivedAuth == "" {
+			t.Fatal("proxy did not receive Proxy-Authorization header")
+		}
+		if !strings.HasPrefix(receivedAuth, "Basic ") {
+			t.Errorf("expected Basic auth, got %q", receivedAuth)
+		}
+	})
+
+	t.Run("proxy returns non-200 status", func(t *testing.T) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to start listener: %v", err)
+		}
+		defer ln.Close()
+
+		go func() {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 4096)
+			conn.Read(buf)
+			conn.Write([]byte("HTTP/1.1 403 Forbidden\r\n\r\n"))
+		}()
+
+		proxyURL, _ := url.Parse("http://" + ln.Addr().String())
+		_, err = proxyDialContext(context.Background(), proxyURL, "sftp.example.com:22")
+		if err == nil {
+			t.Fatal("proxyDialContext() expected error for 403 response, got nil")
+		}
+		if !strings.Contains(err.Error(), "403") {
+			t.Errorf("error should mention 403, got: %v", err)
+		}
+	})
+
+	t.Run("proxy unreachable", func(t *testing.T) {
+		proxyURL, _ := url.Parse("http://127.0.0.1:1")
+		_, err := proxyDialContext(context.Background(), proxyURL, "sftp.example.com:22")
+		if err == nil {
+			t.Fatal("proxyDialContext() expected error for unreachable proxy, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to connect to proxy") {
+			t.Errorf("error should mention proxy connection failure, got: %v", err)
+		}
+	})
+}
+
+func Test_getProxyURLForAddr(t *testing.T) {
+	t.Run("no proxy configured", func(t *testing.T) {
+		t.Setenv("HTTP_PROXY", "")
+		t.Setenv("HTTPS_PROXY", "")
+		t.Setenv("NO_PROXY", "")
+
+		proxyURL, err := getProxyURLForAddr("sftp.example.com:22")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if proxyURL != nil {
+			t.Errorf("expected nil proxy, got %v", proxyURL)
+		}
+	})
+
+	t.Run("proxy configured", func(t *testing.T) {
+		t.Setenv("HTTP_PROXY", "http://proxy.example.com:3128")
+		t.Setenv("HTTPS_PROXY", "")
+		t.Setenv("NO_PROXY", "")
+
+		proxyURL, err := getProxyURLForAddr("sftp.example.com:22")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if proxyURL == nil {
+			t.Fatal("expected proxy URL, got nil")
+		}
+		if proxyURL.Host != "proxy.example.com:3128" {
+			t.Errorf("expected proxy host proxy.example.com:3128, got %s", proxyURL.Host)
+		}
+	})
+
+	t.Run("host in NO_PROXY is excluded", func(t *testing.T) {
+		t.Setenv("HTTP_PROXY", "http://proxy.example.com:3128")
+		t.Setenv("HTTPS_PROXY", "")
+		t.Setenv("NO_PROXY", "sftp.example.com,other.host")
+
+		proxyURL, err := getProxyURLForAddr("sftp.example.com:22")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if proxyURL != nil {
+			t.Errorf("expected nil proxy for NO_PROXY host, got %v", proxyURL)
+		}
+	})
+
+	t.Run("different host not in NO_PROXY uses proxy", func(t *testing.T) {
+		t.Setenv("HTTP_PROXY", "http://proxy.example.com:3128")
+		t.Setenv("HTTPS_PROXY", "")
+		t.Setenv("NO_PROXY", "other.host")
+
+		proxyURL, err := getProxyURLForAddr("sftp.example.com:22")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if proxyURL == nil {
+			t.Fatal("expected proxy URL for non-excluded host, got nil")
+		}
+	})
+}
+
+func Test_netDialFunc_proxyIntegration(t *testing.T) {
+	t.Run("uses proxy when configured", func(t *testing.T) {
+		originalGetProxy := getProxyURLForAddr
+		defer func() { getProxyURLForAddr = originalGetProxy }()
+
+		proxyCalled := false
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to start listener: %v", err)
+		}
+		defer ln.Close()
+
+		go func() {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			proxyCalled = true
+
+			buf := make([]byte, 4096)
+			conn.Read(buf)
+			conn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
+		}()
+
+		proxyURL, _ := url.Parse("http://" + ln.Addr().String())
+		getProxyURLForAddr = func(addr string) (*url.URL, error) {
+			return proxyURL, nil
+		}
+
+		conn, err := netDialFunc(context.Background(), "tcp", "sftp.example.com:22")
+		if err != nil {
+			t.Fatalf("netDialFunc() error = %v", err)
+		}
+		conn.Close()
+
+		if !proxyCalled {
+			t.Error("proxy should have been called when proxy is configured")
+		}
+	})
+
+	t.Run("direct dial when no proxy", func(t *testing.T) {
+		originalGetProxy := getProxyURLForAddr
+		defer func() { getProxyURLForAddr = originalGetProxy }()
+
+		getProxyURLForAddr = func(addr string) (*url.URL, error) {
+			return nil, nil
+		}
+
+		// This will fail because sftp.example.com doesn't exist, but
+		// the important thing is it tries to dial directly (not through proxy)
+		_, err := netDialFunc(context.Background(), "tcp", "127.0.0.1:1")
+		if err == nil {
+			t.Fatal("expected error for unreachable address")
+		}
+		// Should be a direct connection error, not a proxy error
+		if strings.Contains(err.Error(), "proxy") {
+			t.Errorf("should not mention proxy when no proxy configured: %v", err)
+		}
+	})
 }
