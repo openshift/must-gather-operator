@@ -2,6 +2,7 @@ package mustgather
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -739,12 +740,11 @@ func Test_proxyDialContext(t *testing.T) {
 			request := string(buf[:n])
 
 			if !strings.Contains(request, "CONNECT sftp.example.com:22 HTTP/1.1") {
-				conn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n"))
+				_, _ = conn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n"))
 				return
 			}
-			conn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
-			// Echo back anything the client sends to verify tunnel works
-			io.Copy(conn, conn)
+			_, _ = conn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
+			_, _ = io.Copy(conn, conn)
 		}()
 
 		proxyURL, _ := url.Parse("http://" + ln.Addr().String())
@@ -792,7 +792,7 @@ func Test_proxyDialContext(t *testing.T) {
 					receivedAuth = strings.TrimSpace(strings.TrimPrefix(line, "Proxy-Authorization:"))
 				}
 			}
-			conn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
+			_, _ = conn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
 		}()
 
 		proxyURL, _ := url.Parse("http://myuser:mypass@" + ln.Addr().String())
@@ -807,6 +807,53 @@ func Test_proxyDialContext(t *testing.T) {
 		}
 		if !strings.HasPrefix(receivedAuth, "Basic ") {
 			t.Errorf("expected Basic auth, got %q", receivedAuth)
+		}
+	})
+
+	t.Run("proxy auth with special characters uses raw credentials", func(t *testing.T) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to start listener: %v", err)
+		}
+		defer ln.Close()
+
+		var receivedAuth string
+		go func() {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 4096)
+			n, _ := conn.Read(buf)
+			request := string(buf[:n])
+
+			for _, line := range strings.Split(request, "\r\n") {
+				if strings.HasPrefix(line, "Proxy-Authorization:") {
+					receivedAuth = strings.TrimSpace(strings.TrimPrefix(line, "Proxy-Authorization:"))
+				}
+			}
+			_, _ = conn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
+		}()
+
+		proxyURL, _ := url.Parse("http://user%40domain:p%40ss@" + ln.Addr().String())
+		conn, err := proxyDialContext(context.Background(), proxyURL, "sftp.example.com:22")
+		if err != nil {
+			t.Fatalf("proxyDialContext() error = %v", err)
+		}
+		conn.Close()
+
+		if receivedAuth == "" {
+			t.Fatal("proxy did not receive Proxy-Authorization header")
+		}
+		encoded := strings.TrimPrefix(receivedAuth, "Basic ")
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			t.Fatalf("failed to decode auth header: %v", err)
+		}
+		if string(decoded) != "user@domain:p@ss" {
+			t.Errorf("expected raw credentials \"user@domain:p@ss\", got %q", string(decoded))
 		}
 	})
 
@@ -825,8 +872,8 @@ func Test_proxyDialContext(t *testing.T) {
 			defer conn.Close()
 
 			buf := make([]byte, 4096)
-			conn.Read(buf)
-			conn.Write([]byte("HTTP/1.1 403 Forbidden\r\n\r\n"))
+			_, _ = conn.Read(buf)
+			_, _ = conn.Write([]byte("HTTP/1.1 403 Forbidden\r\n\r\n"))
 		}()
 
 		proxyURL, _ := url.Parse("http://" + ln.Addr().String())
@@ -933,8 +980,8 @@ func Test_netDialFunc_proxyIntegration(t *testing.T) {
 			proxyCalled = true
 
 			buf := make([]byte, 4096)
-			conn.Read(buf)
-			conn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
+			_, _ = conn.Read(buf)
+			_, _ = conn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
 		}()
 
 		proxyURL, _ := url.Parse("http://" + ln.Addr().String())

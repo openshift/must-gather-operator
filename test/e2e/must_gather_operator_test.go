@@ -1362,6 +1362,9 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		})
 
 		ginkgo.It("should successfully upload must-gather data through proxy for external user", func() {
+			if os.Getenv("EXTERNAL_E2E_ENABLED") == "" {
+				ginkgo.Skip("external e2e tests disabled — set EXTERNAL_E2E_ENABLED=true to enable")
+			}
 			ginkgo.By("Getting SFTP credentials from Vault")
 			sftpUsername, sftpPassword, err := getCaseCreds()
 			Expect(err).NotTo(HaveOccurred(), "Failed to get SFTP credentials from Vault")
@@ -1548,6 +1551,9 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		})
 
 		ginkgo.It("should successfully upload must-gather data through proxy for internal user", func() {
+			if os.Getenv("EXTERNAL_E2E_ENABLED") == "" {
+				ginkgo.Skip("external e2e tests disabled — set EXTERNAL_E2E_ENABLED=true to enable")
+			}
 			ginkgo.By("Getting SFTP credentials from Vault")
 			sftpUsername, sftpPassword, err := getCaseCreds()
 			Expect(err).NotTo(HaveOccurred(), "Failed to get SFTP credentials from Vault")
@@ -2445,16 +2451,21 @@ func verifySFTPUpload(namespace, secretName, host, caseID string, internalUser b
 		    PROXY_PASSWORD=""
 		  fi
 		  if [ -n "${PROXY_HOST_PORT}" ]; then
-		    if [ -n "${PROXY_USER}" ] && [ -n "${PROXY_PASSWORD}" ]; then
-		      echo "  ProxyCommand nc --proxy ${PROXY_HOST_PORT} --proxy-auth ${PROXY_USER}:${PROXY_PASSWORD} --proxy-type http %%h %%p" >> ${SSH_CONFIG}
+		    if echo "${PROXY_URL}" | grep -q '^https://'; then
+		      export PROXY_HOST_PORT PROXY_USER PROXY_PASSWORD
+		      echo "  ProxyCommand https-proxy-connect-util %%h %%p" >> ${SSH_CONFIG}
 		    else
-		      echo "  ProxyCommand nc --proxy ${PROXY_HOST_PORT} --proxy-type http %%h %%p" >> ${SSH_CONFIG}
+		      if [ -n "${PROXY_USER}" ] && [ -n "${PROXY_PASSWORD}" ]; then
+		        echo "  ProxyCommand nc --proxy ${PROXY_HOST_PORT} --proxy-auth ${PROXY_USER}:${PROXY_PASSWORD} --proxy-type http %%h %%p" >> ${SSH_CONFIG}
+		      else
+		        echo "  ProxyCommand nc --proxy ${PROXY_HOST_PORT} --proxy-type http %%h %%p" >> ${SSH_CONFIG}
+		      fi
 		    fi
 		    echo "Using proxy: ${PROXY_HOST_PORT}"
 		  fi
 		fi
 		chmod 600 ${SSH_CONFIG}
-		cat ${SSH_CONFIG}
+		sed 's/--proxy-auth [^ ]*/--proxy-auth REDACTED/' ${SSH_CONFIG}
 
 		sshpass -e sftp -F ${SSH_CONFIG} $SFTP_USERNAME@%s << EOF
 %s
