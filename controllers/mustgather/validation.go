@@ -350,7 +350,9 @@ func proxyDialContext(ctx context.Context, proxyURL *url.URL, addr string) (net.
 
 	connectReq := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n", addr, addr)
 	if proxyURL.User != nil {
-		creds := proxyURL.User.String()
+		username := proxyURL.User.Username()
+		password, _ := proxyURL.User.Password()
+		creds := username + ":" + password
 		encoded := base64.StdEncoding.EncodeToString([]byte(creds))
 		connectReq += fmt.Sprintf("Proxy-Authorization: Basic %s\r\n", encoded)
 	}
