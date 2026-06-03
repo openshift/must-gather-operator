@@ -1,10 +1,15 @@
 package mustgather
 
 import (
+	"bufio"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -27,8 +32,17 @@ const (
 var sftpDialFunc = checkSFTPConnection
 
 // netDialFunc is the function used to dial TCP connections with context support.
+// It routes through an HTTP proxy (via CONNECT tunnel) when HTTP_PROXY/HTTPS_PROXY
+// env vars are set and the target host is not excluded by NO_PROXY.
 // It can be overridden in tests to avoid real network calls.
 var netDialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+	proxyURL, err := getProxyURLForAddr(addr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine proxy for %s: %w", addr, err)
+	}
+	if proxyURL != nil {
+		return proxyDialContext(ctx, proxyURL, addr)
+	}
 	dialer := &net.Dialer{Timeout: sshDialTimeout}
 	return dialer.DialContext(ctx, network, addr)
 }
@@ -243,4 +257,121 @@ func containsPort(host string) bool {
 	_, _, err := net.SplitHostPort(host)
 	// If SplitHostPort succeeds, a valid host:port was present
 	return err == nil
+}
+
+// getProxyURLForAddr returns the proxy URL to use for dialing the given address,
+// or nil if no proxy should be used. It reads HTTP_PROXY, HTTPS_PROXY, and
+// NO_PROXY environment variables on each call (no caching).
+var getProxyURLForAddr = func(addr string) (*url.URL, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+
+	if isHostExcludedByNoProxy(host) {
+		return nil, nil
+	}
+
+	for _, envName := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"} {
+		if v := os.Getenv(envName); v != "" {
+			return url.Parse(v)
+		}
+	}
+	return nil, nil
+}
+
+// isHostExcludedByNoProxy checks if the host is listed in the NO_PROXY/no_proxy
+// environment variable. Supports exact hostnames, domain suffixes (.example.com),
+// and CIDR ranges.
+func isHostExcludedByNoProxy(host string) bool {
+	noProxy := os.Getenv("NO_PROXY")
+	if noProxy == "" {
+		noProxy = os.Getenv("no_proxy")
+	}
+	if noProxy == "" {
+		return false
+	}
+	if noProxy == "*" {
+		return true
+	}
+
+	host = strings.ToLower(strings.TrimSpace(host))
+	hostIP := net.ParseIP(host)
+
+	for _, entry := range strings.Split(noProxy, ",") {
+		entry = strings.ToLower(strings.TrimSpace(entry))
+		if entry == "" {
+			continue
+		}
+
+		// CIDR match
+		if _, cidr, err := net.ParseCIDR(entry); err == nil && hostIP != nil {
+			if cidr.Contains(hostIP) {
+				return true
+			}
+			continue
+		}
+
+		// Exact match
+		if host == entry {
+			return true
+		}
+
+		// Suffix match: ".example.com" matches "foo.example.com"
+		if strings.HasPrefix(entry, ".") && strings.HasSuffix(host, entry) {
+			return true
+		}
+		// Also match "example.com" as a suffix: "foo.example.com" matches
+		if !strings.HasPrefix(entry, ".") && strings.HasSuffix(host, "."+entry) {
+			return true
+		}
+	}
+	return false
+}
+
+// proxyDialContext establishes a TCP connection to addr through an HTTP proxy
+// using the CONNECT method. This allows tunneling SSH/SFTP through HTTP proxies,
+// matching the behavior of the upload script's "nc --proxy" / ProxyCommand approach.
+func proxyDialContext(ctx context.Context, proxyURL *url.URL, addr string) (net.Conn, error) {
+	proxyAddr := proxyURL.Host
+	if !containsPort(proxyAddr) {
+		port := "3128"
+		if proxyURL.Scheme == "https" {
+			port = "3129"
+		}
+		proxyAddr = net.JoinHostPort(proxyAddr, port)
+	}
+
+	dialer := &net.Dialer{Timeout: sshDialTimeout}
+	conn, err := dialer.DialContext(ctx, ProtocolTCP, proxyAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to proxy %s: %w", proxyAddr, err)
+	}
+
+	connectReq := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n", addr, addr)
+	if proxyURL.User != nil {
+		creds := proxyURL.User.String()
+		encoded := base64.StdEncoding.EncodeToString([]byte(creds))
+		connectReq += fmt.Sprintf("Proxy-Authorization: Basic %s\r\n", encoded)
+	}
+	connectReq += "\r\n"
+
+	if _, err := conn.Write([]byte(connectReq)); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to send CONNECT request to proxy: %w", err)
+	}
+
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to read proxy CONNECT response: %w", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		conn.Close()
+		return nil, fmt.Errorf("proxy CONNECT to %s failed with status %d %s", addr, resp.StatusCode, resp.Status)
+	}
+
+	return conn, nil
 }

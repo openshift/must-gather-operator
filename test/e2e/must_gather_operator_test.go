@@ -2412,13 +2412,9 @@ func getContainerLogs(namespace, podName, containerName string) (string, error) 
 func verifySFTPUpload(namespace, secretName, host, caseID string, internalUser bool) (bool, string, error) {
 	verifyPodName := fmt.Sprintf("sftp-verify-%d", time.Now().UnixNano())
 
-	var sftpListCommand string
-	if internalUser {
-		sftpListCommand = "ls -la $SFTP_USERNAME"
-	} else {
-		// For external users, list files in the root directory
-		sftpListCommand = "ls -la ."
-	}
+	// Files always land under $SFTP_USERNAME/ on sftp.access.redhat.com,
+	// regardless of internal/external user mode.
+	sftpListCommand := "ls -la $SFTP_USERNAME"
 
 	sftpCommand := fmt.Sprintf(`
 		mkdir -p /tmp/.ssh
@@ -2427,11 +2423,47 @@ func verifySFTPUpload(namespace, secretName, host, caseID string, internalUser b
 		chmod 600 /tmp/.ssh/known_hosts
 		echo "Listing files on SFTP server..."
 		echo "Internal user mode: %v"
-		sshpass -e sftp -o BatchMode=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/tmp/.ssh/known_hosts $SFTP_USERNAME@%s << EOF
+
+		# Build proxy config if proxy env vars are set
+		SSH_CONFIG="/tmp/.ssh/config"
+		echo "Host *" > ${SSH_CONFIG}
+		echo "  BatchMode no" >> ${SSH_CONFIG}
+		echo "  StrictHostKeyChecking no" >> ${SSH_CONFIG}
+		echo "  UserKnownHostsFile /tmp/.ssh/known_hosts" >> ${SSH_CONFIG}
+
+		if [ -n "${http_proxy}" ] || [ -n "${https_proxy}" ]; then
+		  PROXY_URL="${https_proxy:-${http_proxy}}"
+		  PROXY_NO_PROTOCOL=$(echo "${PROXY_URL}" | sed -E 's|^https?://||')
+		  if echo "${PROXY_NO_PROTOCOL}" | grep -q '@'; then
+		    PROXY_AUTH=$(echo "${PROXY_NO_PROTOCOL}" | sed -E 's|^([^@]+)@.*|\1|')
+		    PROXY_USER=$(echo "${PROXY_AUTH}" | cut -d: -f1)
+		    PROXY_PASSWORD=$(echo "${PROXY_AUTH}" | cut -d: -f2)
+		    PROXY_HOST_PORT=$(echo "${PROXY_NO_PROTOCOL}" | sed -E 's|^[^@]+@([^/]+).*|\1|')
+		  else
+		    PROXY_HOST_PORT=$(echo "${PROXY_NO_PROTOCOL}" | sed -E 's|^([^/]+).*|\1|')
+		    PROXY_USER=""
+		    PROXY_PASSWORD=""
+		  fi
+		  if [ -n "${PROXY_HOST_PORT}" ]; then
+		    if [ -n "${PROXY_USER}" ] && [ -n "${PROXY_PASSWORD}" ]; then
+		      echo "  ProxyCommand nc --proxy ${PROXY_HOST_PORT} --proxy-auth ${PROXY_USER}:${PROXY_PASSWORD} --proxy-type http %%h %%p" >> ${SSH_CONFIG}
+		    else
+		      echo "  ProxyCommand nc --proxy ${PROXY_HOST_PORT} --proxy-type http %%h %%p" >> ${SSH_CONFIG}
+		    fi
+		    echo "Using proxy: ${PROXY_HOST_PORT}"
+		  fi
+		fi
+		chmod 600 ${SSH_CONFIG}
+		cat ${SSH_CONFIG}
+
+		sshpass -e sftp -F ${SSH_CONFIG} $SFTP_USERNAME@%s << EOF
 %s
 bye
 EOF
 	`, internalUser, host, sftpListCommand)
+
+	// Read proxy env vars from the operator deployment to pass to the verification pod
+	httpProxy, httpsProxy, noProxy, _ := getOperatorProxyEnvVars()
 
 	verifyPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -2459,26 +2491,7 @@ EOF
 						},
 						RunAsNonRoot: func() *bool { b := true; return &b }(),
 					},
-					Env: []corev1.EnvVar{
-						{
-							Name: "SFTP_USERNAME",
-							ValueFrom: &corev1.EnvVarSource{
-								SecretKeyRef: &corev1.SecretKeySelector{
-									Key:                  "username",
-									LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-								},
-							},
-						},
-						{
-							Name: "SSHPASS",
-							ValueFrom: &corev1.EnvVarSource{
-								SecretKeyRef: &corev1.SecretKeySelector{
-									Key:                  "password",
-									LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-								},
-							},
-						},
-					},
+					Env: buildVerifyPodEnvVars(secretName, httpProxy, httpsProxy, noProxy),
 				},
 			},
 		},
@@ -2533,6 +2546,39 @@ EOF
 	found := strings.Contains(logs, filePattern)
 
 	return found, logs, nil
+}
+
+func buildVerifyPodEnvVars(secretName, httpProxy, httpsProxy, noProxy string) []corev1.EnvVar {
+	envVars := []corev1.EnvVar{
+		{
+			Name: "SFTP_USERNAME",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					Key:                  "username",
+					LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+				},
+			},
+		},
+		{
+			Name: "SSHPASS",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					Key:                  "password",
+					LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+				},
+			},
+		},
+	}
+	if httpProxy != "" {
+		envVars = append(envVars, corev1.EnvVar{Name: "http_proxy", Value: httpProxy})
+	}
+	if httpsProxy != "" {
+		envVars = append(envVars, corev1.EnvVar{Name: "https_proxy", Value: httpsProxy})
+	}
+	if noProxy != "" {
+		envVars = append(envVars, corev1.EnvVar{Name: "no_proxy", Value: noProxy})
+	}
+	return envVars
 }
 
 func getOperatorProxyEnvVars() (httpProxy, httpsProxy, noProxy string, hasProxy bool) {
