@@ -2418,9 +2418,12 @@ func getContainerLogs(namespace, podName, containerName string) (string, error) 
 func verifySFTPUpload(namespace, secretName, host, caseID string, internalUser bool) (bool, string, error) {
 	verifyPodName := fmt.Sprintf("sftp-verify-%d", time.Now().UnixNano())
 
-	// Files always land under $SFTP_USERNAME/ on sftp.access.redhat.com,
-	// regardless of internal/external user mode.
-	sftpListCommand := "ls -la $SFTP_USERNAME"
+	// Internal users upload to $SFTP_USERNAME/<caseid>_<file>, so list that directory.
+	// External users upload directly to the root directory.
+	sftpListCommand := "ls -la"
+	if internalUser {
+		sftpListCommand = "ls -la $SFTP_USERNAME"
+	}
 
 	sftpCommand := fmt.Sprintf(`
 		mkdir -p /tmp/.ssh
