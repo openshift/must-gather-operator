@@ -9,9 +9,10 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
+
+	"golang.org/x/net/http/httpproxy"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/sftp"
@@ -263,70 +264,19 @@ func containsPort(host string) bool {
 // or nil if no proxy should be used. It reads HTTP_PROXY, HTTPS_PROXY, and
 // NO_PROXY environment variables on each call (no caching).
 var getProxyURLForAddr = func(addr string) (*url.URL, error) {
-	host, _, err := net.SplitHostPort(addr)
+	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		host = addr
+		port = sftpDefaultPort
 	}
 
-	if isHostExcludedByNoProxy(host) {
-		return nil, nil
+	proxyFunc := httpproxy.FromEnvironment().ProxyFunc()
+	reqURL := &url.URL{Scheme: "https", Host: net.JoinHostPort(host, port)}
+	if proxyURL, err := proxyFunc(reqURL); err != nil || proxyURL != nil {
+		return proxyURL, err
 	}
-
-	for _, envName := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"} {
-		if v := os.Getenv(envName); v != "" {
-			return url.Parse(v)
-		}
-	}
-	return nil, nil
-}
-
-// isHostExcludedByNoProxy checks if the host is listed in the NO_PROXY/no_proxy
-// environment variable. Supports exact hostnames, domain suffixes (.example.com),
-// and CIDR ranges.
-func isHostExcludedByNoProxy(host string) bool {
-	noProxy := os.Getenv("NO_PROXY")
-	if noProxy == "" {
-		noProxy = os.Getenv("no_proxy")
-	}
-	if noProxy == "" {
-		return false
-	}
-	if noProxy == "*" {
-		return true
-	}
-
-	host = strings.ToLower(strings.TrimSpace(host))
-	hostIP := net.ParseIP(host)
-
-	for _, entry := range strings.Split(noProxy, ",") {
-		entry = strings.ToLower(strings.TrimSpace(entry))
-		if entry == "" {
-			continue
-		}
-
-		// CIDR match
-		if _, cidr, err := net.ParseCIDR(entry); err == nil && hostIP != nil {
-			if cidr.Contains(hostIP) {
-				return true
-			}
-			continue
-		}
-
-		// Exact match
-		if host == entry {
-			return true
-		}
-
-		// Suffix match: ".example.com" matches "foo.example.com"
-		if strings.HasPrefix(entry, ".") && strings.HasSuffix(host, entry) {
-			return true
-		}
-		// Also match "example.com" as a suffix: "foo.example.com" matches
-		if !strings.HasPrefix(entry, ".") && strings.HasSuffix(host, "."+entry) {
-			return true
-		}
-	}
-	return false
+	reqURL.Scheme = "http"
+	return proxyFunc(reqURL)
 }
 
 // proxyDialContext establishes a TCP connection to addr through an HTTP proxy
