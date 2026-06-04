@@ -348,6 +348,10 @@ func proxyDialContext(ctx context.Context, proxyURL *url.URL, addr string) (net.
 		return nil, fmt.Errorf("failed to connect to proxy %s: %w", proxyAddr, err)
 	}
 
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	}
+
 	connectReq := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n", addr, addr)
 	if proxyURL.User != nil {
 		username := proxyURL.User.Username()
@@ -374,6 +378,9 @@ func proxyDialContext(ctx context.Context, proxyURL *url.URL, addr string) (net.
 		conn.Close()
 		return nil, fmt.Errorf("proxy CONNECT to %s failed with status %d %s", addr, resp.StatusCode, resp.Status)
 	}
+
+	// Clear the deadline so the SSH handshake sets its own timeout
+	_ = conn.SetDeadline(time.Time{})
 
 	return conn, nil
 }
