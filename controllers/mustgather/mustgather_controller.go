@@ -165,10 +165,6 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		if statusErr != nil {
 			return result, statusErr
 		}
-		if cleanupErr := r.cleanupMustGatherResources(ctx, reqLogger, instance); cleanupErr != nil {
-			reqLogger.Error(cleanupErr, "failed to cleanup resources during operator SA validation rejection, will retry")
-			return reconcile.Result{Requeue: true}, cleanupErr
-		}
 		return result, nil
 	}
 
