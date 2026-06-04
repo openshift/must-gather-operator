@@ -181,7 +181,7 @@ func main() {
 			Name:      podName,
 			Namespace: operatorNamespace,
 		}, pod); lookupErr != nil {
-			setupLog.Error(lookupErr, "could not discover operator service account from pod", "podName", podName)
+			setupLog.Error(lookupErr, "could not look up operator pod for service account discovery", "podName", podName)
 			os.Exit(1)
 		}
 		if pod.Spec.ServiceAccountName == "" {
