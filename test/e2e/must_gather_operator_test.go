@@ -2191,6 +2191,26 @@ func createImageStream(name, imageName, tagName string) {
 	}
 	err := adminClient.Create(testCtx, imageStream)
 	Expect(err).NotTo(HaveOccurred(), "Failed to create ImageStream")
+
+	// Wait for the image import to populate Status.Tags.
+	// The operator reads Status.Tags (not Spec.Tags) to resolve the image,
+	// and the import is asynchronous.
+	Eventually(func() bool {
+		is := &imagev1.ImageStream{}
+		if err := adminClient.Get(testCtx, client.ObjectKey{
+			Name:      name,
+			Namespace: operatorNamespace,
+		}, is); err != nil {
+			return false
+		}
+		for _, tag := range is.Status.Tags {
+			if tag.Tag == tagName && len(tag.Items) > 0 && tag.Items[0].DockerImageReference != "" {
+				return true
+			}
+		}
+		return false
+	}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
+		"Timed out waiting for ImageStream %s tag %s to be imported", name, tagName)
 }
 
 func deleteImageStream(name string) {
