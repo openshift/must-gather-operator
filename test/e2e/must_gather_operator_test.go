@@ -1362,9 +1362,6 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		})
 
 		ginkgo.It("should successfully upload must-gather data through proxy for external user", func() {
-			if os.Getenv("EXTERNAL_E2E_ENABLED") == "" {
-				ginkgo.Skip("external e2e tests disabled — set EXTERNAL_E2E_ENABLED=true to enable")
-			}
 			ginkgo.By("Getting SFTP credentials from Vault")
 			sftpUsername, sftpPassword, err := getCaseCreds()
 			Expect(err).NotTo(HaveOccurred(), "Failed to get SFTP credentials from Vault")
