@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1355,6 +1356,314 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		})
 	})
 
+	ginkgo.Context("Proxy Upload Tests", func() {
+		var mustGatherName string
+		var mustGatherCR *mustgatherv1alpha1.MustGather
+		var httpProxy, httpsProxy, noProxy string
+
+		ginkgo.BeforeEach(func() {
+			var hasProxy bool
+			httpProxy, httpsProxy, noProxy, hasProxy = getOperatorProxyEnvVars()
+			if !hasProxy {
+				ginkgo.Skip("cluster does not have proxy configured — operator deployment has no HTTP_PROXY/HTTPS_PROXY env vars")
+			}
+			ginkgo.GinkgoWriter.Printf("Proxy detected — HTTP_PROXY=%q, HTTPS_PROXY=%q, NO_PROXY=%q\n", redactProxyURL(httpProxy), redactProxyURL(httpsProxy), noProxy)
+			mustGatherName = fmt.Sprintf("mg-proxy-upload-e2e-%d", time.Now().UnixNano())
+		})
+
+		ginkgo.AfterEach(func() {
+			if mustGatherCR != nil {
+				ginkgo.By("Cleaning up MustGather CR")
+				_ = nonAdminClient.Delete(testCtx, mustGatherCR)
+
+				Eventually(func() bool {
+					err := nonAdminClient.Get(testCtx, client.ObjectKey{
+						Name:      mustGatherName,
+						Namespace: ns.Name,
+					}, &mustgatherv1alpha1.MustGather{})
+					return apierrors.IsNotFound(err)
+				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+
+				mustGatherCR = nil
+			}
+		})
+
+		ginkgo.It("should propagate proxy environment variables to upload container", func() {
+			ginkgo.By("Getting SFTP credentials from Vault")
+			sftpUsername, sftpPassword, err := getCaseCreds()
+			Expect(err).NotTo(HaveOccurred(), "Failed to get SFTP credentials from Vault")
+
+			ginkgo.By("Creating case management secret")
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      caseManagementSecretNameValid,
+					Namespace: ns.Name,
+					Labels:    map[string]string{"test": nonAdminLabel},
+				},
+				Type: corev1.SecretTypeOpaque,
+				StringData: map[string]string{
+					"username": sftpUsername,
+					"password": sftpPassword,
+				},
+			}
+			err = nonAdminClient.Create(testCtx, secret)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred(), "Failed to create case management secret")
+			}
+
+			ginkgo.By("Creating MustGather CR with UploadTarget")
+			caseID := generateTestCaseID()
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
+				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: prodHostName},
+			})
+
+			ginkgo.By("Waiting for Job to be created")
+			job := &batchv1.Job{}
+			Eventually(func(g Gomega) {
+				mg := &mustgatherv1alpha1.MustGather{}
+				g.Expect(nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, mg)).To(Succeed())
+				if mg.Status.Status == "Failed" {
+					ginkgo.Fail(fmt.Sprintf("MustGather validation failed before Job creation: %s", mg.Status.Reason))
+				}
+				g.Expect(nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job)).To(Succeed(), "Job should be created for MustGather with UploadTarget")
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			ginkgo.By("Verifying upload container has proxy environment variables")
+			var uploadContainer *corev1.Container
+			for i := range job.Spec.Template.Spec.Containers {
+				if job.Spec.Template.Spec.Containers[i].Name == uploadContainerName {
+					uploadContainer = &job.Spec.Template.Spec.Containers[i]
+					break
+				}
+			}
+			Expect(uploadContainer).NotTo(BeNil(), "Job should have upload container")
+
+			envVars := make(map[string]string)
+			for _, env := range uploadContainer.Env {
+				envVars[env.Name] = env.Value
+			}
+
+			if httpProxy != "" {
+				Expect(envVars).To(HaveKeyWithValue("http_proxy", httpProxy),
+					"Upload container should have http_proxy matching operator's HTTP_PROXY")
+			} else {
+				Expect(envVars).NotTo(HaveKey("http_proxy"),
+					"Upload container should not have http_proxy when operator has no HTTP_PROXY")
+			}
+
+			if httpsProxy != "" {
+				Expect(envVars).To(HaveKeyWithValue("https_proxy", httpsProxy),
+					"Upload container should have https_proxy matching operator's HTTPS_PROXY")
+			} else {
+				Expect(envVars).NotTo(HaveKey("https_proxy"),
+					"Upload container should not have https_proxy when operator has no HTTPS_PROXY")
+			}
+
+			if noProxy != "" {
+				Expect(envVars).To(HaveKeyWithValue("no_proxy", noProxy),
+					"Upload container should have no_proxy matching operator's NO_PROXY")
+			} else {
+				Expect(envVars).NotTo(HaveKey("no_proxy"),
+					"Upload container should not have no_proxy when operator has no NO_PROXY")
+			}
+
+			ginkgo.GinkgoWriter.Println("Verified: proxy environment variables correctly propagated to upload container")
+		})
+
+		ginkgo.It("should successfully upload must-gather data through proxy for external user", func() {
+			ginkgo.By("Getting SFTP credentials from Vault")
+			sftpUsername, sftpPassword, err := getCaseCreds()
+			Expect(err).NotTo(HaveOccurred(), "Failed to get SFTP credentials from Vault")
+
+			ginkgo.By("Creating case management secret")
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      caseManagementSecretNameValid,
+					Namespace: ns.Name,
+					Labels:    map[string]string{"test": nonAdminLabel},
+				},
+				Type: corev1.SecretTypeOpaque,
+				StringData: map[string]string{
+					"username": sftpUsername,
+					"password": sftpPassword,
+				},
+			}
+			err = nonAdminClient.Create(testCtx, secret)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred(), "Failed to create case management secret")
+			}
+
+			ginkgo.By("Creating MustGather CR with UploadTarget and internalUser=false")
+			caseID := generateTestCaseID()
+			ginkgo.GinkgoWriter.Printf("Using unique caseID: %s\n", caseID)
+
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
+				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: prodHostName},
+			})
+
+			ginkgo.By("Waiting for Job to be created")
+			job := &batchv1.Job{}
+			Eventually(func(g Gomega) {
+				mg := &mustgatherv1alpha1.MustGather{}
+				g.Expect(nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, mg)).To(Succeed())
+				if mg.Status.Status == "Failed" {
+					ginkgo.Fail(fmt.Sprintf("MustGather validation failed before Job creation: %s", mg.Status.Reason))
+				}
+				g.Expect(nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job)).To(Succeed(), "Job should be created for MustGather with UploadTarget")
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			ginkgo.By("Verifying upload container has proxy env vars (sanity check)")
+			var uploadContainer *corev1.Container
+			for i := range job.Spec.Template.Spec.Containers {
+				if job.Spec.Template.Spec.Containers[i].Name == uploadContainerName {
+					uploadContainer = &job.Spec.Template.Spec.Containers[i]
+					break
+				}
+			}
+			Expect(uploadContainer).NotTo(BeNil(), "Job should have upload container")
+
+			envVars := make(map[string]string)
+			for _, env := range uploadContainer.Env {
+				envVars[env.Name] = env.Value
+			}
+			Expect(envVars).To(SatisfyAny(HaveKey("http_proxy"), HaveKey("https_proxy")),
+				"Upload container should have at least one proxy env var")
+
+			ginkgo.By("Waiting for Pod to be created and start running")
+			var mustGatherPod *corev1.Pod
+			Eventually(func(g Gomega) {
+				podList := &corev1.PodList{}
+				g.Expect(nonAdminClient.List(testCtx, podList,
+					client.InNamespace(ns.Name),
+					client.MatchingLabels{jobNameLabelKey: mustGatherName})).To(Succeed())
+				g.Expect(podList.Items).NotTo(BeEmpty(), "Pod should be created by Job")
+				mustGatherPod = &podList.Items[0]
+
+				containerNames := make(map[string]bool)
+				for _, c := range mustGatherPod.Spec.Containers {
+					containerNames[c.Name] = true
+				}
+				g.Expect(containerNames).To(HaveKey(gatherContainerName), "Pod should have gather container")
+				g.Expect(containerNames).To(HaveKey(uploadContainerName), "Pod should have upload container")
+
+				g.Expect(mustGatherPod.Status.Phase).To(
+					Or(Equal(corev1.PodRunning), Equal(corev1.PodSucceeded), Equal(corev1.PodFailed)),
+					"Pod should reach Running, Succeeded, or Failed state")
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			ginkgo.By("Verifying both containers have started")
+			Eventually(func(g Gomega) {
+				g.Expect(nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherPod.Name,
+					Namespace: ns.Name,
+				}, mustGatherPod)).To(Succeed())
+
+				containerStatuses := make(map[string]bool)
+				for _, cs := range mustGatherPod.Status.ContainerStatuses {
+					started := cs.State.Running != nil || cs.State.Terminated != nil
+					containerStatuses[cs.Name] = started
+				}
+				g.Expect(containerStatuses[gatherContainerName]).To(BeTrue(), "Gather container should have started")
+				g.Expect(containerStatuses[uploadContainerName]).To(BeTrue(), "Upload container should have started")
+			}).WithTimeout(3 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			ginkgo.By("Waiting for Job to complete successfully (gather and upload through proxy)")
+			Eventually(func() bool {
+				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job); err != nil {
+					return false
+				}
+
+				if job.Status.Succeeded > 0 {
+					ginkgo.GinkgoWriter.Println("Job completed successfully through proxy")
+					return true
+				}
+				if job.Status.Failed > 0 {
+					var details []string
+					for _, c := range job.Status.Conditions {
+						details = append(details, fmt.Sprintf(
+							"jobCondition[%s]=%s reason=%q message=%q",
+							c.Type, c.Status, c.Reason, c.Message,
+						))
+					}
+					if mustGatherPod != nil && mustGatherPod.Name != "" {
+						tmpPod := &corev1.Pod{}
+						if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+							Name:      mustGatherPod.Name,
+							Namespace: ns.Name,
+						}, tmpPod); err == nil {
+							for _, cs := range tmpPod.Status.ContainerStatuses {
+								if cs.State.Terminated != nil {
+									details = append(details, fmt.Sprintf(
+										"container[%s] terminated exitCode=%d reason=%q message=%q",
+										cs.Name, cs.State.Terminated.ExitCode, cs.State.Terminated.Reason, cs.State.Terminated.Message,
+									))
+								} else if cs.State.Waiting != nil {
+									details = append(details, fmt.Sprintf(
+										"container[%s] waiting reason=%q message=%q",
+										cs.Name, cs.State.Waiting.Reason, cs.State.Waiting.Message,
+									))
+								}
+							}
+						} else {
+							details = append(details, fmt.Sprintf("failed to get pod %s: %v", mustGatherPod.Name, err))
+						}
+					}
+					detailStr := strings.Join(details, "; ")
+					if detailStr == "" {
+						detailStr = "<no failure details available>"
+					}
+					ginkgo.Fail(fmt.Sprintf("Job failed — proxy upload may have failed. Details: %s", detailStr))
+				}
+				return false
+			}).WithTimeout(5*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
+				"Job should complete successfully through proxy")
+
+			ginkgo.By("Verifying file was uploaded to SFTP server for external user through proxy")
+			found, sftpLogs, err := verifySFTPUpload(ns.Name, caseManagementSecretNameValid, prodHostName, caseID, false)
+			if err != nil {
+				ginkgo.GinkgoWriter.Printf("SFTP verification error: %v\n", err)
+			}
+			ginkgo.GinkgoWriter.Printf("SFTP directory listing:\n%s\n", sftpLogs)
+
+			Expect(found).To(BeTrue(),
+				"File with caseID %s should exist on SFTP server (external user path, uploaded through proxy)", caseID)
+
+			ginkgo.By("Verifying MustGather CR status is updated after proxy upload completion")
+			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			Eventually(func(g Gomega) {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, fetchedMG)
+				g.Expect(err).NotTo(HaveOccurred(), "Should fetch MustGather CR")
+				g.Expect(fetchedMG.Status.Completed).To(BeTrue(), "MustGather should be marked as completed")
+				g.Expect(fetchedMG.Status.Status).To(Or(Equal("Completed"), Equal("Failed")),
+					"Status should be Completed or Failed")
+				g.Expect(fetchedMG.Status.Reason).NotTo(BeEmpty(), "Reason should be set")
+			}).WithTimeout(30*time.Second).WithPolling(2*time.Second).Should(Succeed(),
+				"MustGather status should be updated after proxy upload completion")
+
+			ginkgo.GinkgoWriter.Printf("Proxy upload completed — Status: %s, Reason: %s\n",
+				fetchedMG.Status.Status, fetchedMG.Status.Reason)
+		})
+
+	})
+
 	ginkgo.Context("Custom Image", func() {
 		var mustGatherName string
 		var mustGatherCR *mustgatherv1alpha1.MustGather
@@ -2042,12 +2351,11 @@ func getContainerLogs(namespace, podName, containerName string) (string, error) 
 func verifySFTPUpload(namespace, secretName, host, caseID string, internalUser bool) (bool, string, error) {
 	verifyPodName := fmt.Sprintf("sftp-verify-%d", time.Now().UnixNano())
 
-	var sftpListCommand string
+	// Internal users upload to $SFTP_USERNAME/<caseid>_<file>, so list that directory.
+	// External users upload directly to the root directory.
+	sftpListCommand := "ls -la"
 	if internalUser {
 		sftpListCommand = "ls -la $SFTP_USERNAME"
-	} else {
-		// For external users, list files in the root directory
-		sftpListCommand = "ls -la ."
 	}
 
 	sftpCommand := fmt.Sprintf(`
@@ -2057,11 +2365,52 @@ func verifySFTPUpload(namespace, secretName, host, caseID string, internalUser b
 		chmod 600 /tmp/.ssh/known_hosts
 		echo "Listing files on SFTP server..."
 		echo "Internal user mode: %v"
-		sshpass -e sftp -o BatchMode=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/tmp/.ssh/known_hosts $SFTP_USERNAME@%s << EOF
+
+		# Build proxy config if proxy env vars are set
+		SSH_CONFIG="/tmp/.ssh/config"
+		echo "Host *" > ${SSH_CONFIG}
+		echo "  BatchMode no" >> ${SSH_CONFIG}
+		echo "  StrictHostKeyChecking no" >> ${SSH_CONFIG}
+		echo "  UserKnownHostsFile /tmp/.ssh/known_hosts" >> ${SSH_CONFIG}
+
+		if [ -n "${http_proxy}" ] || [ -n "${https_proxy}" ]; then
+		  PROXY_URL="${https_proxy:-${http_proxy}}"
+		  PROXY_NO_PROTOCOL=$(echo "${PROXY_URL}" | sed -E 's|^https?://||')
+		  if echo "${PROXY_NO_PROTOCOL}" | grep -q '@'; then
+		    PROXY_AUTH=$(echo "${PROXY_NO_PROTOCOL}" | sed -E 's|^([^@]+)@.*|\1|')
+		    PROXY_USER=$(echo "${PROXY_AUTH}" | cut -d: -f1)
+		    PROXY_PASSWORD=$(echo "${PROXY_AUTH}" | cut -d: -f2)
+		    PROXY_HOST_PORT=$(echo "${PROXY_NO_PROTOCOL}" | sed -E 's|^[^@]+@([^/]+).*|\1|')
+		  else
+		    PROXY_HOST_PORT=$(echo "${PROXY_NO_PROTOCOL}" | sed -E 's|^([^/]+).*|\1|')
+		    PROXY_USER=""
+		    PROXY_PASSWORD=""
+		  fi
+		  if [ -n "${PROXY_HOST_PORT}" ]; then
+		    if echo "${PROXY_URL}" | grep -q '^https://'; then
+		      export PROXY_HOST_PORT PROXY_USER PROXY_PASSWORD
+		      echo "  ProxyCommand https-proxy-connect-util %%h %%p" >> ${SSH_CONFIG}
+		    else
+		      if [ -n "${PROXY_USER}" ] && [ -n "${PROXY_PASSWORD}" ]; then
+		        echo "  ProxyCommand nc --proxy ${PROXY_HOST_PORT} --proxy-auth ${PROXY_USER}:${PROXY_PASSWORD} --proxy-type http %%h %%p" >> ${SSH_CONFIG}
+		      else
+		        echo "  ProxyCommand nc --proxy ${PROXY_HOST_PORT} --proxy-type http %%h %%p" >> ${SSH_CONFIG}
+		      fi
+		    fi
+		    echo "Using proxy: ${PROXY_HOST_PORT}"
+		  fi
+		fi
+		chmod 600 ${SSH_CONFIG}
+		sed 's/--proxy-auth [^ ]*/--proxy-auth REDACTED/' ${SSH_CONFIG}
+
+		sshpass -e sftp -F ${SSH_CONFIG} $SFTP_USERNAME@%s << EOF
 %s
 bye
 EOF
 	`, internalUser, host, sftpListCommand)
+
+	// Read proxy env vars from the operator deployment to pass to the verification pod
+	httpProxy, httpsProxy, noProxy, _ := getOperatorProxyEnvVars()
 
 	verifyPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -2089,26 +2438,7 @@ EOF
 						},
 						RunAsNonRoot: func() *bool { b := true; return &b }(),
 					},
-					Env: []corev1.EnvVar{
-						{
-							Name: "SFTP_USERNAME",
-							ValueFrom: &corev1.EnvVarSource{
-								SecretKeyRef: &corev1.SecretKeySelector{
-									Key:                  "username",
-									LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-								},
-							},
-						},
-						{
-							Name: "SSHPASS",
-							ValueFrom: &corev1.EnvVarSource{
-								SecretKeyRef: &corev1.SecretKeySelector{
-									Key:                  "password",
-									LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-								},
-							},
-						},
-					},
+					Env: buildVerifyPodEnvVars(secretName, httpProxy, httpsProxy, noProxy),
 				},
 			},
 		},
@@ -2163,6 +2493,80 @@ EOF
 	found := strings.Contains(logs, filePattern)
 
 	return found, logs, nil
+}
+
+func buildVerifyPodEnvVars(secretName, httpProxy, httpsProxy, noProxy string) []corev1.EnvVar {
+	envVars := []corev1.EnvVar{
+		{
+			Name: "SFTP_USERNAME",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					Key:                  "username",
+					LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+				},
+			},
+		},
+		{
+			Name: "SSHPASS",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					Key:                  "password",
+					LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+				},
+			},
+		},
+	}
+	if httpProxy != "" {
+		envVars = append(envVars, corev1.EnvVar{Name: "http_proxy", Value: httpProxy})
+	}
+	if httpsProxy != "" {
+		envVars = append(envVars, corev1.EnvVar{Name: "https_proxy", Value: httpsProxy})
+	}
+	if noProxy != "" {
+		envVars = append(envVars, corev1.EnvVar{Name: "no_proxy", Value: noProxy})
+	}
+	return envVars
+}
+
+func getOperatorProxyEnvVars() (httpProxy, httpsProxy, noProxy string, hasProxy bool) {
+	deployment := &appsv1.Deployment{}
+	err := adminClient.Get(testCtx, client.ObjectKey{
+		Name:      operatorDeployment,
+		Namespace: operatorNamespace,
+	}, deployment)
+	Expect(err).NotTo(HaveOccurred(), "Failed to get operator deployment for proxy detection")
+
+	for _, container := range deployment.Spec.Template.Spec.Containers {
+		for _, env := range container.Env {
+			if env.ValueFrom != nil {
+				continue
+			}
+			switch env.Name {
+			case "HTTP_PROXY":
+				httpProxy = env.Value
+			case "HTTPS_PROXY":
+				httpsProxy = env.Value
+			case "NO_PROXY":
+				noProxy = env.Value
+			}
+		}
+	}
+	hasProxy = httpProxy != "" || httpsProxy != ""
+	return
+}
+
+func redactProxyURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "<invalid-url>"
+	}
+	if u.User != nil {
+		u.User = url.UserPassword("<redacted>", "<redacted>")
+	}
+	return u.String()
 }
 
 func createImageStream(name, imageName, tagName string) {
