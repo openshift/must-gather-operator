@@ -2310,8 +2310,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}
 
 			ginkgo.GinkgoWriter.Printf("Operator deployment proxy configuration:\n")
-			ginkgo.GinkgoWriter.Printf("  HTTP_PROXY: %s\n", sanitizeProxyURL(operatorHTTPProxy))
-			ginkgo.GinkgoWriter.Printf("  HTTPS_PROXY: %s\n", sanitizeProxyURL(operatorHTTPSProxy))
+			ginkgo.GinkgoWriter.Printf("  HTTP_PROXY: %s\n", redactProxyURL(operatorHTTPProxy))
+			ginkgo.GinkgoWriter.Printf("  HTTPS_PROXY: %s\n", redactProxyURL(operatorHTTPSProxy))
 			ginkgo.GinkgoWriter.Printf("  NO_PROXY: %s\n", operatorNoProxy)
 
 			ginkgo.By("Verifying operator pod has the proxy environment variables from the deployment spec")
@@ -2342,8 +2342,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}
 
 			ginkgo.GinkgoWriter.Printf("Operator pod proxy configuration:\n")
-			ginkgo.GinkgoWriter.Printf("  HTTP_PROXY: %s\n", sanitizeProxyURL(podHTTPProxy))
-			ginkgo.GinkgoWriter.Printf("  HTTPS_PROXY: %s\n", sanitizeProxyURL(podHTTPSProxy))
+			ginkgo.GinkgoWriter.Printf("  HTTP_PROXY: %s\n", redactProxyURL(podHTTPProxy))
+			ginkgo.GinkgoWriter.Printf("  HTTPS_PROXY: %s\n", redactProxyURL(podHTTPSProxy))
 			ginkgo.GinkgoWriter.Printf("  NO_PROXY: %s\n", podNoProxy)
 
 			Expect(podHTTPProxy).To(Equal(operatorHTTPProxy),
@@ -3489,17 +3489,4 @@ func deleteImageStream(name string) {
 	if err != nil && !apierrors.IsNotFound(err) {
 		Expect(err).NotTo(HaveOccurred(), "Failed to delete ImageStream")
 	}
-}
-
-// sanitizeProxyURL strips user credentials from a proxy URL to prevent sensitive data in logs.
-func sanitizeProxyURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "<redacted>"
-	}
-	if u.User == nil {
-		return raw
-	}
-	u.User = nil
-	return u.String()
 }
