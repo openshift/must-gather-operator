@@ -1,12 +1,18 @@
 package mustgather
 
 import (
+	"bufio"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
+
+	"golang.org/x/net/http/httpproxy"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/sftp"
@@ -27,8 +33,17 @@ const (
 var sftpDialFunc = checkSFTPConnection
 
 // netDialFunc is the function used to dial TCP connections with context support.
+// It routes through an HTTP proxy (via CONNECT tunnel) when HTTP_PROXY/HTTPS_PROXY
+// env vars are set and the target host is not excluded by NO_PROXY.
 // It can be overridden in tests to avoid real network calls.
 var netDialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+	proxyURL, err := getProxyURLForAddr(addr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine proxy for %s: %w", addr, err)
+	}
+	if proxyURL != nil {
+		return proxyDialContext(ctx, proxyURL, addr)
+	}
 	dialer := &net.Dialer{Timeout: sshDialTimeout}
 	return dialer.DialContext(ctx, network, addr)
 }
@@ -37,6 +52,21 @@ var netDialFunc = func(ctx context.Context, network, addr string) (net.Conn, err
 // It can be overridden in tests to avoid real network calls.
 var sshNewClientConnFunc = func(c net.Conn, addr string, config *ssh.ClientConfig) (ssh.Conn, <-chan ssh.NewChannel, <-chan *ssh.Request, error) {
 	return ssh.NewClientConn(c, addr, config)
+}
+
+// verifySFTPSubsystemFunc is the function used to verify SFTP subsystem availability.
+// It can be overridden in tests to avoid real network calls.
+var verifySFTPSubsystemFunc = verifySFTPSubsystem
+
+// sftpClient is the subset of SFTP client behavior used by verifySFTPSubsystem.
+type sftpClient interface {
+	Close() error
+}
+
+// sftpNewClientFunc creates an SFTP client on an SSH connection.
+// It can be overridden in tests to avoid real network calls.
+var sftpNewClientFunc = func(conn *ssh.Client, opts ...sftp.ClientOption) (sftpClient, error) {
+	return sftp.NewClient(conn, opts...)
 }
 
 // IsTransientError checks if an error is transient and should trigger a requeue
@@ -191,7 +221,7 @@ func checkSFTPConnection(ctx context.Context, username, password, host string) e
 	client := ssh.NewClient(sshConn, chans, reqs)
 	defer client.Close()
 
-	return verifySFTPSubsystem(client)
+	return verifySFTPSubsystemFunc(client)
 }
 
 // normalizeHostAddress adds the default SFTP port if not specified.
@@ -225,7 +255,7 @@ func buildSSHConfig(username, password string, hostKeyCallback ssh.HostKeyCallba
 // verifySFTPSubsystem verifies that the SFTP subsystem is available on the SSH connection.
 // This creates and immediately closes an SFTP client to confirm functionality.
 func verifySFTPSubsystem(conn *ssh.Client) error {
-	sftpClient, err := sftp.NewClient(conn)
+	sftpClient, err := sftpNewClientFunc(conn)
 	if err != nil {
 		return fmt.Errorf("%s: %w", classifySFTPError(err), err)
 	}
@@ -243,4 +273,79 @@ func containsPort(host string) bool {
 	_, _, err := net.SplitHostPort(host)
 	// If SplitHostPort succeeds, a valid host:port was present
 	return err == nil
+}
+
+// getProxyURLForAddr returns the proxy URL to use for dialing the given address,
+// or nil if no proxy should be used. It reads HTTP_PROXY, HTTPS_PROXY, and
+// NO_PROXY environment variables on each call (no caching).
+var getProxyURLForAddr = func(addr string) (*url.URL, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+		port = sftpDefaultPort
+	}
+
+	proxyFunc := httpproxy.FromEnvironment().ProxyFunc()
+	reqURL := &url.URL{Scheme: "https", Host: net.JoinHostPort(host, port)}
+	if proxyURL, err := proxyFunc(reqURL); err != nil || proxyURL != nil {
+		return proxyURL, err
+	}
+	reqURL.Scheme = "http"
+	return proxyFunc(reqURL)
+}
+
+// proxyDialContext establishes a TCP connection to addr through an HTTP proxy
+// using the CONNECT method. This allows tunneling SSH/SFTP through HTTP proxies,
+// matching the behavior of the upload script's "nc --proxy" / ProxyCommand approach.
+func proxyDialContext(ctx context.Context, proxyURL *url.URL, addr string) (net.Conn, error) {
+	proxyAddr := proxyURL.Host
+	if !containsPort(proxyAddr) {
+		port := "3128"
+		if proxyURL.Scheme == "https" {
+			port = "3129"
+		}
+		proxyAddr = net.JoinHostPort(proxyAddr, port)
+	}
+
+	dialer := &net.Dialer{Timeout: sshDialTimeout}
+	conn, err := dialer.DialContext(ctx, ProtocolTCP, proxyAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to proxy %s: %w", proxyAddr, err)
+	}
+
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	}
+
+	connectReq := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n", addr, addr)
+	if proxyURL.User != nil {
+		username := proxyURL.User.Username()
+		password, _ := proxyURL.User.Password()
+		creds := username + ":" + password
+		encoded := base64.StdEncoding.EncodeToString([]byte(creds))
+		connectReq += fmt.Sprintf("Proxy-Authorization: Basic %s\r\n", encoded)
+	}
+	connectReq += "\r\n"
+
+	if _, err := conn.Write([]byte(connectReq)); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to send CONNECT request to proxy: %w", err)
+	}
+
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to read proxy CONNECT response: %w", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		conn.Close()
+		return nil, fmt.Errorf("proxy CONNECT to %s failed with status %d %s", addr, resp.StatusCode, resp.Status)
+	}
+
+	// Clear the deadline so the SSH handshake sets its own timeout
+	_ = conn.SetDeadline(time.Time{})
+
+	return conn, nil
 }
