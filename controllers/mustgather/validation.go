@@ -54,6 +54,21 @@ var sshNewClientConnFunc = func(c net.Conn, addr string, config *ssh.ClientConfi
 	return ssh.NewClientConn(c, addr, config)
 }
 
+// verifySFTPSubsystemFunc is the function used to verify SFTP subsystem availability.
+// It can be overridden in tests to avoid real network calls.
+var verifySFTPSubsystemFunc = verifySFTPSubsystem
+
+// sftpClient is the subset of SFTP client behavior used by verifySFTPSubsystem.
+type sftpClient interface {
+	Close() error
+}
+
+// sftpNewClientFunc creates an SFTP client on an SSH connection.
+// It can be overridden in tests to avoid real network calls.
+var sftpNewClientFunc = func(conn *ssh.Client, opts ...sftp.ClientOption) (sftpClient, error) {
+	return sftp.NewClient(conn, opts...)
+}
+
 // IsTransientError checks if an error is transient and should trigger a requeue
 func IsTransientError(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
@@ -206,7 +221,7 @@ func checkSFTPConnection(ctx context.Context, username, password, host string) e
 	client := ssh.NewClient(sshConn, chans, reqs)
 	defer client.Close()
 
-	return verifySFTPSubsystem(client)
+	return verifySFTPSubsystemFunc(client)
 }
 
 // normalizeHostAddress adds the default SFTP port if not specified.
@@ -240,7 +255,7 @@ func buildSSHConfig(username, password string, hostKeyCallback ssh.HostKeyCallba
 // verifySFTPSubsystem verifies that the SFTP subsystem is available on the SSH connection.
 // This creates and immediately closes an SFTP client to confirm functionality.
 func verifySFTPSubsystem(conn *ssh.Client) error {
-	sftpClient, err := sftp.NewClient(conn)
+	sftpClient, err := sftpNewClientFunc(conn)
 	if err != nil {
 		return fmt.Errorf("%s: %w", classifySFTPError(err), err)
 	}

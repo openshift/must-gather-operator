@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
 )
 
 // mockNetError is a mock implementation of net.Error for testing
@@ -28,6 +30,126 @@ func (e *mockNetError) Temporary() bool { return e.temporary }
 
 // Verify mockNetError implements net.Error
 var _ net.Error = (*mockNetError)(nil)
+
+type closeTrackerConn struct {
+	closed bool
+}
+
+func (c *closeTrackerConn) Read([]byte) (int, error)  { return 0, io.EOF }
+func (c *closeTrackerConn) Write([]byte) (int, error) { return 0, nil }
+func (c *closeTrackerConn) Close() error            { c.closed = true; return nil }
+func (c *closeTrackerConn) LocalAddr() net.Addr       { return &net.TCPAddr{} }
+func (c *closeTrackerConn) RemoteAddr() net.Addr      { return &net.TCPAddr{} }
+func (c *closeTrackerConn) SetDeadline(time.Time) error      { return nil }
+func (c *closeTrackerConn) SetReadDeadline(time.Time) error  { return nil }
+func (c *closeTrackerConn) SetWriteDeadline(time.Time) error { return nil }
+
+type mockSSHConn struct {
+	closeTrackerConn
+}
+
+func (m *mockSSHConn) Wait() error { return nil }
+func (m *mockSSHConn) SendRequest(string, bool, []byte) (bool, []byte, error) {
+	return false, nil, nil
+}
+func (m *mockSSHConn) OpenChannel(string, []byte) (ssh.Channel, <-chan *ssh.Request, error) {
+	return nil, nil, errors.New("not implemented")
+}
+func (m *mockSSHConn) ClientVersion() []byte { return []byte("SSH-2.0-test") }
+func (m *mockSSHConn) ServerVersion() []byte { return []byte("SSH-2.0-test") }
+func (m *mockSSHConn) User() string          { return "user" }
+func (m *mockSSHConn) SessionID() []byte     { return []byte("session") }
+
+func stubCheckSFTPConnectionDeps(t *testing.T) func() {
+	t.Helper()
+
+	originalNetDial := netDialFunc
+	originalSSHNewClient := sshNewClientConnFunc
+	originalVerifySFTP := verifySFTPSubsystemFunc
+	originalSFTPNewClient := sftpNewClientFunc
+
+	return func() {
+		netDialFunc = originalNetDial
+		sshNewClientConnFunc = originalSSHNewClient
+		verifySFTPSubsystemFunc = originalVerifySFTP
+		sftpNewClientFunc = originalSFTPNewClient
+	}
+}
+
+type stubSFTPClient struct {
+	closed *bool
+}
+
+func (s *stubSFTPClient) Close() error {
+	if s.closed != nil {
+		*s.closed = true
+	}
+	return nil
+}
+
+func newTestSSHClient(t *testing.T) *ssh.Client {
+	t.Helper()
+
+	sshConn := &mockSSHConn{}
+	chans := make(chan ssh.NewChannel)
+	reqs := make(chan *ssh.Request)
+	close(chans)
+	close(reqs)
+
+	return ssh.NewClient(sshConn, chans, reqs)
+}
+
+func Test_verifySFTPSubsystem(t *testing.T) {
+	t.Run("success closes SFTP client", func(t *testing.T) {
+		originalSFTPNewClient := sftpNewClientFunc
+		defer func() { sftpNewClientFunc = originalSFTPNewClient }()
+
+		closed := false
+		sftpNewClientFunc = func(conn *ssh.Client, opts ...sftp.ClientOption) (sftpClient, error) {
+			return &stubSFTPClient{closed: &closed}, nil
+		}
+
+		if err := verifySFTPSubsystem(newTestSSHClient(t)); err != nil {
+			t.Fatalf("expected success, got: %v", err)
+		}
+		if !closed {
+			t.Fatal("expected SFTP client Close to be called")
+		}
+	})
+
+	t.Run("returns classified error when SFTP client cannot be created", func(t *testing.T) {
+		originalSFTPNewClient := sftpNewClientFunc
+		defer func() { sftpNewClientFunc = originalSFTPNewClient }()
+
+		sftpNewClientFunc = func(conn *ssh.Client, opts ...sftp.ClientOption) (sftpClient, error) {
+			return nil, errors.New("subsystem request failed")
+		}
+
+		err := verifySFTPSubsystem(newTestSSHClient(t))
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "SFTP subsystem not available on the server") {
+			t.Fatalf("expected classified SFTP subsystem error, got: %v", err)
+		}
+	})
+
+	t.Run("uses SSH client when creating SFTP client", func(t *testing.T) {
+		sshClient := newTestSSHClient(t)
+		defer sshClient.Close()
+
+		err := verifySFTPSubsystem(sshClient)
+		if err == nil {
+			t.Fatal("expected error from mock SSH connection, got nil")
+		}
+		if !strings.Contains(err.Error(), "SFTP connection failed") {
+			t.Fatalf("expected classified error, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "not implemented") {
+			t.Fatalf("expected underlying OpenChannel error, got: %v", err)
+		}
+	})
+}
 
 func Test_containsPort(t *testing.T) {
 	tests := []struct {
@@ -463,6 +585,108 @@ func Test_checkSFTPConnection(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func Test_checkSFTPConnection_SSHHandshakeFailure(t *testing.T) {
+	defer stubCheckSFTPConnectionDeps(t)()
+
+	netConn := &closeTrackerConn{}
+	netDialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if network != ProtocolTCP {
+			t.Fatalf("expected network %q, got %q", ProtocolTCP, network)
+		}
+		if addr != "sftp.example.com:22" {
+			t.Fatalf("expected normalized address %q, got %q", "sftp.example.com:22", addr)
+		}
+		return netConn, nil
+	}
+
+	sshNewClientConnFunc = func(c net.Conn, addr string, config *ssh.ClientConfig) (ssh.Conn, <-chan ssh.NewChannel, <-chan *ssh.Request, error) {
+		if c != netConn {
+			t.Fatal("expected SSH handshake to use TCP connection from dial")
+		}
+		if config.User != "user" {
+			t.Fatalf("expected SSH user %q, got %q", "user", config.User)
+		}
+		return nil, nil, nil, errors.New("ssh: unable to authenticate, attempted methods [none password]")
+	}
+
+	err := checkSFTPConnection(context.Background(), "user", "pass", "sftp.example.com")
+	if err == nil {
+		t.Fatal("expected error from SSH handshake failure, got nil")
+	}
+	if !strings.Contains(err.Error(), "Authentication failed") {
+		t.Fatalf("expected authentication error, got: %v", err)
+	}
+	if !netConn.closed {
+		t.Fatal("expected TCP connection to be closed after SSH handshake failure")
+	}
+}
+
+func Test_checkSFTPConnection_Success(t *testing.T) {
+	defer stubCheckSFTPConnectionDeps(t)()
+
+	netDialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return &closeTrackerConn{}, nil
+	}
+
+	sshConn := &mockSSHConn{}
+	chans := make(chan ssh.NewChannel)
+	reqs := make(chan *ssh.Request)
+	close(chans)
+	close(reqs)
+
+	sshNewClientConnFunc = func(c net.Conn, addr string, config *ssh.ClientConfig) (ssh.Conn, <-chan ssh.NewChannel, <-chan *ssh.Request, error) {
+		return sshConn, chans, reqs, nil
+	}
+
+	verifySFTPSubsystemFunc = func(conn *ssh.Client) error {
+		if conn == nil {
+			t.Fatal("expected non-nil SSH client")
+		}
+		return nil
+	}
+
+	if err := checkSFTPConnection(context.Background(), "user", "pass", "sftp.example.com:22"); err != nil {
+		t.Fatalf("expected success, got: %v", err)
+	}
+	if !sshConn.closed {
+		t.Fatal("expected SSH client to be closed via defer")
+	}
+}
+
+func Test_checkSFTPConnection_SFTPSubsystemFailure(t *testing.T) {
+	defer stubCheckSFTPConnectionDeps(t)()
+
+	netDialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return &closeTrackerConn{}, nil
+	}
+
+	sshConn := &mockSSHConn{}
+	chans := make(chan ssh.NewChannel)
+	reqs := make(chan *ssh.Request)
+	close(chans)
+	close(reqs)
+
+	sshNewClientConnFunc = func(c net.Conn, addr string, config *ssh.ClientConfig) (ssh.Conn, <-chan ssh.NewChannel, <-chan *ssh.Request, error) {
+		return sshConn, chans, reqs, nil
+	}
+
+	verifySFTPSubsystemFunc = func(conn *ssh.Client) error {
+		return fmt.Errorf("%s: %w", classifySFTPError(errors.New("failed to create sftp client: EOF")),
+			errors.New("failed to create sftp client: EOF"))
+	}
+
+	err := checkSFTPConnection(context.Background(), "user", "pass", "sftp.example.com")
+	if err == nil {
+		t.Fatal("expected SFTP subsystem error, got nil")
+	}
+	if !strings.Contains(err.Error(), "SFTP subsystem not available on the server") {
+		t.Fatalf("expected SFTP subsystem error, got: %v", err)
+	}
+	if !sshConn.closed {
+		t.Fatal("expected SSH client to be closed via defer")
 	}
 }
 
