@@ -1763,6 +1763,26 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Creating a valid ImageStream")
 			createImageStream(imageStreamName, customImage, "latest")
 
+			ginkgo.By("Waiting for ImageStream import to complete")
+			var resolvedImage string
+			Eventually(func() error {
+				is := &imagev1.ImageStream{}
+				if err := adminClient.Get(testCtx, client.ObjectKey{
+					Name:      imageStreamName,
+					Namespace: operatorNamespace,
+				}, is); err != nil {
+					return err
+				}
+				for _, tag := range is.Status.Tags {
+					if tag.Tag == "latest" && len(tag.Items) > 0 && tag.Items[0].DockerImageReference != "" {
+						resolvedImage = tag.Items[0].DockerImageReference
+						return nil
+					}
+				}
+				return fmt.Errorf("imagestream tag latest not yet imported")
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+				"ImageStream should have imported the image")
+
 			ginkgo.By("Creating MustGather CR with ImageStreamRef")
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
 				ImageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{
@@ -1780,9 +1800,9 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				}, job)
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
-			ginkgo.By("Verifying Job uses the custom image from ImageStream")
-			Expect(job.Spec.Template.Spec.Containers[0].Image).To(ContainSubstring(customImage),
-				"Job container image should reference the custom ImageStream image")
+			ginkgo.By("Verifying Job uses the resolved image from ImageStream")
+			Expect(job.Spec.Template.Spec.Containers[0].Image).To(Equal(resolvedImage),
+				"Job container image should match the resolved ImageStream image")
 		})
 
 		ginkgo.It("should reject creation when gatherSpec.audit is true with imageStreamRef", func() {
