@@ -822,7 +822,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
 			ginkgo.By("Waiting for MustGather to complete")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			fetchedMG = &mustgatherv1alpha1.MustGather{}
 			Eventually(func() bool {
 				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
