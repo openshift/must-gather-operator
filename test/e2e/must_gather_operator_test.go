@@ -821,17 +821,21 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				}, job)
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
-			ginkgo.By("Waiting for Job to complete")
+			ginkgo.By("Waiting for MustGather to complete")
+			fetchedMG := &mustgatherv1alpha1.MustGather{}
 			Eventually(func() bool {
 				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
-				}, job); err != nil {
+				}, fetchedMG); err != nil {
 					return false
 				}
-				return job.Status.Succeeded > 0 || job.Status.Failed > 0
+				return fetchedMG.Status.Completed
 			}).WithTimeout(5*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
-				"Job should complete")
+				"MustGather should complete")
+
+			ginkgo.GinkgoWriter.Printf("MustGather Status: %s - Completed: %v - Reason: %s\n",
+				fetchedMG.Status.Status, fetchedMG.Status.Completed, fetchedMG.Status.Reason)
 
 			ginkgo.By("Verifying Job is cleaned up after completion (retainResources defaults to false)")
 			Eventually(func() bool {
