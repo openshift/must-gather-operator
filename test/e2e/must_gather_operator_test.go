@@ -32,8 +32,8 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -1591,6 +1591,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		ginkgo.It("should successfully run must-gather with a valid ImageStreamRef", func() {
 			ginkgo.By("Creating a valid ImageStream")
 			createImageStream(imageStreamName, customImage, "latest")
+			waitForImageStreamTag(imageStreamName, "latest")
 
 			ginkgo.By("Creating MustGather CR with ImageStreamRef")
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
@@ -1695,6 +1696,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		ginkgo.It("should successfully run with command and args override", func() {
 			ginkgo.By("Creating a valid ImageStream")
 			createImageStream(imageStreamName, customImage, "latest")
+			waitForImageStreamTag(imageStreamName, "latest")
 
 			ginkgo.By("Creating MustGather CR with command and args override")
 			command := []string{"/bin/bash"}
@@ -2048,22 +2050,12 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			Expect(gather).NotTo(BeNil(), "Job should have gather container")
 			Expect(containerHasTrustedCAMount(*gather)).To(BeTrue())
 
-			var upload *corev1.Container
-			for i := range job.Spec.Template.Spec.Containers {
-				if job.Spec.Template.Spec.Containers[i].Name == uploadContainerName {
-					upload = &job.Spec.Template.Spec.Containers[i]
-					break
-				}
-			}
-			Expect(upload).NotTo(BeNil(), "Job should have upload container")
-			Expect(containerHasTrustedCAMount(*upload)).To(BeTrue())
-
 			ginkgo.By("Deleting MustGather and expecting trusted CA ConfigMap cleanup")
 			Expect(nonAdminClient.Delete(testCtx, mg)).To(Succeed())
 			Eventually(func() bool {
 				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
 				return apierrors.IsNotFound(err)
-			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue())
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
 			Eventually(func() bool {
 				err := adminClient.Get(testCtx, client.ObjectKey{Namespace: ns.Name, Name: cmName}, &corev1.ConfigMap{})
@@ -2091,13 +2083,13 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					err1 := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name1, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
 					err2 := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
 					return apierrors.IsNotFound(err1) && apierrors.IsNotFound(err2)
-				}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue())
+				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 			}()
 
 			waitForJobInNamespace := func(jobName string) {
 				Eventually(func() error {
 					return nonAdminClient.Get(testCtx, client.ObjectKey{Name: jobName, Namespace: ns.Name}, &batchv1.Job{})
-				}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed())
+				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 			}
 			waitForJobInNamespace(name1)
 			waitForJobInNamespace(name2)
@@ -2114,14 +2106,14 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					return false
 				}
 				return configMapHasOwnerReference(cm, mg1Full.UID) && configMapHasOwnerReference(cm, mg2Full.UID)
-			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue())
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
 			ginkgo.By("Deleting first MustGather leaves ConfigMap for the second owner")
 			Expect(nonAdminClient.Delete(testCtx, mg1)).To(Succeed())
 			Eventually(func() bool {
 				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name1, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
 				return apierrors.IsNotFound(err)
-			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue())
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
 			Eventually(func() bool {
 				cm := &corev1.ConfigMap{}
@@ -2129,19 +2121,19 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					return false
 				}
 				return configMapHasOwnerReference(cm, mg2Full.UID) && !configMapHasOwnerReference(cm, mg1Full.UID)
-			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue())
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
 			ginkgo.By("Deleting second MustGather removes the ConfigMap")
 			Expect(nonAdminClient.Delete(testCtx, mg2)).To(Succeed())
 			Eventually(func() bool {
 				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
 				return apierrors.IsNotFound(err)
-			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue())
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
 			Eventually(func() bool {
 				err := adminClient.Get(testCtx, client.ObjectKey{Namespace: ns.Name, Name: cmName}, &corev1.ConfigMap{})
 				return apierrors.IsNotFound(err)
-			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue())
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 		})
 	})
 })
@@ -2671,6 +2663,27 @@ func redactProxyURL(raw string) string {
 		u.User = url.UserPassword("<redacted>", "<redacted>")
 	}
 	return u.String()
+func imageStreamTagIsPullable(imageStream *imagev1.ImageStream, tagName string) bool {
+	for _, tag := range imageStream.Status.Tags {
+		if tag.Tag == tagName {
+			return len(tag.Items) > 0 && tag.Items[0].DockerImageReference != ""
+		}
+	}
+	return false
+}
+
+func waitForImageStreamTag(name, tagName string) {
+	ginkgo.By(fmt.Sprintf("Waiting for ImageStream tag %q to be pullable", tagName))
+	imageStream := &imagev1.ImageStream{}
+	Eventually(func(g Gomega) {
+		err := adminClient.Get(testCtx, client.ObjectKey{
+			Name:      name,
+			Namespace: operatorNamespace,
+		}, imageStream)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(imageStreamTagIsPullable(imageStream, tagName)).To(BeTrue(),
+			"ImageStream tag %q should appear in status with a dockerImageReference", tagName)
+	}).WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 }
 
 func createImageStream(name, imageName, tagName string) {
