@@ -32,6 +32,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -89,6 +90,11 @@ const (
 	// PersistentVolume test constants
 	mustGatherPVCName        = "must-gather-pvc"
 	caseCredsConfigDirEnvVar = "CASE_MANAGEMENT_CREDS_CONFIG_DIR"
+
+	// Trusted CA propagation (matches operator deployment env and controllers/mustgather/template.go volume path)
+	trustedCAConfigMapEnvVar = "TRUSTED_CA_CONFIGMAP_NAME"
+	trustedCAVolumeNameE2E   = "trusted-ca"
+	trustedCAMountPathE2E    = "/etc/pki/tls/certs"
 	// vaultOfflineTokenKey is the RH SSO offline refresh token mounted from Vault for CI.
 	vaultOfflineTokenKey          = "offline-token-e2e"
 	refreshSFTPTokenScript        = "refresh-sftp-token.sh"
@@ -1960,6 +1966,184 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.GinkgoWriter.Println("Must-gather data successfully persisted to PVC and verified after Job completion")
 		})
 	})
+
+	ginkgo.Context("Trusted CA ConfigMap propagation", func() {
+		// hasTrustedCASupport returns the ConfigMap name when the operator is configured with a non-empty
+		// trusted CA name and the source bundle exists in the operator namespace (required for reconcile).
+		hasTrustedCASupport := func() (string, bool) {
+			cmName := getTrustedCAConfigMapNameFromOperatorDeployment(testCtx)
+			if cmName == "" {
+				ginkgo.GinkgoWriter.Println("Skipping trusted CA checks: operator deployment has no TRUSTED_CA_CONFIGMAP_NAME / --trusted-ca-configmap")
+				return "", false
+			}
+			source := &corev1.ConfigMap{}
+			if err := adminClient.Get(testCtx, client.ObjectKey{Namespace: operatorNamespace, Name: cmName}, source); err != nil {
+				if apierrors.IsNotFound(err) {
+					ginkgo.GinkgoWriter.Printf("Skipping trusted CA checks: source ConfigMap %q not found in %q\n", cmName, operatorNamespace)
+				}
+				return "", false
+			}
+			return cmName, true
+		}
+
+		ginkgo.It("should copy trusted CA ConfigMap into the MustGather namespace, own it, mount it on the Job, and remove it after the MustGather is deleted", func() {
+			cmName, ok := hasTrustedCASupport()
+			if !ok {
+				ginkgo.Skip("Trusted CA feature not available on this cluster (see must-gather-operator deployment and trusted-ca bundle in operator namespace)")
+			}
+
+			mustGatherName := fmt.Sprintf("trusted-ca-e2e-%d", time.Now().UnixNano())
+			mg := createMustGatherCR(mustGatherName, ns.Name, serviceAccount, false, nil)
+
+			ginkgo.By("Waiting for Job to be created")
+			job := &batchv1.Job{}
+			Eventually(func() error {
+				return nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			ginkgo.By("Verifying trusted CA ConfigMap was copied into MustGather namespace")
+			copied := &corev1.ConfigMap{}
+			Eventually(func() error {
+				return adminClient.Get(testCtx, client.ObjectKey{
+					Namespace: ns.Name,
+					Name:      cmName,
+				}, copied)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+				"Operator should copy trusted CA ConfigMap into the MustGather namespace")
+
+			source := &corev1.ConfigMap{}
+			err := adminClient.Get(testCtx, client.ObjectKey{Namespace: operatorNamespace, Name: cmName}, source)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(copied.Data).To(Equal(source.Data))
+			Expect(copied.Labels).To(Equal(source.Labels))
+
+			ginkgo.By("Verifying MustGather owns the copied ConfigMap")
+			mgFetched := &mustgatherv1alpha1.MustGather{}
+			Expect(adminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, mgFetched)).To(Succeed())
+			Expect(configMapHasOwnerReference(copied, mgFetched.UID)).To(BeTrue(),
+				"Copied ConfigMap should reference this MustGather instance")
+
+			ginkgo.By("Verifying gather Job mounts the trusted CA volume")
+			var trustedVol *corev1.Volume
+			for i := range job.Spec.Template.Spec.Volumes {
+				if job.Spec.Template.Spec.Volumes[i].Name == trustedCAVolumeNameE2E {
+					trustedVol = &job.Spec.Template.Spec.Volumes[i]
+					break
+				}
+			}
+			Expect(trustedVol).NotTo(BeNil(), "Job should define trusted-ca volume")
+			Expect(trustedVol.ConfigMap).NotTo(BeNil())
+			Expect(trustedVol.ConfigMap.Name).To(Equal(cmName))
+
+			var gather *corev1.Container
+			for i := range job.Spec.Template.Spec.Containers {
+				if job.Spec.Template.Spec.Containers[i].Name == gatherContainerName {
+					gather = &job.Spec.Template.Spec.Containers[i]
+					break
+				}
+			}
+			Expect(gather).NotTo(BeNil(), "Job should have gather container")
+			Expect(containerHasTrustedCAMount(*gather)).To(BeTrue())
+
+			var upload *corev1.Container
+			for i := range job.Spec.Template.Spec.Containers {
+				if job.Spec.Template.Spec.Containers[i].Name == uploadContainerName {
+					upload = &job.Spec.Template.Spec.Containers[i]
+					break
+				}
+			}
+			Expect(upload).NotTo(BeNil(), "Job should have upload container")
+			Expect(containerHasTrustedCAMount(*upload)).To(BeTrue())
+
+			ginkgo.By("Deleting MustGather and expecting trusted CA ConfigMap cleanup")
+			Expect(nonAdminClient.Delete(testCtx, mg)).To(Succeed())
+			Eventually(func() bool {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue())
+
+			Eventually(func() bool {
+				err := adminClient.Get(testCtx, client.ObjectKey{Namespace: ns.Name, Name: cmName}, &corev1.ConfigMap{})
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
+				"Trusted CA ConfigMap in MustGather namespace should be deleted when it has no remaining owners")
+		})
+
+		ginkgo.It("should keep a shared trusted CA ConfigMap until the last MustGather owner is removed", func() {
+			cmName, ok := hasTrustedCASupport()
+			if !ok {
+				ginkgo.Skip("Trusted CA feature not available on this cluster (see must-gather-operator deployment and trusted-ca bundle in operator namespace)")
+			}
+
+			base := time.Now().UnixNano()
+			name1 := fmt.Sprintf("trusted-ca-shared-%d-a", base)
+			name2 := fmt.Sprintf("trusted-ca-shared-%d-b", base)
+			mg1 := createMustGatherCR(name1, ns.Name, serviceAccount, false, nil)
+			mg2 := createMustGatherCR(name2, ns.Name, serviceAccount, false, nil)
+
+			defer func() {
+				_ = nonAdminClient.Delete(testCtx, mg1)
+				_ = nonAdminClient.Delete(testCtx, mg2)
+				Eventually(func() bool {
+					err1 := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name1, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+					err2 := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+					return apierrors.IsNotFound(err1) && apierrors.IsNotFound(err2)
+				}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue())
+			}()
+
+			waitForJobInNamespace := func(jobName string) {
+				Eventually(func() error {
+					return nonAdminClient.Get(testCtx, client.ObjectKey{Name: jobName, Namespace: ns.Name}, &batchv1.Job{})
+				}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed())
+			}
+			waitForJobInNamespace(name1)
+			waitForJobInNamespace(name2)
+
+			mg1Full := &mustgatherv1alpha1.MustGather{}
+			mg2Full := &mustgatherv1alpha1.MustGather{}
+			Expect(adminClient.Get(testCtx, client.ObjectKey{Name: name1, Namespace: ns.Name}, mg1Full)).To(Succeed())
+			Expect(adminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, mg2Full)).To(Succeed())
+
+			ginkgo.By("Waiting for both MustGather instances to be owner references on the shared ConfigMap")
+			Eventually(func() bool {
+				cm := &corev1.ConfigMap{}
+				if err := adminClient.Get(testCtx, client.ObjectKey{Namespace: ns.Name, Name: cmName}, cm); err != nil {
+					return false
+				}
+				return configMapHasOwnerReference(cm, mg1Full.UID) && configMapHasOwnerReference(cm, mg2Full.UID)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue())
+
+			ginkgo.By("Deleting first MustGather leaves ConfigMap for the second owner")
+			Expect(nonAdminClient.Delete(testCtx, mg1)).To(Succeed())
+			Eventually(func() bool {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name1, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue())
+
+			Eventually(func() bool {
+				cm := &corev1.ConfigMap{}
+				if err := adminClient.Get(testCtx, client.ObjectKey{Namespace: ns.Name, Name: cmName}, cm); err != nil {
+					return false
+				}
+				return configMapHasOwnerReference(cm, mg2Full.UID) && !configMapHasOwnerReference(cm, mg1Full.UID)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue())
+
+			ginkgo.By("Deleting second MustGather removes the ConfigMap")
+			Expect(nonAdminClient.Delete(testCtx, mg2)).To(Succeed())
+			Eventually(func() bool {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue())
+
+			Eventually(func() bool {
+				err := adminClient.Get(testCtx, client.ObjectKey{Namespace: ns.Name, Name: cmName}, &corev1.ConfigMap{})
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue())
+		})
+	})
 })
 
 // Helper Functions
@@ -2002,6 +2186,60 @@ func verifyOperatorDeployment() {
 
 	ginkgo.GinkgoWriter.Printf("must-gather-operator is deployed and available (ready replicas: %d)\n",
 		deployment.Status.ReadyReplicas)
+}
+
+// getTrustedCAConfigMapNameFromOperatorDeployment returns the bundle name from TRUSTED_CA_CONFIGMAP_NAME
+// or from a resolved --trusted-ca-configmap operator argument.
+func getTrustedCAConfigMapNameFromOperatorDeployment(ctx context.Context) string {
+	deployment := &appsv1.Deployment{}
+	if err := adminClient.Get(ctx, client.ObjectKey{
+		Name:      operatorDeployment,
+		Namespace: operatorNamespace,
+	}, deployment); err != nil {
+		ginkgo.GinkgoWriter.Printf("Could not read operator deployment for trusted CA config: %v\n", err)
+		return ""
+	}
+	for _, c := range deployment.Spec.Template.Spec.Containers {
+		for _, env := range c.Env {
+			if env.Name == trustedCAConfigMapEnvVar {
+				v := strings.TrimSpace(env.Value)
+				if v != "" {
+					return v
+				}
+			}
+		}
+		const prefix = "--trusted-ca-configmap="
+		for _, arg := range c.Args {
+			if strings.HasPrefix(arg, prefix) {
+				v := strings.TrimPrefix(arg, prefix)
+				if strings.Contains(v, "$(") {
+					continue // unresolved OLM/env substitution in spec
+				}
+				if trimmed := strings.TrimSpace(v); trimmed != "" {
+					return trimmed
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func configMapHasOwnerReference(cm *corev1.ConfigMap, uid types.UID) bool {
+	for _, ref := range cm.OwnerReferences {
+		if ref.UID == uid {
+			return true
+		}
+	}
+	return false
+}
+
+func containerHasTrustedCAMount(c corev1.Container) bool {
+	for _, m := range c.VolumeMounts {
+		if m.Name == trustedCAVolumeNameE2E && m.MountPath == trustedCAMountPathE2E {
+			return m.ReadOnly
+		}
+	}
+	return false
 }
 
 func createMustGatherCR(name, namespace, serviceAccountName string, retainResources bool, opts *MustGatherCROptions) *mustgatherv1alpha1.MustGather {
