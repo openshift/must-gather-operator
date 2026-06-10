@@ -217,9 +217,11 @@ func TestEnsureTrustedCAConfigMap(t *testing.T) {
 			},
 		},
 		{
-			name:     "emits warning and returns nil when source ConfigMap is missing",
-			instance: testMustGather("mg-no-source", testCRNamespace, instanceUID),
-			objects:  nil,
+			name:           "returns error when source ConfigMap is missing",
+			instance:       testMustGather("mg-no-source", testCRNamespace, instanceUID),
+			objects:        nil,
+			expectError:    true,
+			errorSubstring: "failed to get trustedCA ConfigMap from operator namespace",
 		},
 		{
 			name:     "returns error when checking existing ConfigMap fails",

@@ -544,12 +544,8 @@ func (r *MustGatherReconciler) ensureTrustedCAConfigMap(ctx context.Context, req
 	}, sourceConfigMap)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			reqLogger.Info("trustedCA ConfigMap not found in operator namespace, proceeding without trusted CA bundle",
+			reqLogger.Info("trustedCA ConfigMap not found in operator namespace",
 				"configMapName", r.TrustedCAConfigMap, "operatorNamespace", r.OperatorNamespace)
-			r.GetRecorder().Eventf(instance, "Warning", "TrustedCANotFound",
-				"trustedCA ConfigMap %q not found in operator namespace %q, proceeding without trusted CA bundle",
-				r.TrustedCAConfigMap, r.OperatorNamespace)
-			return nil
 		}
 
 		return fmt.Errorf("failed to get trustedCA ConfigMap from operator namespace: %w", err)
