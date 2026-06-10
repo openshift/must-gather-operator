@@ -217,11 +217,9 @@ func TestEnsureTrustedCAConfigMap(t *testing.T) {
 			},
 		},
 		{
-			name:           "returns error when source ConfigMap is missing",
-			instance:       testMustGather("mg-no-source", testCRNamespace, instanceUID),
-			objects:        nil,
-			expectError:    true,
-			errorSubstring: "failed to get trustedCA ConfigMap from operator namespace",
+			name:     "emits warning and returns nil when source ConfigMap is missing",
+			instance: testMustGather("mg-no-source", testCRNamespace, instanceUID),
+			objects:  nil,
 		},
 		{
 			name:     "returns error when checking existing ConfigMap fails",
@@ -487,6 +485,9 @@ func TestCleanupMustGatherResources_TrustedCA(t *testing.T) {
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: mg.Name, Namespace: testCRNamespace, UID: "job-uid",
+			OwnerReferences: []metav1.OwnerReference{{
+				UID: instanceUID,
+			}},
 		},
 	}
 	trustedCA := &corev1.ConfigMap{
@@ -519,6 +520,9 @@ func TestCleanupMustGatherResources_TrustedCAConfigMapCleanupError(t *testing.T)
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: mg.Name, Namespace: testCRNamespace, UID: "job-uid",
+			OwnerReferences: []metav1.OwnerReference{{
+				UID: instanceUID,
+			}},
 		},
 	}
 	trustedCA := &corev1.ConfigMap{

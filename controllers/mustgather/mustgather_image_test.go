@@ -18,6 +18,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
@@ -121,9 +122,9 @@ func TestGetMustGatherImage(t *testing.T) {
 			expectedImage: testCustomMustGatherImage,
 		},
 		{
-			name:     "returns error when ImageStream is not found",
-			instance: mustGatherWithImageStreamRef("mg-missing-is", testCRNamespace, imageStreamRef),
-			objects:  nil,
+			name:           "returns error when ImageStream is not found",
+			instance:       mustGatherWithImageStreamRef("mg-missing-is", testCRNamespace, imageStreamRef),
+			objects:        nil,
 			expectError:    true,
 			errorSubstring: "failed to get imagestream " + testImageStreamName,
 		},
@@ -241,7 +242,7 @@ func Test_getJobFromInstance_ImageStreamValidationErrors(t *testing.T) {
 		t.Setenv("OPERATOR_IMAGE", "quay.io/operator:latest")
 
 		r := newImageTestReconciler(t, []client.Object{instance}, interceptClient{})
-		_, err := r.getJobFromInstance(context.TODO(), instance)
+		_, err := r.getJobFromInstance(context.TODO(), logf.Log, instance)
 		if err == nil {
 			t.Fatal("expected error but got none")
 		}
@@ -253,18 +254,18 @@ func Test_getJobFromInstance_ImageStreamValidationErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("returns wrapped error when validation status update fails", func(t *testing.T) {
+	t.Run("returns image validation error even with failing status writer", func(t *testing.T) {
 		t.Setenv("OPERATOR_IMAGE", "quay.io/operator:latest")
 
 		r := newImageTestReconciler(t, []client.Object{instance}, interceptClient{
 			status: &failingStatusWriter{},
 		})
-		_, err := r.getJobFromInstance(context.TODO(), instance)
+		_, err := r.getJobFromInstance(context.TODO(), logf.Log, instance)
 		if err == nil {
 			t.Fatal("expected error but got none")
 		}
-		if !strings.Contains(err.Error(), "failed to set validation failure status for original error") {
-			t.Fatalf("expected wrapped status update error, got: %v", err)
+		if !strings.Contains(err.Error(), "image validation failed") {
+			t.Fatalf("expected image validation error, got: %v", err)
 		}
 		if !strings.Contains(err.Error(), "failed to get imagestream") {
 			t.Fatalf("expected original image error in wrap, got: %v", err)
