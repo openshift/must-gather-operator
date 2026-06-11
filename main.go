@@ -163,8 +163,9 @@ func main() {
 
 	// Discover the operator's service account name from the running pod.
 	// Falls back to config.OperatorName in local mode only.
-	// In cluster mode, discovery failure is fatal because the SA rejection guard
-	// would be ineffective if the operator doesn't know its own SA name.
+	// In cluster mode, the pod must be running as config.OperatorName;
+	// a mismatch is fatal because the SA rejection guard in the reconciler
+	// relies on knowing the correct operator SA name.
 	operatorSAName := config.OperatorName
 	if strings.ToLower(os.Getenv(ForceRunModeEnv)) != LocalRunMode {
 		podName := os.Getenv("POD_NAME")
@@ -184,8 +185,9 @@ func main() {
 			setupLog.Error(lookupErr, "could not look up operator pod for service account discovery", "podName", podName)
 			os.Exit(1)
 		}
-		if pod.Spec.ServiceAccountName == "" {
-			setupLog.Error(fmt.Errorf("pod has empty ServiceAccountName"), "operator SA discovery returned empty name")
+		if pod.Spec.ServiceAccountName != config.OperatorName {
+			setupLog.Error(fmt.Errorf("operator pod is running as service account %q, expected %q", pod.Spec.ServiceAccountName, config.OperatorName),
+				"operator service account mismatch")
 			os.Exit(1)
 		}
 		operatorSAName = pod.Spec.ServiceAccountName
