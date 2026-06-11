@@ -2515,13 +2515,39 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			var auditPVC *corev1.PersistentVolumeClaim
 			var auditMustGatherName string
 			var auditMustGatherCR *mustgatherv1alpha1.MustGather
+			var auditClusterRoleBinding *rbacv1.ClusterRoleBinding
 
 			ginkgo.BeforeAll(func() {
 				auditMustGatherName = fmt.Sprintf("mg-audit-pvc-%d", time.Now().UnixNano())
 				pvcName = fmt.Sprintf("audit-pvc-%d", time.Now().UnixNano())
+
+				// gather_audit_logs requires cluster-admin permissions to download
+				// audit logs from API server nodes.
+				auditClusterRoleBinding = &rbacv1.ClusterRoleBinding{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: fmt.Sprintf("audit-test-cluster-admin-%d", time.Now().UnixNano()),
+					},
+					RoleRef: rbacv1.RoleRef{
+						APIGroup: "rbac.authorization.k8s.io",
+						Kind:     "ClusterRole",
+						Name:     "cluster-admin",
+					},
+					Subjects: []rbacv1.Subject{
+						{
+							Kind:      "ServiceAccount",
+							Name:      serviceAccount,
+							Namespace: ns.Name,
+						},
+					},
+				}
+				err := adminClient.Create(testCtx, auditClusterRoleBinding)
+				Expect(err).NotTo(HaveOccurred(), "Failed to create cluster-admin binding for audit tests")
 			})
 
 			ginkgo.AfterAll(func() {
+				if auditClusterRoleBinding != nil {
+					_ = adminClient.Delete(testCtx, auditClusterRoleBinding)
+				}
 				if auditMustGatherCR != nil {
 					_ = nonAdminClient.Delete(testCtx, auditMustGatherCR)
 					Eventually(func() bool {
@@ -2638,7 +2664,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 								Image: operatorImage,
 								Command: []string{
 									"/bin/sh", "-c",
-									`ls -la /must-gather && find /must-gather -type d -name 'audit_logs' 2>/dev/null | grep . && find /must-gather -type d 2>/dev/null | head -30`,
+									`ls -laR /must-gather | grep audit_logs`,
 								},
 								SecurityContext: &corev1.SecurityContext{
 									AllowPrivilegeEscalation: func() *bool { b := false; return &b }(),
