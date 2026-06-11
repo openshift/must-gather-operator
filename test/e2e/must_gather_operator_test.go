@@ -2537,7 +2537,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				}
 			})
 
-			ginkgo.It("should bind PVC for audit storage", func() {
+			ginkgo.It("should create PVC for audit storage", func() {
 				auditPVC = &corev1.PersistentVolumeClaim{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      pvcName,
@@ -2557,18 +2557,14 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					ginkgo.Skip(fmt.Sprintf("Skip: Cannot create PVC (no StorageClass available): %v", err))
 				}
 
-				Eventually(func() corev1.PersistentVolumeClaimPhase {
+				Eventually(func() error {
 					pvc := &corev1.PersistentVolumeClaim{}
-					if err := adminClient.Get(testCtx, client.ObjectKey{
+					return adminClient.Get(testCtx, client.ObjectKey{
 						Name:      pvcName,
 						Namespace: ns.Name,
-					}, pvc); err != nil {
-						return ""
-					}
-					return pvc.Status.Phase
-				}).WithTimeout(3*time.Minute).WithPolling(5*time.Second).Should(
-					Equal(corev1.ClaimBound),
-					"PVC should become Bound")
+					}, pvc)
+				}).WithTimeout(1*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+					"PVC should be created")
 			})
 
 			ginkgo.It("should create and complete audit gather Job with PVC", func() {
@@ -2591,6 +2587,19 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					}, job)
 				}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
 					"Job should be created")
+
+				Eventually(func() corev1.PersistentVolumeClaimPhase {
+					pvc := &corev1.PersistentVolumeClaim{}
+					if err := adminClient.Get(testCtx, client.ObjectKey{
+						Name:      pvcName,
+						Namespace: ns.Name,
+					}, pvc); err != nil {
+						return ""
+					}
+					return pvc.Status.Phase
+				}).WithTimeout(3*time.Minute).WithPolling(5*time.Second).Should(
+					Equal(corev1.ClaimBound),
+					"PVC should become Bound after Job pod is scheduled")
 
 				Eventually(func() bool {
 					if err := nonAdminClient.Get(testCtx, client.ObjectKey{
