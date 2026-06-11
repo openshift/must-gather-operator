@@ -2663,6 +2663,8 @@ func redactProxyURL(raw string) string {
 		u.User = url.UserPassword("<redacted>", "<redacted>")
 	}
 	return u.String()
+}
+
 func imageStreamTagIsPullable(imageStream *imagev1.ImageStream, tagName string) bool {
 	for _, tag := range imageStream.Status.Tags {
 		if tag.Tag == tagName {
