@@ -2611,6 +2611,9 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					return job.Status.Succeeded > 0 || job.Status.Failed > 0
 				}).WithTimeout(10*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
 					"Job should complete")
+
+				Expect(job.Status.Succeeded).To(BeNumerically(">", 0),
+					"Audit gather Job should succeed, not fail")
 			})
 
 			ginkgo.It("should contain audit_logs directory on PVC", func() {
