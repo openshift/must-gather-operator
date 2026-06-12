@@ -48,8 +48,6 @@ import (
 	"github.com/openshift/must-gather-operator/controllers/mustgather"
 	"github.com/openshift/must-gather-operator/pkg/k8sutil"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	//+kubebuilder:scaffold:imports
 )
@@ -161,38 +159,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Discover the operator's service account name from the running pod.
+	// Discover the operator's service account name via the Downward API
+	// (OPERATOR_SERVICE_ACCOUNT env var set from spec.serviceAccountName).
 	// Falls back to config.OperatorName in local mode only.
-	// In cluster mode, the pod must be running as config.OperatorName;
-	// a mismatch is fatal because the SA rejection guard in the reconciler
-	// relies on knowing the correct operator SA name.
-	operatorSAName := config.OperatorName
-	if strings.ToLower(os.Getenv(ForceRunModeEnv)) != LocalRunMode {
-		podName := os.Getenv("POD_NAME")
-		if podName == "" {
-			hostname, hostnameErr := os.Hostname()
-			if hostnameErr != nil {
-				setupLog.Error(hostnameErr, "could not get hostname for operator SA discovery")
-				os.Exit(1)
-			}
-			podName = hostname
-		}
-		pod := &corev1.Pod{}
-		if lookupErr := mgr.GetAPIReader().Get(ctx, types.NamespacedName{
-			Name:      podName,
-			Namespace: operatorNamespace,
-		}, pod); lookupErr != nil {
-			setupLog.Error(lookupErr, "could not look up operator pod for service account discovery", "podName", podName)
+	operatorSAName := os.Getenv("OPERATOR_SERVICE_ACCOUNT")
+	if operatorSAName == "" {
+		if strings.ToLower(os.Getenv(ForceRunModeEnv)) == LocalRunMode {
+			operatorSAName = config.OperatorName
+		} else {
+			setupLog.Error(fmt.Errorf("OPERATOR_SERVICE_ACCOUNT environment variable not set"), "unable to discover operator service account")
 			os.Exit(1)
 		}
-		if pod.Spec.ServiceAccountName != config.OperatorName {
-			setupLog.Error(fmt.Errorf("operator pod is running as service account %q, expected %q", pod.Spec.ServiceAccountName, config.OperatorName),
-				"operator service account mismatch")
-			os.Exit(1)
-		}
-		operatorSAName = pod.Spec.ServiceAccountName
-		setupLog.Info("discovered operator service account", "name", operatorSAName)
 	}
+	setupLog.Info("operator service account", "name", operatorSAName)
 
 	if err = (&mustgather.MustGatherReconciler{
 		ReconcilerBase:             util.NewReconcilerBase(mgr.GetClient(), mgr.GetScheme(), mgr.GetConfig(), mgr.GetEventRecorderFor("must-gather-controller"), mgr.GetAPIReader()),
