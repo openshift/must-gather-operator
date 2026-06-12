@@ -159,11 +159,26 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Discover the operator's service account name via the Downward API
+	// (OPERATOR_SERVICE_ACCOUNT env var set from spec.serviceAccountName).
+	// Falls back to config.OperatorName in local mode only.
+	operatorSAName := os.Getenv("OPERATOR_SERVICE_ACCOUNT")
+	if operatorSAName == "" {
+		if strings.ToLower(os.Getenv(ForceRunModeEnv)) == LocalRunMode {
+			operatorSAName = config.OperatorName
+		} else {
+			setupLog.Error(fmt.Errorf("OPERATOR_SERVICE_ACCOUNT environment variable not set"), "unable to discover operator service account")
+			os.Exit(1)
+		}
+	}
+	setupLog.Info("operator service account", "name", operatorSAName)
+
 	if err = (&mustgather.MustGatherReconciler{
-		ReconcilerBase:         util.NewReconcilerBase(mgr.GetClient(), mgr.GetScheme(), mgr.GetConfig(), mgr.GetEventRecorderFor("must-gather-controller"), mgr.GetAPIReader()),
-		TrustedCAConfigMap:     trustedCAConfigMapName,
-		OperatorNamespace:      operatorNamespace,
-		DefaultMustGatherImage: defaultMustGatherImage,
+		ReconcilerBase:             util.NewReconcilerBase(mgr.GetClient(), mgr.GetScheme(), mgr.GetConfig(), mgr.GetEventRecorderFor("must-gather-controller"), mgr.GetAPIReader()),
+		TrustedCAConfigMap:         trustedCAConfigMapName,
+		OperatorNamespace:          operatorNamespace,
+		DefaultMustGatherImage:     defaultMustGatherImage,
+		OperatorServiceAccountName: operatorSAName,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MustGather")
 		os.Exit(1)

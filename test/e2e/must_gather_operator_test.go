@@ -113,6 +113,7 @@ var (
 	nonAdminClient    client.Client
 	nonAdminClientset *kubernetes.Clientset
 	operatorImage     string
+	operatorSAName    string
 	setupComplete     bool
 )
 
@@ -147,6 +148,11 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		operatorImage, err = getOperatorImage()
 		Expect(err).NotTo(HaveOccurred(), "Failed to get operator image")
 		ginkgo.GinkgoWriter.Printf("Operator image: %s\n", operatorImage)
+
+		ginkgo.By("Discovering operator service account name")
+		operatorSAName, err = getOperatorServiceAccountName()
+		Expect(err).NotTo(HaveOccurred(), "Failed to get operator service account name")
+		ginkgo.GinkgoWriter.Printf("Operator service account: %s\n", operatorSAName)
 
 		ginkgo.By("STEP 2: Creates test namespace")
 		namespace, err := loader.CreateTestNS("must-gather-operator-e2e", false)
@@ -766,6 +772,115 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			Expect(foundWarningEvent).To(BeTrue(), "Warning event should be generated for missing ServiceAccount")
 
 			ginkgo.GinkgoWriter.Println("ServiceAccount validation correctly prevented Job creation and reported error")
+		})
+
+		ginkgo.It("should reject operator service account in operator namespace", func() {
+			mustGatherName := fmt.Sprintf("test-operator-sa-reject-%d", time.Now().UnixNano())
+
+			ginkgo.By("Ensuring SA with operator name exists so the test is resilient to validation ordering")
+			operatorSA := &corev1.ServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      operatorSAName,
+					Namespace: operatorNamespace,
+				},
+			}
+			err := adminClient.Create(testCtx, operatorSA)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			ginkgo.By("Creating MustGather with operator SA name in the operator namespace")
+			mgReject := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: operatorNamespace,
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: operatorSAName,
+				},
+			}
+			err = adminClient.Create(testCtx, mgReject)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = adminClient.Delete(testCtx, mgReject) }()
+
+			ginkgo.By("Verifying MustGather status reports operator SA rejection")
+			Eventually(func() bool {
+				fetchedMG := &mustgatherv1alpha1.MustGather{}
+				err := adminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: operatorNamespace,
+				}, fetchedMG)
+				if err != nil {
+					return false
+				}
+				for _, cond := range fetchedMG.Status.Conditions {
+					if cond.Type == "ReconcileError" && cond.Status == metav1.ConditionTrue {
+						if strings.Contains(cond.Message, "operator's own service account cannot be used") {
+							ginkgo.GinkgoWriter.Printf("Found expected error condition: %s\n", cond.Message)
+							return true
+						}
+					}
+				}
+				return false
+			}).WithTimeout(1*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
+				"MustGather should be rejected when using operator SA in operator namespace")
+
+			ginkgo.By("Verifying Job was not created")
+			job := &batchv1.Job{}
+			err = adminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: operatorNamespace,
+			}, job)
+			Expect(apierrors.IsNotFound(err)).To(BeTrue(),
+				"Job should not be created when operator SA is used in operator namespace")
+
+			ginkgo.GinkgoWriter.Println("Operator SA rejection correctly enforced in operator namespace")
+		})
+
+		ginkgo.It("should allow operator service account name in different namespace", func() {
+			mustGatherName := fmt.Sprintf("test-operator-sa-%d", time.Now().UnixNano())
+
+			ginkgo.By("Creating a ServiceAccount with the operator's name in the test namespace")
+			operatorNamedSA := &corev1.ServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      operatorSAName,
+					Namespace: ns.Name,
+				},
+			}
+			err := adminClient.Create(testCtx, operatorNamedSA)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create ServiceAccount with operator name in test namespace")
+
+			ginkgo.By("Creating MustGather with operator service account name in a non-operator namespace")
+			mg = createMustGatherCR(mustGatherName, ns.Name, operatorSAName, false, nil)
+
+			ginkgo.By("Verifying MustGather is accepted and Job is created without operator SA rejection")
+			Eventually(func() bool {
+				fetchedMG := &mustgatherv1alpha1.MustGather{}
+				if err := adminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, fetchedMG); err != nil {
+					return false
+				}
+				for _, cond := range fetchedMG.Status.Conditions {
+					if cond.Type == "ReconcileError" && cond.Status == metav1.ConditionTrue {
+						if strings.Contains(cond.Message, "operator's own service account cannot be used") {
+							ginkgo.Fail("MustGather was rejected with operator SA error in non-operator namespace")
+						}
+					}
+				}
+				job := &batchv1.Job{}
+				if err := adminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job); err != nil {
+					return false
+				}
+				return true
+			}).WithTimeout(1*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
+				"Job should be created and no operator SA rejection should occur in a different namespace")
+
+			ginkgo.GinkgoWriter.Println("Operator SA name correctly allowed in non-operator namespace")
 		})
 
 		ginkgo.It("should enforce ServiceAccount permissions during data collection", func() {
@@ -2384,6 +2499,25 @@ func readOfflineTokenFromVault() (string, error) {
 	return "", fmt.Errorf("offline token file %q is empty", path)
 }
 
+// getOperatorServiceAccountName retrieves the service account name from the operator deployment's pod template.
+// Falls back to "default" if the deployment doesn't specify one.
+func getOperatorServiceAccountName() (string, error) {
+	deployment := &appsv1.Deployment{}
+	err := adminClient.Get(testCtx, client.ObjectKey{
+		Name:      operatorDeployment,
+		Namespace: operatorNamespace,
+	}, deployment)
+	if err != nil {
+		return "", fmt.Errorf("failed to get operator deployment: %w", err)
+	}
+
+	saName := deployment.Spec.Template.Spec.ServiceAccountName
+	if saName == "" {
+		return "default", nil
+	}
+	return saName, nil
+}
+
 // getOperatorImage retrieves the OPERATOR_IMAGE from the must-gather-operator deployment
 func getOperatorImage() (string, error) {
 	deployment := &appsv1.Deployment{}
@@ -2714,6 +2848,26 @@ func createImageStream(name, imageName, tagName string) {
 	}
 	err := adminClient.Create(testCtx, imageStream)
 	Expect(err).NotTo(HaveOccurred(), "Failed to create ImageStream")
+
+	// Wait for the image import to populate Status.Tags.
+	// The operator reads Status.Tags (not Spec.Tags) to resolve the image,
+	// and the import is asynchronous.
+	Eventually(func() bool {
+		is := &imagev1.ImageStream{}
+		if err := adminClient.Get(testCtx, client.ObjectKey{
+			Name:      name,
+			Namespace: operatorNamespace,
+		}, is); err != nil {
+			return false
+		}
+		for _, tag := range is.Status.Tags {
+			if tag.Tag == tagName && len(tag.Items) > 0 && tag.Items[0].DockerImageReference != "" {
+				return true
+			}
+		}
+		return false
+	}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
+		"Timed out waiting for ImageStream %s tag %s to be imported", name, tagName)
 }
 
 func deleteImageStream(name string) {

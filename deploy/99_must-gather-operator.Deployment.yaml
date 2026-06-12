@@ -52,5 +52,9 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: OPERATOR_SERVICE_ACCOUNT
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.serviceAccountName
             - name: WATCH_NAMESPACE
               value: ""
