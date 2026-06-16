@@ -153,10 +153,8 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	// Reject the operator's own service account before any other validation.
 	// This runs on every reconcile (even if a Job already exists) so that
 	// pre-existing CRs created before this check was introduced are flagged.
+	// Note: serviceAccountName is now a required field (MG-265), so no fallback is needed.
 	saName := instance.Spec.ServiceAccountName
-	if saName == "" {
-		saName = "default"
-	}
 
 	if instance.Namespace == r.OperatorNamespace && saName == r.OperatorServiceAccountName {
 		validationErr := fmt.Errorf("serviceAccountName %q is not allowed in namespace %q: the operator's own service account cannot be used for must-gather jobs", saName, instance.Namespace)

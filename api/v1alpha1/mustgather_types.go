@@ -25,13 +25,15 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // MustGatherSpec defines the desired state of MustGather
-// +kubebuilder:validation:XValidation:rule="!(has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.audit) && self.gatherSpec.audit)",message="audit cannot be enabled when using a custom image (imageStreamRef)"
-// +kubebuilder:validation:XValidation:rule="!(!has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0 && has(self.gatherSpec.audit) && self.gatherSpec.audit)",message="audit cannot be enabled when gatherSpec.command is set with the default must-gather image"
+// +kubebuilder:validation:XValidation:rule="!has(self.gatherSpec) || !self.gatherSpec.audit || !has(self.imageStreamRef)",message="audit mode is only supported with the default must-gather image"
+// +kubebuilder:validation:XValidation:rule="!has(self.gatherSpec) || !self.gatherSpec.audit || !has(self.gatherSpec.command) || size(self.gatherSpec.command) == 0 || has(self.imageStreamRef)",message="audit mode cannot be combined with custom gather commands"
 type MustGatherSpec struct {
-	// the service account to use to run the must gather job pod, defaults to default
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:="default"
-	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+	// ServiceAccountName is the name of the ServiceAccount to use for running the must-gather Job.
+	// This field is required and must reference a ServiceAccount with sufficient RBAC permissions
+	// to collect cluster data. The operator will verify the ServiceAccount exists before creating the Job.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	ServiceAccountName string `json:"serviceAccountName"`
 
 	// ImageStreamRef specifies a custom image from the allowlist to be used for the
 	// must-gather run.
