@@ -18,9 +18,8 @@ package mustgather
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
-	"math/big"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -37,23 +36,18 @@ const (
 	clusterIDSuffixLength = 12
 	// timestampFormat is the Go time layout for the directory name timestamp (matches oc adm must-gather)
 	timestampFormat = "20060102T150405Z"
-	// randomIDDigits is the number of digits in the random suffix
-	randomIDDigits = 6
 )
 
 // generateMustGatherDirectoryName generates a directory name following the same convention as oc adm must-gather.
-// Format: must-gather.local.<cluster-id-suffix>.<timestamp>.<random>
-// If cluster ID is unavailable: must-gather.local.<timestamp>.<random>
-//
-// This ensures consistency across all must-gather collection methods.
-func generateMustGatherDirectoryName(ctx context.Context, c client.Client) (string, error) {
+// Format: must-gather.local.<random>.<cluster-id-suffix>.<timestamp>
+// If cluster ID is unavailable: must-gather.local.<random>.<timestamp>
+func generateMustGatherDirectoryName(ctx context.Context, c client.Client, now time.Time) string {
 	parts := []string{"must-gather.local"}
 
-	// Try to get cluster ID suffix
+	parts = append(parts, generateRandomSuffix())
+
 	clusterIDSuffix, err := getClusterIDSuffix(ctx, c)
 	if err != nil {
-		// Log warning but continue without cluster ID
-		// This is not a fatal error - we fall back to timestamp+random
 		log.V(2).Info("Unable to retrieve cluster ID, continuing without it", "error", err)
 	}
 
@@ -61,18 +55,12 @@ func generateMustGatherDirectoryName(ctx context.Context, c client.Client) (stri
 		parts = append(parts, clusterIDSuffix)
 	}
 
-	// Add UTC timestamp
-	timestamp := time.Now().UTC().Format(timestampFormat)
-	parts = append(parts, timestamp)
-
-	// Add random 6-digit suffix for uniqueness
-	randomSuffix := generateRandomSuffix()
-	parts = append(parts, randomSuffix)
+	parts = append(parts, now.UTC().Format(timestampFormat))
 
 	dirName := strings.Join(parts, ".")
 	log.V(1).Info("Generated must-gather directory name", "hasClusterID", clusterIDSuffix != "")
 
-	return dirName, nil
+	return dirName
 }
 
 // getClusterIDSuffix retrieves the last 12 characters of the cluster ID from the ClusterVersion resource.
@@ -104,9 +92,5 @@ func getClusterIDSuffix(ctx context.Context, c client.Client) (string, error) {
 }
 
 func generateRandomSuffix() string {
-	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
-	if err != nil {
-		return "000000"
-	}
-	return fmt.Sprintf("%06d", n.Int64())
+	return fmt.Sprintf("%06d", rand.Int63())
 }
