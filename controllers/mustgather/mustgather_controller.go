@@ -84,6 +84,7 @@ var errImageValidation = goerror.New("image validation failed")
 //+kubebuilder:rbac:groups="",resources=pods;services;services/finalizers;endpoints;persistentvolumeclaims;events;configmaps;secrets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch
 // ServiceAccount read access needed for pre-flight validation before Job creation
+//+kubebuilder:rbac:groups=agentic.openshift.io,resources=proposals,verbs=get;create
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -315,6 +316,16 @@ func (r *MustGatherReconciler) handleJobCompletion(ctx context.Context, reqLogge
 	if err != nil {
 		reqLogger.Error(err, "unable to update instance", "instance", instance.Name)
 		return r.ManageError(ctx, instance, err)
+	}
+
+	// If the job succeeded, try to create an IntelliAide Proposal.
+	// Proposal creation is best-effort: failures are logged but do not
+	// block MustGather completion or resource cleanup.
+	if status == "Completed" {
+		if err := r.createIntelliAideProposal(ctx, instance); err != nil {
+			reqLogger.Error(err, "failed to create IntelliAide proposal — continuing with cleanup",
+				"mustgather", instance.Name)
+		}
 	}
 
 	if instance.Spec.RetainResourcesOnCompletion == nil || !*instance.Spec.RetainResourcesOnCompletion {

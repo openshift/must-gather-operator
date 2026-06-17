@@ -112,3 +112,11 @@ rules:
       - get
       - list
       - watch
+  # IntelliAide adapter: create Proposal CRs when Lightspeed is installed
+  - apiGroups:
+      - "agentic.openshift.io"
+    resources:
+      - proposals
+    verbs:
+      - get
+      - create

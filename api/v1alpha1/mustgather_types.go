@@ -67,6 +67,14 @@ type MustGatherSpec struct {
 	// the tar archive on the cluster.
 	// +optional
 	Storage *Storage `json:"storage,omitempty"`
+
+	// IntelliAideEnabled, when true, automatically creates a Lightspeed
+	// Proposal CR for IntelliAide root-cause analysis after a successful
+	// must-gather collection. Requires spec.storage to be set so the
+	// collected data persists in a PVC for the agent to read.
+	// +kubebuilder:default:=false
+	// +optional
+	IntelliAideEnabled *bool `json:"intelliAideEnabled,omitempty"`
 }
 
 // GatherSpec allows specifying the execution details for a must-gather run and the collection behavior.
