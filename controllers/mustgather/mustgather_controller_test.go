@@ -878,7 +878,7 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "reconcile_empty_service_account_name_defaults_to_default",
+			name: "reconcile_empty_service_account_name_validation_fails",
 			setupEnv: func(t *testing.T) {
 				t.Setenv("OPERATOR_IMAGE", "img")
 			},
@@ -886,47 +886,7 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						// ServiceAccountName is empty, should validate "default" SA exists
-						ServiceAccountName: "",
-					},
-				}
-				// Create "default" service account that should be validated
-				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
-				cv := &configv1.ClusterVersion{
-					ObjectMeta: metav1.ObjectMeta{Name: "version"},
-					Status: configv1.ClusterVersionStatus{
-						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
-					},
-				}
-				return []client.Object{mg, sa, cv}
-			},
-			interceptors: func() interceptClient { return interceptClient{} },
-			expectError:  false,
-			expectResult: reconcile.Result{},
-			postTestChecks: func(t *testing.T, cl client.Client) {
-				// Verify the Job was created successfully, proving the validation passed
-				// When ServiceAccountName is empty, the controller validates "default" SA exists
-				job := &batchv1.Job{}
-				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err != nil {
-					t.Fatalf("expected job to be created when 'default' service account exists: %v", err)
-				}
-				// The job's ServiceAccountName will match the MustGather spec (empty string)
-				// Kubernetes will implicitly use "default" when the field is empty
-				if job.Spec.Template.Spec.ServiceAccountName != "" {
-					t.Fatalf("expected job ServiceAccountName to be empty (matching spec), got: %q", job.Spec.Template.Spec.ServiceAccountName)
-				}
-			},
-		},
-		{
-			name: "reconcile_empty_service_account_name_default_not_found_calls_manage_error",
-			setupEnv: func(t *testing.T) {
-				t.Setenv("OPERATOR_IMAGE", "img")
-			},
-			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
-					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
-						// ServiceAccountName is empty, should try to validate "default" SA
+						// serviceAccountName is required at the CRD level; this tests the controller's defense-in-depth SA validation
 						ServiceAccountName: "",
 					},
 				}
@@ -936,7 +896,6 @@ func TestReconcile(t *testing.T) {
 						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
 					},
 				}
-				// Note: Not creating "default" SA to simulate it being deleted
 				return []client.Object{mg, cv}
 			},
 			interceptors: func() interceptClient { return interceptClient{} },
@@ -959,7 +918,7 @@ func TestReconcile(t *testing.T) {
 				// Verify Job was not created
 				job := &batchv1.Job{}
 				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err == nil {
-					t.Fatalf("expected job to not be created when 'default' service account is missing")
+					t.Fatalf("expected job to not be created when service account name is empty")
 				}
 			},
 		},
@@ -1866,6 +1825,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					Finalizers: []string{mustGatherFinalizer},
 				},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -1905,6 +1865,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					Finalizers: []string{mustGatherFinalizer},
 				},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -1943,6 +1904,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					Finalizers: []string{mustGatherFinalizer},
 				},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -1982,6 +1944,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					Finalizers: []string{mustGatherFinalizer},
 				},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -2021,6 +1984,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					Finalizers: []string{mustGatherFinalizer},
 				},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -2062,6 +2026,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					Finalizers: []string{mustGatherFinalizer},
 				},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -2105,6 +2070,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					Finalizers: []string{mustGatherFinalizer},
 				},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -2130,7 +2096,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			t.Setenv("OPERATOR_IMAGE", "test-image")
 
 			// Create fake client with test objects
-			// Include a ServiceAccount since the controller validates it before SFTP validation
+			// Include a "default" ServiceAccount matching the spec; the controller validates it exists before SFTP validation
 			sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: tt.mustgather.Namespace}}
 			objects := []client.Object{tt.mustgather, tt.secret, sa}
 			cl := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).WithStatusSubresource(&mustgatherv1alpha1.MustGather{}).Build()
