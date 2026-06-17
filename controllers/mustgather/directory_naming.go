@@ -70,7 +70,7 @@ func generateMustGatherDirectoryName(ctx context.Context, c client.Client) (stri
 	parts = append(parts, randomSuffix)
 
 	dirName := strings.Join(parts, ".")
-	log.V(1).Info("Generated must-gather directory name", "directoryName", dirName, "hasClusterID", clusterIDSuffix != "")
+	log.V(1).Info("Generated must-gather directory name", "hasClusterID", clusterIDSuffix != "")
 
 	return dirName, nil
 }
