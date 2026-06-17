@@ -18,8 +18,9 @@ package mustgather
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"strings"
 	"time"
 
@@ -102,10 +103,10 @@ func getClusterIDSuffix(ctx context.Context, c client.Client) (string, error) {
 	return clusterID[len(clusterID)-clusterIDSuffixLength:], nil
 }
 
-// generateRandomSuffix generates a 6-digit random number string (000000-999999)
 func generateRandomSuffix() string {
-	// Generate random number in range [0, 1000000)
-	randomInt := rand.Int63n(1000000)
-	// Format as 6-digit zero-padded string
-	return fmt.Sprintf("%06d", randomInt)
+	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		return "000000"
+	}
+	return fmt.Sprintf("%06d", n.Int64())
 }
