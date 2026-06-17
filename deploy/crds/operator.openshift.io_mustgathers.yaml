@@ -233,10 +233,12 @@ spec:
             type: object
             x-kubernetes-validations:
             - message: audit mode is only supported with the default must-gather image
-              rule: '!has(self.gatherSpec) || !self.gatherSpec.audit || !has(self.imageStreamRef)'
+              rule: '!has(self.gatherSpec) || !has(self.gatherSpec.audit) || !self.gatherSpec.audit
+                || !has(self.imageStreamRef)'
             - message: audit mode cannot be combined with custom gather commands
-              rule: '!has(self.gatherSpec) || !self.gatherSpec.audit || !has(self.gatherSpec.command)
-                || size(self.gatherSpec.command) == 0 || has(self.imageStreamRef)'
+              rule: '!has(self.gatherSpec) || !has(self.gatherSpec.audit) || !self.gatherSpec.audit
+                || !has(self.gatherSpec.command) || size(self.gatherSpec.command) == 0
+                || has(self.imageStreamRef)'
           status:
             description: MustGatherStatus defines the observed state of MustGather
             properties:
