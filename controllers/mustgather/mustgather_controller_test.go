@@ -1486,7 +1486,8 @@ func TestReconcile(t *testing.T) {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ImageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{Name: "my-is", Tag: "v2"},
+						ServiceAccountName: "default",
+						ImageStreamRef:     &mustgatherv1alpha1.ImageStreamTagRef{Name: "my-is", Tag: "v2"},
 					},
 				}
 				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}

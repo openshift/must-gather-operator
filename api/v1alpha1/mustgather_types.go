@@ -233,7 +233,8 @@ type MustGather struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   MustGatherSpec   `json:"spec,omitempty"`
+	// +kubebuilder:validation:Required
+	Spec   MustGatherSpec   `json:"spec"`
 	Status MustGatherStatus `json:"status,omitempty"`
 }
 
