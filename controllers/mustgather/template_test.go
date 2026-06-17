@@ -216,7 +216,7 @@ func Test_getGatherContainer(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			container := getGatherContainer(tt.mustGatherImage, tt.audit, tt.timeout, tt.storage, tt.caConfigMap, tt.timeFilter, tt.command, tt.args)
+			container := getGatherContainer(tt.mustGatherImage, tt.audit, tt.timeout, tt.storage, tt.caConfigMap, tt.timeFilter, tt.command, tt.args, "must-gather.local.test.20240101T120000Z.000001")
 
 			if len(tt.command) == 0 {
 				containerCommand := container.Command[2]
@@ -589,7 +589,7 @@ func Test_getJobTemplate_GatherSpec_BuildsTimeFilter(t *testing.T) {
 				},
 			}
 
-			job := getJobTemplate("img", "operator-image", mg, "")
+			job := getJobTemplate("img", "operator-image", mg, "", "must-gather.local.test.20240101T120000Z.000001")
 			gather := findGatherContainerInJob(t, job)
 			got := envValues(gather)
 
@@ -675,7 +675,7 @@ func Test_getJobTemplate_ProxyAuditTimeout(t *testing.T) {
 				},
 			}
 
-			job := getJobTemplate("image", "operator-image", mg, "")
+			job := getJobTemplate("image", "operator-image", mg, "", "must-gather.local.test.20240101T120000Z.000001")
 
 			gather := findGatherContainerInJob(t, job)
 			gatherCmd := gather.Command[2]

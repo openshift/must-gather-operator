@@ -410,7 +410,14 @@ func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, reqLogger
 		return nil, err
 	}
 
-	return getJobTemplate(image, operatorImage, *instance, r.TrustedCAConfigMap), nil
+	// Generate the must-gather directory name following the oc adm must-gather convention
+	directoryName, err := generateMustGatherDirectoryName(ctx, r.GetClient())
+	if err != nil {
+		reqLogger.Error(err, "Failed to generate must-gather directory name")
+		return nil, fmt.Errorf("failed to generate must-gather directory name: %w", err)
+	}
+
+	return getJobTemplate(image, operatorImage, *instance, r.TrustedCAConfigMap, directoryName), nil
 }
 
 func (r *MustGatherReconciler) getMustGatherImage(ctx context.Context, instance *mustgatherv1alpha1.MustGather) (string, error) {

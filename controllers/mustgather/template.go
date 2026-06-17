@@ -36,6 +36,9 @@ const (
 	gatherEnvSince     = "MUST_GATHER_SINCE"
 	gatherEnvSinceTime = "MUST_GATHER_SINCE_TIME"
 
+	// Environment variable for must-gather output directory name
+	gatherEnvDestDir = "MUST_GATHER_DEST_DIR"
+
 	backoffLimit              = 3
 	uploadContainerName       = "upload"
 	uploadEnvUsername         = "username"
@@ -87,7 +90,7 @@ type GatherTimeFilter struct {
 	SinceTime *time.Time
 }
 
-func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.MustGather, trustedCAConfigMapName string) *batchv1.Job {
+func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.MustGather, trustedCAConfigMapName string, directoryName string) *batchv1.Job {
 	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, mustGather.Spec.ServiceAccountName, mustGather.Spec.Storage, trustedCAConfigMapName)
 
 	var httpProxy, httpsProxy, noProxy string
@@ -136,7 +139,7 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 
 	job.Spec.Template.Spec.Containers = append(
 		job.Spec.Template.Spec.Containers,
-		getGatherContainer(image, audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName, timeFilter, command, args),
+		getGatherContainer(image, audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName, timeFilter, command, args, directoryName),
 	)
 
 	// Add the upload container only if the upload target is specified
@@ -243,7 +246,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 	}
 }
 
-func getGatherContainer(image string, audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string, timeFilter *GatherTimeFilter, command []string, args []string) corev1.Container {
+func getGatherContainer(image string, audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string, timeFilter *GatherTimeFilter, command []string, args []string, directoryName string) corev1.Container {
 	var commandBinary string
 	if audit {
 		commandBinary = gatherCommandBinaryAudit
@@ -310,6 +313,15 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 				Value: timeFilter.SinceTime.Format(time.RFC3339),
 			})
 		}
+	}
+
+	// Add must-gather directory name environment variable
+	// This follows the same naming convention as oc adm must-gather
+	if directoryName != "" {
+		container.Env = append(container.Env, corev1.EnvVar{
+			Name:  gatherEnvDestDir,
+			Value: directoryName,
+		})
 	}
 
 	return container
