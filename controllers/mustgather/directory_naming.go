@@ -91,5 +91,5 @@ func getClusterIDSuffix(ctx context.Context, c client.Client) (string, error) {
 }
 
 func generateRandomSuffix() string {
-	return fmt.Sprintf("%06d", rand.Int63())
+	return fmt.Sprintf("%06d", rand.Int63()) //nolint:gosec // not security-sensitive, matches oc adm must-gather convention
 }
