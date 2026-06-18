@@ -198,7 +198,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			if goerror.Is(err, errImageValidation) {
 				return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationImageStream, err)
 			}
-			reqLogger.Error(err, "unable to get job from", "instance", instance)
+			reqLogger.Error(err, "unable to get job from instance", "name", instance.Name, "namespace", instance.Namespace)
 			return r.ManageError(ctx, instance, err)
 		}
 

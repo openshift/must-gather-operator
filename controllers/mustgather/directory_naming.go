@@ -39,12 +39,10 @@ const (
 )
 
 // generateMustGatherDirectoryName generates a directory name following the same convention as oc adm must-gather.
-// Format: must-gather.local.<random>.<cluster-id-suffix>.<timestamp>
-// If cluster ID is unavailable: must-gather.local.<random>.<timestamp>
+// Format: must-gather.local.<cluster-id-suffix>.<timestamp>.<random>
+// If cluster ID is unavailable: must-gather.local.<timestamp>.<random>
 func generateMustGatherDirectoryName(ctx context.Context, c client.Client, now time.Time) string {
 	parts := []string{"must-gather.local"}
-
-	parts = append(parts, generateRandomSuffix())
 
 	clusterIDSuffix, err := getClusterIDSuffix(ctx, c)
 	if err != nil {
@@ -56,6 +54,7 @@ func generateMustGatherDirectoryName(ctx context.Context, c client.Client, now t
 	}
 
 	parts = append(parts, now.UTC().Format(timestampFormat))
+	parts = append(parts, generateRandomSuffix())
 
 	dirName := strings.Join(parts, ".")
 	log.V(1).Info("Generated must-gather directory name", "hasClusterID", clusterIDSuffix != "")

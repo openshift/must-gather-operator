@@ -32,12 +32,12 @@ import (
 
 func TestGenerateMustGatherDirectoryName(t *testing.T) {
 	// Pattern for directory name with cluster ID:
-	// must-gather.local.<random>.<cluster-id-up-to-12-chars>.<timestamp-YYYYMMDDTHHMMSSZ>
-	patternWithClusterID := regexp.MustCompile(`^must-gather\.local\.\d{6,}\.[a-zA-Z0-9-]{1,12}\.\d{8}T\d{6}Z$`)
+	// must-gather.local.<cluster-id-up-to-12-chars>.<timestamp-YYYYMMDDTHHMMSSZ>.<random>
+	patternWithClusterID := regexp.MustCompile(`^must-gather\.local\.[a-zA-Z0-9-]{1,12}\.\d{8}T\d{6}Z\.\d{6,}$`)
 
 	// Pattern for directory name without cluster ID:
-	// must-gather.local.<random>.<timestamp-YYYYMMDDTHHMMSSZ>
-	patternWithoutClusterID := regexp.MustCompile(`^must-gather\.local\.\d{6,}\.\d{8}T\d{6}Z$`)
+	// must-gather.local.<timestamp-YYYYMMDDTHHMMSSZ>.<random>
+	patternWithoutClusterID := regexp.MustCompile(`^must-gather\.local\.\d{8}T\d{6}Z\.\d{6,}$`)
 
 	fixedTime := time.Date(2026, 6, 17, 14, 30, 25, 0, time.UTC)
 
@@ -144,7 +144,7 @@ func TestGenerateMustGatherDirectoryName(t *testing.T) {
 					if len(parts) < 4 {
 						t.Fatalf("expected at least 4 parts in directory name, got %d: %s", len(parts), dirName)
 					}
-					actualSuffix := parts[3] // must-gather.local.<random>.<suffix>.<timestamp>
+					actualSuffix := parts[2] // must-gather.local.<suffix>.<timestamp>.<random>
 
 					if actualSuffix != expectedSuffix {
 						t.Fatalf("expected cluster ID suffix %q, got %q in directory name %s", expectedSuffix, actualSuffix, dirName)
@@ -159,12 +159,12 @@ func TestGenerateMustGatherDirectoryName(t *testing.T) {
 			// Verify structure
 			parts := strings.Split(dirName, ".")
 			if tt.expectClusterID {
-				// must-gather.local.<random>.<cluster-id>.<timestamp>
+				// must-gather.local.<cluster-id>.<timestamp>.<random>
 				if len(parts) != 5 {
 					t.Fatalf("expected 5 parts with cluster ID, got %d: %s", len(parts), dirName)
 				}
 			} else {
-				// must-gather.local.<random>.<timestamp>
+				// must-gather.local.<timestamp>.<random>
 				if len(parts) != 4 {
 					t.Fatalf("expected 4 parts without cluster ID, got %d: %s", len(parts), dirName)
 				}
@@ -175,9 +175,9 @@ func TestGenerateMustGatherDirectoryName(t *testing.T) {
 				t.Fatalf("expected 'must-gather.local' prefix, got %s.%s", parts[0], parts[1])
 			}
 
-			// Verify exact timestamp from fixed time
+			// Verify exact timestamp from fixed time (second-to-last part; random is last)
 			expectedTimestamp := "20260617T143025Z"
-			timestampIdx := len(parts) - 1
+			timestampIdx := len(parts) - 2
 			if parts[timestampIdx] != expectedTimestamp {
 				t.Fatalf("expected timestamp %s, got %s", expectedTimestamp, parts[timestampIdx])
 			}
