@@ -1,0 +1,122 @@
+# oape-ci-monitor — GitHub Actions workflow for CI failure analysis.
+#
+# Triggered by GitHub "status" events (fired by Prow on every job completion).
+# Each trigger:
+#   1. Checks whether the commit belongs to an open PR
+#   2. Checks whether ALL other CI checks are in a terminal state
+#   3. If both true — clones oape-ai-e2e and runs the full analysis
+#   4. If checks are still pending — exits in seconds (no idle polling)
+#
+# Typical latency: analysis starts within ~30s of the last CI job finishing.
+#
+# The workflow is non-blocking — it never prevents merging.
+#
+# Prerequisites:
+#   - GH_TOKEN with permission to read checks and post PR comments.
+#     The default GITHUB_TOKEN works for same-org PRs. For fork PRs,
+#     set a GitHub App token or PAT as the OAPE_GH_TOKEN repo secret.
+
+name: oape-ci-monitor
+
+on:
+  status: {}
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to analyze (manual trigger)"
+        required: true
+        type: string
+
+concurrency:
+  group: oape-ci-monitor-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  ci-monitor:
+    name: CI Failure Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Only react to terminal status states; skip pending
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.state != 'pending'
+
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: read
+      statuses: read
+
+    steps:
+      - name: Find PR and check readiness
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.OAPE_GH_TOKEN || secrets.GITHUB_TOKEN }}
+          COMMIT_SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+          SELF_JOB: "CI Failure Analysis"
+          MANUAL_PR: ${{ github.event.inputs.pr_number || '' }}
+        run: |
+          if [[ -n "$MANUAL_PR" ]]; then
+            echo "pr_number=${MANUAL_PR}" >> "$GITHUB_OUTPUT"
+          else
+            pr_number=$(gh api "repos/${REPO}/commits/${COMMIT_SHA}/pulls" \
+              --jq '[.[] | select(.state == "open")] | .[0].number // empty' 2>/dev/null || true)
+
+            if [[ -z "$pr_number" ]]; then
+              echo "No open PR for commit ${COMMIT_SHA}, skipping"
+              echo "ready=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
+          fi
+
+          pr_number="${MANUAL_PR:-$pr_number}"
+
+          # Exclude self and non-CI contexts (tide stays pending until labels are set)
+          EXCL="(.name != \"${SELF_JOB}\" and (.name | test(\"^(tide|Mergeable|DCO|CodeRabbit|stale|sonarcloud|codecov)\"; \"i\") | not))"
+
+          pending=$(gh pr checks "$pr_number" --repo "$REPO" \
+            --json name,state \
+            --jq "[.[] | select(${EXCL} and .state == \"PENDING\")] | length" 2>/dev/null || echo "0")
+
+          if [[ "$pending" -gt 0 ]]; then
+            echo "${pending} CI checks still pending for PR #${pr_number}, skipping"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          failed=$(gh pr checks "$pr_number" --repo "$REPO" \
+            --json name,bucket \
+            --jq "[.[] | select(${EXCL} and .bucket == \"fail\")] | length" 2>/dev/null || echo "0")
+
+          echo "All checks complete for PR #${pr_number}: ${failed} failure(s)"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Clone oape-ai-e2e
+        if: steps.gate.outputs.ready == 'true'
+        # TODO: revert to default branch after OAPE-752 is merged to main
+        run: |
+          git clone --depth 1 --branch OAPE-752 \
+            https://github.com/openshift-eng/oape-ai-e2e.git \
+            /tmp/oape-ai-e2e
+
+      - name: Run CI Monitor
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.OAPE_GH_TOKEN || secrets.GITHUB_TOKEN }}
+          PR_URL: "https://github.com/${{ github.repository }}/pull/${{ steps.gate.outputs.pr_number }}"
+          SELF_JOB_NAME: "CI Failure Analysis"
+          OAPE_ROOT: "/tmp/oape-ai-e2e"
+          SKIP_POLL: "true"
+        run: |
+          /tmp/oape-ai-e2e/scripts/ci-monitor/monitor.sh
+
+      - name: Run Dispatch
+        if: ${{ always() && steps.gate.outputs.ready == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.OAPE_GH_TOKEN || secrets.GITHUB_TOKEN }}
+          OAPE_ROOT: "/tmp/oape-ai-e2e"
+          PHASE: "1"
+        run: |
+          /tmp/oape-ai-e2e/scripts/ci-monitor/dispatch.sh
