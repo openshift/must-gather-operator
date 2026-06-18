@@ -150,8 +150,8 @@ func (in *MustGatherSpec) DeepCopyInto(out *MustGatherSpec) {
 		*out = new(Storage)
 		**out = **in
 	}
-	if in.IntelliAideEnabled != nil {
-		in, out := &in.IntelliAideEnabled, &out.IntelliAideEnabled
+	if in.AgenticDebuggingEnabled != nil {
+		in, out := &in.AgenticDebuggingEnabled, &out.AgenticDebuggingEnabled
 		*out = new(bool)
 		**out = **in
 	}

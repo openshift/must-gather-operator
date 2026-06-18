@@ -33,7 +33,7 @@ const (
 	intelliAideSkillsPath   = "/skills/intelliaide"
 	proposalTargetNamespace = "openshift-lightspeed"
 	proposalAnalysisAgent   = "smart"
-	proposalTimeoutMinutes  = 30
+	proposalTimeoutMinutes  = 45
 
 	proposalAPIGroup   = "agentic.openshift.io"
 	proposalAPIVersion = "agentic.openshift.io/v1alpha1"
@@ -72,21 +72,30 @@ func (r *MustGatherReconciler) isLightspeedInstalled() bool {
 // PVC so the Lightspeed agentic platform can run IntelliAide RCA.
 //
 // It is a no-op (returns nil) when any guard fails:
-//   - intelliAideEnabled is false/nil
+//   - agenticDebuggingEnabled is false/nil
 //   - spec.storage is not set (no PVC to point to)
+//   - MustGather is not in the Proposal target namespace (PVCs are namespace-scoped)
 //   - Lightspeed is not installed on the cluster
 //   - a Proposal already exists for this MustGather
 func (r *MustGatherReconciler) createIntelliAideProposal(
 	ctx context.Context,
 	instance *mustgatherv1alpha1.MustGather,
 ) error {
-	if instance.Spec.IntelliAideEnabled == nil || !*instance.Spec.IntelliAideEnabled {
+	if instance.Spec.AgenticDebuggingEnabled == nil || !*instance.Spec.AgenticDebuggingEnabled {
 		return nil
 	}
 
 	if instance.Spec.Storage == nil {
-		log.Info("intelliAideEnabled is true but spec.storage is not set — skipping Proposal creation",
+		log.Info("agenticDebuggingEnabled is true but spec.storage is not set — skipping Proposal creation",
 			"mustgather", instance.Name)
+		return nil
+	}
+
+	if instance.Namespace != proposalTargetNamespace {
+		log.Info("agenticDebuggingEnabled is true but MustGather is not in the Proposal namespace — skipping Proposal creation",
+			"mustgather", instance.Name,
+			"mustgatherNamespace", instance.Namespace,
+			"requiredNamespace", proposalTargetNamespace)
 		return nil
 	}
 
@@ -141,12 +150,14 @@ func (r *MustGatherReconciler) createIntelliAideProposal(
 			},
 			"spec": map[string]interface{}{
 				"request": fmt.Sprintf(
-					"Perform root cause analysis on the must-gather bundle collected by MustGather %q.\n"+
-						"The bundle is mounted at /data/input from PVC %q.\n"+
-						"Analyze the collected cluster state and identify the root cause of any issues,\n"+
-						"then provide remediation options.",
+					"Perform root cause analysis (RCA) using IntelliAide Skill on the must-gather "+
+						"bundle collected by MustGather %q.\n\n"+
+						"Use must-gather data from PVC %q mounted at /data/input to investigate.",
 					instance.Name, pvcName,
 				),
+				"targetNamespaces": []interface{}{
+					proposalTargetNamespace,
+				},
 				"tools": map[string]interface{}{
 					"skills": []interface{}{
 						map[string]interface{}{
