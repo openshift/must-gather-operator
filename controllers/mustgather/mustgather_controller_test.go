@@ -1522,6 +1522,111 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{
+			name: "reconcile_job_created_with_MUST_GATHER_DEST_DIR_env_var",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: "default",
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("01234567-89ab-cdef-0123-456789abcdef")},
+					Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}}},
+				}
+				return []client.Object{mg, sa, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err != nil {
+					t.Fatalf("expected job to be created, got error: %v", err)
+				}
+				var gatherContainer *corev1.Container
+				for i := range job.Spec.Template.Spec.Containers {
+					if job.Spec.Template.Spec.Containers[i].Name == "gather" {
+						gatherContainer = &job.Spec.Template.Spec.Containers[i]
+						break
+					}
+				}
+				if gatherContainer == nil {
+					t.Fatal("gather container not found in job")
+				}
+				var destDirValue string
+				var found bool
+				for _, env := range gatherContainer.Env {
+					if env.Name == "MUST_GATHER_DEST_DIR" {
+						destDirValue = env.Value
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Fatal("MUST_GATHER_DEST_DIR env var not found in gather container")
+				}
+				if !strings.HasPrefix(destDirValue, "must-gather.local.") {
+					t.Fatalf("expected MUST_GATHER_DEST_DIR to start with 'must-gather.local.', got %q", destDirValue)
+				}
+				if !strings.Contains(destDirValue, "456789abcdef") {
+					t.Fatalf("expected MUST_GATHER_DEST_DIR to contain cluster ID suffix '456789abcdef', got %q", destDirValue)
+				}
+			},
+		},
+		{
+			name: "reconcile_existing_job_does_not_regenerate_directory_name",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: "default",
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				existingJob := &batchv1.Job{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns"},
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{
+									{Name: "gather", Image: "img"},
+								},
+								RestartPolicy: corev1.RestartPolicyNever,
+							},
+						},
+					},
+					Status: batchv1.JobStatus{Active: 1},
+				}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}}},
+				}
+				return []client.Object{mg, sa, existingJob, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err != nil {
+					t.Fatalf("expected job to still exist, got error: %v", err)
+				}
+				// The existing job should not have been recreated — gather container should have no MUST_GATHER_DEST_DIR
+				for _, c := range job.Spec.Template.Spec.Containers {
+					if c.Name == "gather" {
+						for _, env := range c.Env {
+							if env.Name == "MUST_GATHER_DEST_DIR" {
+								t.Fatal("existing job should not have MUST_GATHER_DEST_DIR injected on re-reconcile")
+							}
+						}
+					}
+				}
+			},
+		},
+		{
 			name: "reconcile_imagestream_tag_not_found_sets_validation_failure",
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{

@@ -2251,6 +2251,129 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 		})
 	})
+
+	ginkgo.Context("Directory Naming Convention Tests", func() {
+		var mustGatherName string
+		var mustGatherCR *mustgatherv1alpha1.MustGather
+
+		ginkgo.BeforeEach(func() {
+			mustGatherName = fmt.Sprintf("dirtest-e2e-%d", time.Now().UnixNano())
+		})
+
+		ginkgo.AfterEach(func() {
+			if mustGatherCR != nil {
+				_ = nonAdminClient.Delete(testCtx, mustGatherCR)
+				Eventually(func() bool {
+					err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+					return apierrors.IsNotFound(err)
+				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+				mustGatherCR = nil
+			}
+		})
+
+		ginkgo.It("should set MUST_GATHER_DEST_DIR env var on gather container with correct naming convention", func() {
+			ginkgo.By("Creating MustGather CR")
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, false, nil)
+
+			ginkgo.By("Waiting for operator to create Job")
+			job := &batchv1.Job{}
+			Eventually(func() error {
+				return adminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, job)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			ginkgo.By("Verifying gather container has MUST_GATHER_DEST_DIR env var")
+			var destDirValue string
+			for _, container := range job.Spec.Template.Spec.Containers {
+				if container.Name == gatherContainerName {
+					for _, env := range container.Env {
+						if env.Name == "MUST_GATHER_DEST_DIR" {
+							destDirValue = env.Value
+						}
+					}
+				}
+			}
+			Expect(destDirValue).NotTo(BeEmpty(), "MUST_GATHER_DEST_DIR should be set on gather container")
+
+			ginkgo.By("Verifying directory name follows the must-gather.local convention")
+			Expect(destDirValue).To(HavePrefix("must-gather.local."),
+				"Directory name should start with 'must-gather.local.'")
+
+			parts := strings.Split(destDirValue, ".")
+			Expect(len(parts)).To(BeNumerically(">=", 4),
+				"Directory name should have at least 4 dot-separated parts (must-gather.local.<timestamp>.<random>)")
+
+			ginkgo.GinkgoWriter.Printf("MUST_GATHER_DEST_DIR value: %s\n", destDirValue)
+
+			ginkgo.By("Verifying upload container does NOT have MUST_GATHER_DEST_DIR")
+			for _, container := range job.Spec.Template.Spec.Containers {
+				if container.Name == uploadContainerName {
+					for _, env := range container.Env {
+						Expect(env.Name).NotTo(Equal("MUST_GATHER_DEST_DIR"),
+							"Upload container should not have MUST_GATHER_DEST_DIR env var")
+					}
+				}
+			}
+		})
+
+		ginkgo.It("should generate unique directory names for different MustGather CRs", func() {
+			ginkgo.By("Creating first MustGather CR")
+			name1 := mustGatherName
+			mustGatherCR = createMustGatherCR(name1, ns.Name, serviceAccount, false, nil)
+
+			ginkgo.By("Waiting for first Job to be created")
+			job1 := &batchv1.Job{}
+			Eventually(func() error {
+				return adminClient.Get(testCtx, client.ObjectKey{Name: name1, Namespace: ns.Name}, job1)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			var destDir1 string
+			for _, c := range job1.Spec.Template.Spec.Containers {
+				if c.Name == gatherContainerName {
+					for _, env := range c.Env {
+						if env.Name == "MUST_GATHER_DEST_DIR" {
+							destDir1 = env.Value
+						}
+					}
+				}
+			}
+
+			ginkgo.By("Creating second MustGather CR")
+			name2 := fmt.Sprintf("dirtest2-e2e-%d", time.Now().UnixNano())
+			mg2 := createMustGatherCR(name2, ns.Name, serviceAccount, false, nil)
+
+			ginkgo.By("Waiting for second Job to be created")
+			job2 := &batchv1.Job{}
+			Eventually(func() error {
+				return adminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, job2)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			var destDir2 string
+			for _, c := range job2.Spec.Template.Spec.Containers {
+				if c.Name == gatherContainerName {
+					for _, env := range c.Env {
+						if env.Name == "MUST_GATHER_DEST_DIR" {
+							destDir2 = env.Value
+						}
+					}
+				}
+			}
+
+			ginkgo.By("Cleaning up second MustGather CR")
+			_ = nonAdminClient.Delete(testCtx, mg2)
+			Eventually(func() bool {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+
+			ginkgo.By("Verifying directory names are different")
+			Expect(destDir1).NotTo(BeEmpty(), "First CR should have MUST_GATHER_DEST_DIR set")
+			Expect(destDir2).NotTo(BeEmpty(), "Second CR should have MUST_GATHER_DEST_DIR set")
+			Expect(destDir1).NotTo(Equal(destDir2),
+				"Different MustGather CRs should generate unique directory names")
+
+			ginkgo.GinkgoWriter.Printf("Dir1: %s\nDir2: %s\n", destDir1, destDir2)
+		})
+	})
 })
 
 // Helper Functions

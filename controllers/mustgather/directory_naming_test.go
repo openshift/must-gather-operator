@@ -31,12 +31,7 @@ import (
 )
 
 func TestGenerateMustGatherDirectoryName(t *testing.T) {
-	// Pattern for directory name with cluster ID:
-	// must-gather.local.<cluster-id-up-to-12-chars>.<timestamp-YYYYMMDDTHHMMSSZ>.<random>
 	patternWithClusterID := regexp.MustCompile(`^must-gather\.local\.[a-zA-Z0-9-]{1,12}\.\d{8}T\d{6}Z\.\d{6,}$`)
-
-	// Pattern for directory name without cluster ID:
-	// must-gather.local.<timestamp-YYYYMMDDTHHMMSSZ>.<random>
 	patternWithoutClusterID := regexp.MustCompile(`^must-gather\.local\.\d{8}T\d{6}Z\.\d{6,}$`)
 
 	fixedTime := time.Date(2026, 6, 17, 14, 30, 25, 0, time.UTC)
@@ -47,55 +42,71 @@ func TestGenerateMustGatherDirectoryName(t *testing.T) {
 		expectClusterID bool
 	}{
 		{
-			name: "with valid cluster ID (full length)",
+			name: "full-length UUID cluster ID — last 12 chars used",
 			clusterVersion: &configv1.ClusterVersion{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "version",
-				},
-				Spec: configv1.ClusterVersionSpec{
-					ClusterID: configv1.ClusterID("01234567-89ab-cdef-0123-456789abcdef"),
-				},
+				ObjectMeta: metav1.ObjectMeta{Name: "version"},
+				Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("01234567-89ab-cdef-0123-456789abcdef")},
 			},
 			expectClusterID: true,
 		},
 		{
-			name: "with short cluster ID (less than 12 chars)",
+			name: "short cluster ID (8 chars) — full ID used",
 			clusterVersion: &configv1.ClusterVersion{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "version",
-				},
-				Spec: configv1.ClusterVersionSpec{
-					ClusterID: configv1.ClusterID("short123"),
-				},
+				ObjectMeta: metav1.ObjectMeta{Name: "version"},
+				Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("short123")},
 			},
 			expectClusterID: true,
 		},
 		{
-			name: "with cluster ID exactly 12 chars",
+			name: "1-char cluster ID — full ID used",
 			clusterVersion: &configv1.ClusterVersion{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "version",
-				},
-				Spec: configv1.ClusterVersionSpec{
-					ClusterID: configv1.ClusterID("123456789abc"),
-				},
+				ObjectMeta: metav1.ObjectMeta{Name: "version"},
+				Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("x")},
 			},
 			expectClusterID: true,
 		},
 		{
-			name:            "without cluster version (not found)",
+			name: "exactly 12 chars — boundary, full ID used",
+			clusterVersion: &configv1.ClusterVersion{
+				ObjectMeta: metav1.ObjectMeta{Name: "version"},
+				Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("123456789abc")},
+			},
+			expectClusterID: true,
+		},
+		{
+			name: "13 chars — off-by-one, last 12 taken",
+			clusterVersion: &configv1.ClusterVersion{
+				ObjectMeta: metav1.ObjectMeta{Name: "version"},
+				Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("1234567890abc")},
+			},
+			expectClusterID: true,
+		},
+		{
+			name: "100+ chars — only last 12 used",
+			clusterVersion: &configv1.ClusterVersion{
+				ObjectMeta: metav1.ObjectMeta{Name: "version"},
+				Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("abcdefghij0123456789abcdefghij0123456789abcdefghij0123456789abcdefghij0123456789abcdefghij0123456789LAST12CHARSX")},
+			},
+			expectClusterID: true,
+		},
+		{
+			name: "cluster ID with only hyphens and digits",
+			clusterVersion: &configv1.ClusterVersion{
+				ObjectMeta: metav1.ObjectMeta{Name: "version"},
+				Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("1234-5678-9abc-def0")},
+			},
+			expectClusterID: true,
+		},
+		{
+			name:            "ClusterVersion not found — fallback format",
 			clusterVersion:  nil,
 			expectClusterID: false,
 		},
 		{
-			name: "with empty cluster ID",
+			name: "empty cluster ID — fallback format",
 			clusterVersion: &configv1.ClusterVersion{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "version",
-				},
-				Spec: configv1.ClusterVersionSpec{
-					ClusterID: configv1.ClusterID(""),
-				},
+				ObjectMeta: metav1.ObjectMeta{Name: "version"},
+				Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("")},
 			},
 			expectClusterID: false,
 		},
@@ -159,12 +170,10 @@ func TestGenerateMustGatherDirectoryName(t *testing.T) {
 			// Verify structure
 			parts := strings.Split(dirName, ".")
 			if tt.expectClusterID {
-				// must-gather.local.<cluster-id>.<timestamp>.<random>
 				if len(parts) != 5 {
 					t.Fatalf("expected 5 parts with cluster ID, got %d: %s", len(parts), dirName)
 				}
 			} else {
-				// must-gather.local.<timestamp>.<random>
 				if len(parts) != 4 {
 					t.Fatalf("expected 4 parts without cluster ID, got %d: %s", len(parts), dirName)
 				}
@@ -175,11 +184,17 @@ func TestGenerateMustGatherDirectoryName(t *testing.T) {
 				t.Fatalf("expected 'must-gather.local' prefix, got %s.%s", parts[0], parts[1])
 			}
 
-			// Verify exact timestamp from fixed time (second-to-last part; random is last)
+			// Verify exact timestamp from fixed time
 			expectedTimestamp := "20260617T143025Z"
 			timestampIdx := len(parts) - 2
 			if parts[timestampIdx] != expectedTimestamp {
 				t.Fatalf("expected timestamp %s, got %s", expectedTimestamp, parts[timestampIdx])
+			}
+
+			// Verify filesystem safety — no path separators, only safe chars
+			filesystemSafe := regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+			if !filesystemSafe.MatchString(dirName) {
+				t.Fatalf("directory name contains non-filesystem-safe characters: %s", dirName)
 			}
 		})
 	}
@@ -192,12 +207,8 @@ func TestGenerateMustGatherDirectoryName_Uniqueness(t *testing.T) {
 	}
 
 	clusterVersion := &configv1.ClusterVersion{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "version",
-		},
-		Spec: configv1.ClusterVersionSpec{
-			ClusterID: configv1.ClusterID("test-cluster-id-12345"),
-		},
+		ObjectMeta: metav1.ObjectMeta{Name: "version"},
+		Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("test-cluster-id-12345")},
 	}
 
 	fakeClient := fake.NewClientBuilder().
@@ -209,7 +220,6 @@ func TestGenerateMustGatherDirectoryName_Uniqueness(t *testing.T) {
 	now := time.Now()
 	for i := 0; i < 100; i++ {
 		dirName := generateMustGatherDirectoryName(context.TODO(), fakeClient, now)
-
 		if names[dirName] {
 			t.Fatalf("duplicate directory name generated: %s", dirName)
 		}
@@ -218,5 +228,79 @@ func TestGenerateMustGatherDirectoryName_Uniqueness(t *testing.T) {
 
 	if len(names) != 100 {
 		t.Fatalf("expected 100 unique directory names, got %d", len(names))
+	}
+
+	// Verify random suffix is zero-padded to at least 6 digits
+	for name := range names {
+		parts := strings.Split(name, ".")
+		suffix := parts[len(parts)-1]
+		if len(suffix) < 6 {
+			t.Fatalf("random suffix should be at least 6 digits (zero-padded), got %q", suffix)
+		}
+		for _, c := range suffix {
+			if c < '0' || c > '9' {
+				t.Fatalf("random suffix should contain only digits, got %q", suffix)
+			}
+		}
+	}
+}
+
+func TestGenerateMustGatherDirectoryName_UTCConversion(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := configv1.Install(scheme); err != nil {
+		t.Fatalf("failed to install configv1 scheme: %v", err)
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	tests := []struct {
+		name              string
+		inputTime         time.Time
+		expectedTimestamp string
+	}{
+		{
+			name:              "non-UTC timezone converted to UTC",
+			inputTime:         time.Date(2026, 6, 17, 10, 30, 25, 0, time.FixedZone("EST", -5*60*60)),
+			expectedTimestamp: "20260617T153025Z",
+		},
+		{
+			name:              "midnight Jan 1 — no zero-stripping",
+			inputTime:         time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			expectedTimestamp: "20260101T000000Z",
+		},
+		{
+			name:              "end of year Dec 31 23:59:59",
+			inputTime:         time.Date(2026, 12, 31, 23, 59, 59, 0, time.UTC),
+			expectedTimestamp: "20261231T235959Z",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dirName := generateMustGatherDirectoryName(context.TODO(), fakeClient, tt.inputTime)
+			if !strings.Contains(dirName, tt.expectedTimestamp) {
+				t.Fatalf("expected timestamp %s in directory name, got %s", tt.expectedTimestamp, dirName)
+			}
+		})
+	}
+}
+
+func TestGetClusterIDSuffix_WrongClusterVersionName(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := configv1.Install(scheme); err != nil {
+		t.Fatalf("failed to install configv1 scheme: %v", err)
+	}
+
+	cv := &configv1.ClusterVersion{
+		ObjectMeta: metav1.ObjectMeta{Name: "not-version"},
+		Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("some-cluster-id")},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cv).Build()
+
+	suffix, err := getClusterIDSuffix(context.TODO(), fakeClient)
+	if err == nil {
+		t.Fatal("expected error when ClusterVersion has wrong name, got none")
+	}
+	if suffix != "" {
+		t.Fatalf("expected empty suffix, got %q", suffix)
 	}
 }

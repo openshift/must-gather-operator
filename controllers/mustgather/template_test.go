@@ -719,6 +719,89 @@ func Test_getJobTemplate_ProxyAuditTimeout(t *testing.T) {
 	}
 }
 
+func Test_getJobTemplate_DirectoryNameEnvVar(t *testing.T) {
+	t.Setenv(DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
+
+	tests := []struct {
+		name          string
+		directoryName string
+		gatherSpec    *mustgatherv1alpha1.GatherSpec
+		expectEnvVar  bool
+		wantSince     string
+	}{
+		{
+			name:          "non-empty directoryName — gather gets MUST_GATHER_DEST_DIR, upload does not",
+			directoryName: "must-gather.local.456789abcdef.20260617T143025Z.042315",
+			expectEnvVar:  true,
+		},
+		{
+			name:          "empty directoryName — env var not injected",
+			directoryName: "",
+			expectEnvVar:  false,
+		},
+		{
+			name:          "directoryName coexists with time-filter env vars",
+			directoryName: "must-gather.local.456789abcdef.20260617T143025Z.042315",
+			gatherSpec:    &mustgatherv1alpha1.GatherSpec{Since: &metav1.Duration{Duration: 2 * time.Hour}},
+			expectEnvVar:  true,
+			wantSince:     "2h0m0s",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mg := mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
+					GatherSpec:         tt.gatherSpec,
+					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+						Type: mustgatherv1alpha1.UploadTypeSFTP,
+						SFTP: &mustgatherv1alpha1.SFTPSpec{
+							CaseID: "1234",
+							Host:   "sftp.example.com",
+							CaseManagementAccountSecretRef: v1.LocalObjectReference{
+								Name: "case-mgmt-secret",
+							},
+						},
+					},
+				},
+			}
+
+			job := getJobTemplate("img", "operator-image", mg, "", tt.directoryName)
+			gather := findGatherContainerInJob(t, job)
+			env := envValues(gather)
+
+			if tt.expectEnvVar {
+				val, ok := env[gatherEnvDestDir]
+				if !ok {
+					t.Fatalf("expected %s env var in gather container, not found", gatherEnvDestDir)
+				}
+				if val != tt.directoryName {
+					t.Fatalf("expected %s=%s, got %s", gatherEnvDestDir, tt.directoryName, val)
+				}
+			} else {
+				if _, ok := env[gatherEnvDestDir]; ok {
+					t.Fatalf("did not expect %s env var when directoryName is empty", gatherEnvDestDir)
+				}
+			}
+
+			if tt.wantSince != "" {
+				if env[gatherEnvSince] != tt.wantSince {
+					t.Fatalf("expected %s=%s alongside directory name, got %s", gatherEnvSince, tt.wantSince, env[gatherEnvSince])
+				}
+			}
+
+			// Verify upload container does NOT have MUST_GATHER_DEST_DIR
+			upload := findUploadContainerInJob(t, job)
+			uploadEnv := envValues(upload)
+			if _, ok := uploadEnv[gatherEnvDestDir]; ok {
+				t.Fatalf("%s should not be set on upload container", gatherEnvDestDir)
+			}
+		})
+	}
+}
+
 // helper to find gather container in a job
 func findGatherContainerInJob(t *testing.T, job *batchv1.Job) v1.Container {
 	t.Helper()
