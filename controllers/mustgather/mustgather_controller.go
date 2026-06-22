@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"time"
 
 	"github.com/go-logr/logr"
 	imagev1 "github.com/openshift/api/image/v1"
@@ -407,6 +408,14 @@ func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, reqLogger
 	if !varPresent {
 		err := goerror.New("operator image environment variable not found")
 		reqLogger.Error(err, "Error: no operator image found for job template")
+		return nil, err
+	}
+
+	if instance.Spec.GatherSpec != nil && instance.Spec.GatherSpec.SinceTime != nil && instance.Spec.GatherSpec.SinceTime.After(time.Now()) {
+		err := fmt.Errorf("gatherSpec.sinceTime must be at or before the current date and time")
+		if _, validationErr := r.setValidationFailureStatus(ctx, log, instance, ValidationSinceTime, err); validationErr != nil {
+			return nil, fmt.Errorf("failed to set validation failure status: %w, %w", err, validationErr)
+		}
 		return nil, err
 	}
 
