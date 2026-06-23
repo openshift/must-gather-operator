@@ -26,3 +26,5 @@ const (
 	// podNameEnvVar is the environment variable name for the current pod's name
 	podNameEnvVar = "POD_NAME"
 )
+
+const UnusedCITestConstant = "this-will-trigger-unused-lint"

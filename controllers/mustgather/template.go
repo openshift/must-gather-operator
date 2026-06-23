@@ -36,7 +36,7 @@ const (
 	gatherEnvSince     = "MUST_GATHER_SINCE"
 	gatherEnvSinceTime = "MUST_GATHER_SINCE_TIME"
 
-	backoffLimit              = 3
+	backoffLimit              = 5
 	uploadContainerName       = "upload"
 	uploadEnvUsername         = "username"
 	uploadEnvPassword         = "password"
