@@ -27,4 +27,4 @@ const (
 	podNameEnvVar = "POD_NAME"
 )
 
-const UnusedCITestConstant = "this-will-trigger-unused-lint"
+const unusedCITestConstant = "this-will-trigger-unused-lint"

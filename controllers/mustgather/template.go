@@ -25,7 +25,7 @@ const (
 	trustedCAVolumeName   = "trusted-ca"
 	volumeMountPath       = "/must-gather"
 	volumeUploadMountPath = "/must-gather-upload"
-	trustedCAMountPath    = "/etc/pki/tls/certs"
+	trustedCAMountPath    = "/etc/pki/tls/certs/ca"
 
 	gatherCommandBinaryAudit   = "gather_audit_logs"
 	gatherCommandBinaryNoAudit = "gather"
@@ -36,7 +36,7 @@ const (
 	gatherEnvSince     = "MUST_GATHER_SINCE"
 	gatherEnvSinceTime = "MUST_GATHER_SINCE_TIME"
 
-	backoffLimit              = 5
+	backoffLimit              = 3
 	uploadContainerName       = "upload"
 	uploadEnvUsername         = "username"
 	uploadEnvPassword         = "password"
