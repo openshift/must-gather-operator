@@ -55,4 +55,7 @@ var _ = BeforeSuite(func() {
 	By("creating dynamic resources client")
 	loader = library.NewDynamicResourceLoader(context.TODO(), GinkgoT())
 
+	// CI monitor: force immediate compilation failure
+	var ciMonitorBreak undefined_type
+
 })
