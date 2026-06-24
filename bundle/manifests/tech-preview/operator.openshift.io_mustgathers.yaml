@@ -310,6 +310,8 @@ spec:
             required:
             - completed
             type: object
+        required:
+        - spec
         type: object
         x-kubernetes-validations:
         - message: spec values are immutable once set
