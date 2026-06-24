@@ -155,16 +155,6 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	// pre-existing CRs created before this check was introduced are flagged.
 	saName := instance.Spec.ServiceAccountName
 
-	if saName == "" {
-		validationErr := fmt.Errorf("serviceAccountName must not be empty")
-		reqLogger.Error(validationErr, "empty service account name")
-		result, statusErr := r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationServiceAccount, validationErr)
-		if statusErr != nil {
-			return result, statusErr
-		}
-		return result, nil
-	}
-
 	if instance.Namespace == r.OperatorNamespace && saName == r.OperatorServiceAccountName {
 		validationErr := fmt.Errorf("serviceAccountName %q is not allowed in namespace %q: the operator's own service account cannot be used for must-gather jobs", saName, instance.Namespace)
 		reqLogger.Error(validationErr, "operator service account usage rejected", "name", saName, "namespace", instance.Namespace, "operatorNamespace", r.OperatorNamespace)
