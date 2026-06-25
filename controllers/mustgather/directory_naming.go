@@ -24,7 +24,6 @@ import (
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -44,12 +43,7 @@ const (
 func generateMustGatherDirectoryName(ctx context.Context, c client.Client, now time.Time) string {
 	parts := []string{"must-gather.local"}
 
-	clusterIDSuffix, err := getClusterIDSuffix(ctx, c)
-	if err != nil {
-		log.V(2).Info("Unable to retrieve cluster ID, continuing without it", "error", err)
-	}
-
-	if clusterIDSuffix != "" {
+	if clusterIDSuffix := getClusterIDSuffix(ctx, c); clusterIDSuffix != "" {
 		parts = append(parts, clusterIDSuffix)
 	}
 
@@ -57,37 +51,23 @@ func generateMustGatherDirectoryName(ctx context.Context, c client.Client, now t
 	parts = append(parts, generateRandomSuffix())
 
 	dirName := strings.Join(parts, ".")
-	log.V(1).Info("Generated must-gather directory name", "hasClusterID", clusterIDSuffix != "")
+	log.V(1).Info("Generated must-gather directory name", "dirName", dirName)
 
 	return dirName
 }
 
-// getClusterIDSuffix retrieves the last 12 characters of the cluster ID from the ClusterVersion resource.
-// Returns empty string if the ClusterVersion cannot be retrieved or the cluster ID is empty.
-func getClusterIDSuffix(ctx context.Context, c client.Client) (string, error) {
+func getClusterIDSuffix(ctx context.Context, c client.Client) string {
 	clusterVersion := &configv1.ClusterVersion{}
-	err := c.Get(ctx, types.NamespacedName{Name: clusterVersionName}, clusterVersion)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			return "", fmt.Errorf("clusterversion resource not found")
-		}
-		if errors.IsForbidden(err) {
-			return "", fmt.Errorf("insufficient permissions to read clusterversion: %w", err)
-		}
-		return "", fmt.Errorf("failed to get clusterversion: %w", err)
+	if err := c.Get(ctx, types.NamespacedName{Name: clusterVersionName}, clusterVersion); err != nil {
+		log.V(2).Info("Unable to retrieve cluster ID for directory name", "error", err)
+		return ""
 	}
 
-	clusterID := string(clusterVersion.Spec.ClusterID)
-	if clusterID == "" {
-		return "", fmt.Errorf("clusterversion.spec.clusterID is empty")
+	id := string(clusterVersion.Spec.ClusterID)
+	if len(id) > clusterIDSuffixLength {
+		return id[len(id)-clusterIDSuffixLength:]
 	}
-
-	// Take last 12 characters
-	if len(clusterID) <= clusterIDSuffixLength {
-		return clusterID, nil
-	}
-
-	return clusterID[len(clusterID)-clusterIDSuffixLength:], nil
+	return id
 }
 
 func generateRandomSuffix() string {

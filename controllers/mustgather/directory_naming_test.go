@@ -296,10 +296,7 @@ func TestGetClusterIDSuffix_WrongClusterVersionName(t *testing.T) {
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cv).Build()
 
-	suffix, err := getClusterIDSuffix(context.TODO(), fakeClient)
-	if err == nil {
-		t.Fatal("expected error when ClusterVersion has wrong name, got none")
-	}
+	suffix := getClusterIDSuffix(context.TODO(), fakeClient)
 	if suffix != "" {
 		t.Fatalf("expected empty suffix, got %q", suffix)
 	}
