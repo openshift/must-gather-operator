@@ -168,13 +168,6 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		return result, nil
 	}
 
-	// Validate timeout does not exceed maximum allowed duration
-	if instance.Spec.MustGatherTimeout != nil && instance.Spec.MustGatherTimeout.Duration.Seconds() > 86400 {
-		validationErr := fmt.Errorf("error: %s", fmt.Sprintf("mustGatherTimeout %v exceeds maximum allowed duration of 24 hours", instance.Spec.MustGatherTimeout.Duration))
-		reqLogger.Error(validationErr, "timeout validation failed")
-		return r.setValidationFailureStatus(ctx, reqLogger, instance, "Timeout", validationErr)
-	}
-
 	// perform CA config map copy, iff set in caller
 	if r.TrustedCAConfigMap != "" {
 		if err := r.ensureTrustedCAConfigMap(ctx, reqLogger, instance); err != nil {
@@ -222,6 +215,13 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 			reqLogger.Error(err, "failed to get service account (transient error, will retry)", "name", saName, "namespace", instance.Namespace)
 			return reconcile.Result{Requeue: true}, err
+		}
+
+		// Validate timeout does not exceed maximum allowed duration before creating the job
+		if instance.Spec.MustGatherTimeout != nil && instance.Spec.MustGatherTimeout.Duration.Seconds() > 86400 {
+			validationErr := fmt.Errorf("error: %s", fmt.Sprintf("mustGatherTimeout %v exceeds maximum allowed duration of 24 hours", instance.Spec.MustGatherTimeout.Duration))
+			reqLogger.Error(validationErr, "timeout validation failed")
+			return r.setValidationFailureStatus(ctx, reqLogger, instance, "Timeout", validationErr)
 		}
 
 		// look up user secret
