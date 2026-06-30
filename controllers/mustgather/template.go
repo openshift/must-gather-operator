@@ -449,6 +449,8 @@ func formatContainerEnvSummary(envVars []corev1.EnvVar) string {
 	for i, env := range envVars {
 		if env.ValueFrom != nil {
 			result += fmt.Sprintf("%s=<from-source>", env.Name)
+		} else if isSensitiveEnvName(env.Name) {
+			result += fmt.Sprintf("%s=<redacted>", env.Name)
 		} else {
 			result += fmt.Sprintf("%s=%s", env.Name, env.Value)
 		}
@@ -457,6 +459,23 @@ func formatContainerEnvSummary(envVars []corev1.EnvVar) string {
 		}
 	}
 	return result
+}
+
+// isSensitiveEnvName returns true if the environment variable name contains
+// sensitive data that should be redacted from logs.
+func isSensitiveEnvName(name string) bool {
+	upperName := strings.ToUpper(name)
+	sensitivePatterns := []string{
+		"PROXY", "PASSWORD", "TOKEN", "KEY", "SECRET",
+		"API_KEY", "AUTH", "CREDENTIAL", "PRIVATE",
+		"CASE_ID", "CUSTOMER",
+	}
+	for _, pattern := range sensitivePatterns {
+		if strings.Contains(upperName, pattern) {
+			return true
+		}
+	}
+	return false
 }
 
 // isValidProxyURL checks whether a proxy URL has a valid scheme and host.
