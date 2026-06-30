@@ -167,7 +167,7 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 		{"HTTPS_PROXY", httpsProxy},
 	} {
 		if !isValidProxyURL(p.url) {
-			log.Info("proxy URL appears malformed", "variable", p.name, "value", p.url)
+			log.Info("proxy URL appears malformed", "variable", p.name)
 		}
 	}
 
