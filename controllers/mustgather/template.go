@@ -3,6 +3,7 @@ package mustgather
 import (
 	"fmt"
 	"math"
+	"net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -483,12 +484,12 @@ func isValidProxyURL(proxyURL string) bool {
 	if proxyURL == "" {
 		return true
 	}
-	if !strings.HasPrefix(proxyURL, "http://") && !strings.HasPrefix(proxyURL, "https://") && !strings.HasPrefix(proxyURL, "socks5://") {
+	u, err := url.Parse(proxyURL)
+	if err != nil {
 		return false
 	}
-	parts := strings.SplitN(proxyURL, "://", 2)
-	if len(parts) != 2 || parts[1] == "" {
+	if u.Scheme != "http" && u.Scheme != "https" && u.Scheme != "socks5" {
 		return false
 	}
-	return true
+	return u.Host != ""
 }
