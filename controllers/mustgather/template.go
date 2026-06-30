@@ -25,7 +25,7 @@ const (
 	trustedCAVolumeName   = "trusted-ca"
 	volumeMountPath       = "/must-gather"
 	volumeUploadMountPath = "/must-gather-upload"
-	trustedCAMountPath    = "/etc/pki/tls/certs/ca"
+	trustedCAMountPath    = "/etc/pki/tls/certs"
 
 	gatherCommandBinaryAudit   = "gather_audit_logs"
 	gatherCommandBinaryNoAudit = "gather"
