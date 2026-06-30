@@ -168,6 +168,13 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		return result, nil
 	}
 
+	// Validate timeout does not exceed maximum allowed duration
+	if instance.Spec.MustGatherTimeout != nil && instance.Spec.MustGatherTimeout.Duration.Seconds() > 86400 {
+		validationErr := fmt.Errorf("error: %s", fmt.Sprintf("mustGatherTimeout %v exceeds maximum allowed duration of 24 hours", instance.Spec.MustGatherTimeout.Duration))
+		reqLogger.Error(validationErr, "timeout validation failed")
+		return r.setValidationFailureStatus(ctx, reqLogger, instance, "Timeout", validationErr)
+	}
+
 	// perform CA config map copy, iff set in caller
 	if r.TrustedCAConfigMap != "" {
 		if err := r.ensureTrustedCAConfigMap(ctx, reqLogger, instance); err != nil {
@@ -315,6 +322,12 @@ func (r *MustGatherReconciler) handleJobCompletion(ctx context.Context, reqLogge
 	if err != nil {
 		reqLogger.Error(err, "unable to update instance", "instance", instance.Name)
 		return r.ManageError(ctx, instance, err)
+	}
+
+	// Log completed pod names for observability
+	completedPods := r.getCompletedPodNames(ctx, instance.Name, instance.Namespace)
+	if len(completedPods) > 0 {
+		reqLogger.Info("completed pods for must-gather job", "pods", completedPods)
 	}
 
 	if instance.Spec.RetainResourcesOnCompletion == nil || !*instance.Spec.RetainResourcesOnCompletion {
@@ -672,4 +685,34 @@ func (r *MustGatherReconciler) cleanupTrustedCAConfigMap(ctx context.Context, re
 	reqLogger.V(4).Info("removed ownerReference from trustedCA ConfigMap",
 		"configMapName", r.TrustedCAConfigMap, "remainingNumOwners", len(updatedOwnerRefs))
 	return nil
+}
+
+// getCompletedPodNames returns the names of pods that have successfully completed for the given job.
+func (r *MustGatherReconciler) getCompletedPodNames(ctx context.Context, jobName string, namespace string) []string {
+	job := &batchv1.Job{}
+	err := r.GetClient().Get(ctx, types.NamespacedName{Name: jobName, Namespace: namespace}, job)
+	if err != nil {
+		log.Error(err, "failed to get job", "job", jobName)
+		return nil
+	}
+
+	podList := &corev1.PodList{}
+	listOpts := []client.ListOption{
+		client.InNamespace(namespace),
+		client.MatchingLabels{"controller-uid": string(job.UID)},
+	}
+
+	err = r.GetClient().List(ctx, podList, listOpts...)
+	if err != nil {
+		log.Error(err, "failed to list pods for job", "job", jobName)
+		return nil
+	}
+
+	var completedPods []string
+	for _, pod := range podList.Items {
+		if string(pod.Status.Phase) == "Succeeded" {
+			completedPods = append(completedPods, pod.Name)
+		}
+	}
+	return completedPods
 }

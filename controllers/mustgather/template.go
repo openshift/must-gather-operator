@@ -161,6 +161,21 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 		}
 	}
 
+	// Warn if any proxy URL looks malformed
+	for _, p := range []struct{ name, url string }{
+		{"HTTP_PROXY", httpProxy},
+		{"HTTPS_PROXY", httpsProxy},
+	} {
+		if !isValidProxyURL(p.url) {
+			log.Info("proxy URL appears malformed", "variable", p.name, "value", p.url)
+		}
+	}
+
+	// Log environment variable summary for debugging
+	for _, c := range job.Spec.Template.Spec.Containers {
+		log.V(4).Info("container env summary", "container", c.Name, "env", formatContainerEnvSummary(c.Env))
+	}
+
 	return job
 }
 
@@ -426,3 +441,35 @@ func getUploadContainer(
 }
 
 func ToPtr[T any](t T) *T { return &t }
+
+// formatContainerEnvSummary builds a human-readable summary of container
+// environment variables for debug logging. Secret-sourced values are redacted.
+func formatContainerEnvSummary(envVars []corev1.EnvVar) string {
+	result := ""
+	for i, env := range envVars {
+		if env.ValueFrom != nil {
+			result += fmt.Sprintf("%s=<from-source>", env.Name)
+		} else {
+			result += fmt.Sprintf("%s=%s", env.Name, env.Value)
+		}
+		if i < len(envVars)-1 {
+			result += ", "
+		}
+	}
+	return result
+}
+
+// isValidProxyURL checks whether a proxy URL has a valid scheme and host.
+func isValidProxyURL(proxyURL string) bool {
+	if proxyURL == "" {
+		return true
+	}
+	if !strings.HasPrefix(proxyURL, "http://") && !strings.HasPrefix(proxyURL, "https://") && !strings.HasPrefix(proxyURL, "socks5://") {
+		return false
+	}
+	parts := strings.SplitN(proxyURL, "://", 2)
+	if len(parts) != 2 || parts[1] == "" {
+		return false
+	}
+	return true
+}
