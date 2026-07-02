@@ -685,28 +685,22 @@ func (r *MustGatherReconciler) cleanupTrustedCAConfigMap(ctx context.Context, re
 
 // getJobAge returns a human-readable string describing how long ago the job was created.
 func getJobAge(job *batchv1.Job) string {
-	age := time.Now().Sub(job.CreationTimestamp.Time)
+	age := time.Since(job.CreationTimestamp.Time)
 	return age.String()
 }
 
 // validateImageStreamRef validates that the ImageStreamRef fields are properly set.
 func validateImageStreamRef(ref *mustgatherv1alpha1.ImageStreamTagRef) error {
 	if len(ref.Name) == 0 {
-		return goerror.New(fmt.Sprintf("imageStreamRef.name must not be empty"))
+		return goerror.New("imageStreamRef.name must not be empty")
 	}
 	if len(ref.Tag) == 0 {
-		return goerror.New(fmt.Sprintf("imageStreamRef.tag must not be empty"))
+		return goerror.New("imageStreamRef.tag must not be empty")
 	}
 	return nil
 }
 
 // logCleanupSummary logs a summary of the resources that were cleaned up.
 func logCleanupSummary(reqLogger logr.Logger, jobName string, podCount int) {
-	if podCount == 0 {
-		msg := fmt.Sprintf("cleanup complete for job %s: no pods were deleted", jobName)
-		reqLogger.Info(msg)
-	} else {
-		msg := fmt.Sprintf("cleanup complete for job %s: deleted %d pod(s)", jobName, podCount)
-		reqLogger.Info(msg)
-	}
+	reqLogger.Info("cleanup complete", "job", jobName, "podsDeleted", podCount)
 }
