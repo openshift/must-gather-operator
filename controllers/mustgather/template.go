@@ -114,7 +114,7 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 	timeout := time.Duration(0)
 	if mustGather.Spec.MustGatherTimeout != nil {
 		timeout = mustGather.Spec.MustGatherTimeout.Duration
-		log.V(4).Info("gather timeout configured", "timeout", formatDuration(timeout))
+		log.V(4).Info("gather timeout configured", "timeout", timeout.String())
 	}
 
 	// Build time filter from spec
@@ -427,19 +427,3 @@ func getUploadContainer(
 }
 
 func ToPtr[T any](t T) *T { return &t }
-
-// formatDuration converts a duration to a human-readable string like "2h 30m 15s".
-func formatDuration(d time.Duration) string {
-	totalSeconds := int(d.Seconds())
-	hours := totalSeconds / 3600
-	minutes := (totalSeconds % 3600) / 60
-	seconds := totalSeconds % 60
-
-	if hours > 0 {
-		return fmt.Sprintf("%dh %dm %ds", hours, minutes, seconds)
-	}
-	if minutes > 0 {
-		return fmt.Sprintf("%dm %ds", minutes, seconds)
-	}
-	return fmt.Sprintf("%ds", seconds)
-}
