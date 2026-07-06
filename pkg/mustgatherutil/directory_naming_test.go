@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package mustgather
+package mustgatherutil
 
 import (
 	"context"
@@ -129,7 +129,7 @@ func TestGenerateMustGatherDirectoryName(t *testing.T) {
 				WithObjects(objs...).
 				Build()
 
-			dirName := generateMustGatherDirectoryName(context.TODO(), fakeClient, fixedTime)
+			dirName := GenerateMustGatherDirectoryName(context.TODO(), fakeClient, fixedTime)
 
 			if dirName == "" {
 				t.Fatal("directory name should not be empty")
@@ -218,8 +218,8 @@ func TestGenerateMustGatherDirectoryName_Uniqueness(t *testing.T) {
 
 	names := make(map[string]bool)
 	now := time.Now()
-	for i := 0; i < 100; i++ {
-		dirName := generateMustGatherDirectoryName(context.TODO(), fakeClient, now)
+	for range 100 {
+		dirName := GenerateMustGatherDirectoryName(context.TODO(), fakeClient, now)
 		if names[dirName] {
 			t.Fatalf("duplicate directory name generated: %s", dirName)
 		}
@@ -276,7 +276,7 @@ func TestGenerateMustGatherDirectoryName_UTCConversion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dirName := generateMustGatherDirectoryName(context.TODO(), fakeClient, tt.inputTime)
+			dirName := GenerateMustGatherDirectoryName(context.TODO(), fakeClient, tt.inputTime)
 			if !strings.Contains(dirName, tt.expectedTimestamp) {
 				t.Fatalf("expected timestamp %s in directory name, got %s", tt.expectedTimestamp, dirName)
 			}

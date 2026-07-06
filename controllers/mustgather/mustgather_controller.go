@@ -28,6 +28,7 @@ import (
 	imagev1 "github.com/openshift/api/image/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
+	"github.com/openshift/must-gather-operator/pkg/mustgatherutil"
 	"github.com/redhat-cop/operator-utils/pkg/util"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -411,7 +412,7 @@ func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, reqLogger
 		return nil, err
 	}
 
-	directoryName := generateMustGatherDirectoryName(ctx, r.GetClient(), time.Now())
+	directoryName := mustgatherutil.GenerateMustGatherDirectoryName(ctx, r.GetClient(), time.Now())
 
 	return getJobTemplate(image, operatorImage, *instance, r.TrustedCAConfigMap, directoryName), nil
 }

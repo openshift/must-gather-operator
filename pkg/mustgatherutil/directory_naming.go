@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package mustgather
+package mustgatherutil
 
 import (
 	"context"
@@ -26,21 +26,21 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+var log = logf.Log.WithName("mustgatherutil")
 
 const (
-	// clusterVersionName is the name of the singleton ClusterVersion resource
-	clusterVersionName = "version"
-	// clusterIDSuffixLength is the number of characters to take from the end of the cluster ID
+	clusterVersionName    = "version"
 	clusterIDSuffixLength = 12
-	// timestampFormat is the Go time layout for the directory name timestamp (matches oc adm must-gather)
-	timestampFormat = "20060102T150405Z"
+	timestampFormat       = "20060102T150405Z"
 )
 
-// generateMustGatherDirectoryName generates a directory name following the same convention as oc adm must-gather.
+// GenerateMustGatherDirectoryName generates a directory name following the same convention as oc adm must-gather.
 // Format: must-gather.local.<cluster-id-suffix>.<timestamp>.<random>
 // If cluster ID is unavailable: must-gather.local.<timestamp>.<random>
-func generateMustGatherDirectoryName(ctx context.Context, c client.Client, now time.Time) string {
+func GenerateMustGatherDirectoryName(ctx context.Context, c client.Client, now time.Time) string {
 	parts := []string{"must-gather.local"}
 
 	if clusterIDSuffix := getClusterIDSuffix(ctx, c); clusterIDSuffix != "" {
