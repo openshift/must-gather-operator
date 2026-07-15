@@ -146,21 +146,17 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		return reconcile.Result{}, nil
 	}
 
-	// Add finalizer for this CR
-	if !slices.Contains(instance.GetFinalizers(), mustGatherFinalizer) {
-		return reconcile.Result{}, r.addFinalizer(ctx, reqLogger, instance)
-	}
-
 	// Reject CRs in restricted namespaces to prevent the operator from creating
 	// Jobs, Pods, and ConfigMaps in platform namespaces.
 	if isRestrictedNamespace(instance.Namespace) {
 		validationErr := fmt.Errorf("namespace %q is not allowed: must-gather jobs cannot be created in openshift-*, kube-*, or hypershift-* namespaces", instance.Namespace)
 		reqLogger.Error(validationErr, "restricted namespace rejected", "namespace", instance.Namespace)
-		result, statusErr := r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationNamespace, validationErr)
-		if statusErr != nil {
-			return result, statusErr
-		}
-		return result, nil
+		return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationNamespace, validationErr)
+	}
+
+	// Add finalizer for this CR
+	if !slices.Contains(instance.GetFinalizers(), mustGatherFinalizer) {
+		return reconcile.Result{}, r.addFinalizer(ctx, reqLogger, instance)
 	}
 
 	// Reject the operator's own service account before any other validation.
@@ -174,11 +170,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	if instance.Namespace == r.OperatorNamespace && saName == r.OperatorServiceAccountName {
 		validationErr := fmt.Errorf("serviceAccountName %q is not allowed in namespace %q: the operator's own service account cannot be used for must-gather jobs", saName, instance.Namespace)
 		reqLogger.Error(validationErr, "operator service account usage rejected", "name", saName, "namespace", instance.Namespace, "operatorNamespace", r.OperatorNamespace)
-		result, statusErr := r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationServiceAccount, validationErr)
-		if statusErr != nil {
-			return result, statusErr
-		}
-		return result, nil
+		return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationServiceAccount, validationErr)
 	}
 
 	// perform CA config map copy, iff set in caller
