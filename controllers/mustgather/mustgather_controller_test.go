@@ -774,6 +774,134 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{
+			name: "reconcile_restricted_namespace_openshift_rejected",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "openshift-monitoring", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: "default",
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "openshift-monitoring"}}
+				return []client.Object{mg, sa}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				out := &mustgatherv1alpha1.MustGather{}
+				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "openshift-monitoring"}, out); getErr != nil {
+					t.Fatalf("failed to get mustgather: %v", getErr)
+				}
+				if out.Status.Status != "Failed" {
+					t.Fatalf("expected status to be Failed, got %s", out.Status.Status)
+				}
+				if !out.Status.Completed {
+					t.Fatalf("expected Completed to be true")
+				}
+				if !strings.Contains(out.Status.Reason, "Namespace validation failed") {
+					t.Fatalf("expected reason to contain 'Namespace validation failed', got %q", out.Status.Reason)
+				}
+				if !strings.Contains(out.Status.Reason, "openshift-monitoring") {
+					t.Fatalf("expected reason to mention the namespace, got %q", out.Status.Reason)
+				}
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "openshift-monitoring", Name: "example-mustgather"}, job); err == nil {
+					t.Fatalf("expected no job to be created in restricted namespace")
+				}
+			},
+		},
+		{
+			name: "reconcile_restricted_namespace_kube_rejected",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "kube-system", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: "default",
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "kube-system"}}
+				return []client.Object{mg, sa}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				out := &mustgatherv1alpha1.MustGather{}
+				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "kube-system"}, out); getErr != nil {
+					t.Fatalf("failed to get mustgather: %v", getErr)
+				}
+				if out.Status.Status != "Failed" {
+					t.Fatalf("expected status to be Failed, got %s", out.Status.Status)
+				}
+				if !strings.Contains(out.Status.Reason, "Namespace validation failed") {
+					t.Fatalf("expected reason to contain 'Namespace validation failed', got %q", out.Status.Reason)
+				}
+			},
+		},
+		{
+			name: "reconcile_restricted_namespace_hypershift_rejected",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "hypershift-hosting", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: "default",
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "hypershift-hosting"}}
+				return []client.Object{mg, sa}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				out := &mustgatherv1alpha1.MustGather{}
+				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "hypershift-hosting"}, out); getErr != nil {
+					t.Fatalf("failed to get mustgather: %v", getErr)
+				}
+				if out.Status.Status != "Failed" {
+					t.Fatalf("expected status to be Failed, got %s", out.Status.Status)
+				}
+				if !strings.Contains(out.Status.Reason, "Namespace validation failed") {
+					t.Fatalf("expected reason to contain 'Namespace validation failed', got %q", out.Status.Reason)
+				}
+			},
+		},
+		{
+			name: "reconcile_allowed_namespace_default_succeeds",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "my-namespace", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: "default",
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "my-namespace"}}
+				return []client.Object{mg, sa}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				out := &mustgatherv1alpha1.MustGather{}
+				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "my-namespace"}, out); getErr != nil {
+					t.Fatalf("failed to get mustgather: %v", getErr)
+				}
+				if out.Status.Status == "Failed" && strings.Contains(out.Status.Reason, "Namespace validation failed") {
+					t.Fatalf("non-restricted namespace should not be rejected, got: %q", out.Status.Reason)
+				}
+			},
+		},
+		{
 			name: "reconcile_operator_service_account_rejected",
 			setupEnv: func(t *testing.T) {
 				t.Setenv("OPERATOR_IMAGE", "img")
@@ -2232,6 +2360,38 @@ func TestSFTPCredentialValidation(t *testing.T) {
 						}
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestIsRestrictedNamespace(t *testing.T) {
+	tests := []struct {
+		namespace string
+		expected  bool
+	}{
+		{"openshift-monitoring", true},
+		{"openshift-config", true},
+		{"openshift-operators", true},
+		{"kube-system", true},
+		{"kube-public", true},
+		{"kube-node-lease", true},
+		{"hypershift-hosting", true},
+		{"hypershift-clusters", true},
+		{"openshift", false},
+		{"default", false},
+		{"my-namespace", false},
+		{"", false},
+		{"kube", false},
+		{"hypershift", false},
+		{"not-openshift-foo", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.namespace, func(t *testing.T) {
+			result := isRestrictedNamespace(tt.namespace)
+			if result != tt.expected {
+				t.Errorf("isRestrictedNamespace(%q) = %v, want %v", tt.namespace, result, tt.expected)
 			}
 		})
 	}
