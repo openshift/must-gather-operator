@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/go-logr/logr"
 	imagev1 "github.com/openshift/api/image/v1"
@@ -148,6 +149,18 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	// Add finalizer for this CR
 	if !slices.Contains(instance.GetFinalizers(), mustGatherFinalizer) {
 		return reconcile.Result{}, r.addFinalizer(ctx, reqLogger, instance)
+	}
+
+	// Reject CRs in restricted namespaces to prevent the operator from creating
+	// Jobs, Pods, and ConfigMaps in platform namespaces.
+	if isRestrictedNamespace(instance.Namespace) {
+		validationErr := fmt.Errorf("namespace %q is not allowed: must-gather jobs cannot be created in openshift-*, kube-*, or hypershift-* namespaces", instance.Namespace)
+		reqLogger.Error(validationErr, "restricted namespace rejected", "namespace", instance.Namespace)
+		result, statusErr := r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationNamespace, validationErr)
+		if statusErr != nil {
+			return result, statusErr
+		}
+		return result, nil
 	}
 
 	// Reject the operator's own service account before any other validation.
@@ -672,4 +685,13 @@ func (r *MustGatherReconciler) cleanupTrustedCAConfigMap(ctx context.Context, re
 	reqLogger.V(4).Info("removed ownerReference from trustedCA ConfigMap",
 		"configMapName", r.TrustedCAConfigMap, "remainingNumOwners", len(updatedOwnerRefs))
 	return nil
+}
+
+// isRestrictedNamespace returns true if the namespace matches a platform namespace
+// pattern (openshift-*, kube-*, hypershift-*) where must-gather jobs should not
+// create or modify resources.
+func isRestrictedNamespace(namespace string) bool {
+	return strings.HasPrefix(namespace, "openshift-") ||
+		strings.HasPrefix(namespace, "kube-") ||
+		strings.HasPrefix(namespace, "hypershift-")
 }

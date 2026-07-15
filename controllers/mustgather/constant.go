@@ -20,6 +20,9 @@ const (
 	// ValidationImageStream represents the validation type for ImageStream
 	ValidationImageStream = "ImageStream"
 
+	// ValidationNamespace represents the validation type for restricted namespace checks
+	ValidationNamespace = "Namespace"
+
 	// DefaultMustGatherImageEnv represents the environment variable for the default must-gather image
 	DefaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"
 
