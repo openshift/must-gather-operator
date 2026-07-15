@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"time"
 
 	"github.com/go-logr/logr"
 	imagev1 "github.com/openshift/api/image/v1"
@@ -279,6 +280,10 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	// Check status of job and update any metric counts
+	jobAge := getJobAge(job1)
+	jobStatus := formatJobStatus(job1, reqLogger)
+	reqLogger.Info("checking job status", "age", jobAge, "status", jobStatus)
+
 	if job1.Status.Active > 0 {
 		reqLogger.Info("mustgather Job pods are still running")
 	} else {
@@ -419,6 +424,10 @@ func (r *MustGatherReconciler) getMustGatherImage(ctx context.Context, instance 
 		return r.DefaultMustGatherImage, nil
 	}
 
+	if err := validateImageStreamRef(instance.Spec.ImageStreamRef); err != nil {
+		return "", err
+	}
+
 	// Use custom image from ImageStream
 	imageStream := &imagev1.ImageStream{}
 	if err := r.GetClient().Get(ctx, types.NamespacedName{Name: instance.Spec.ImageStreamRef.Name, Namespace: r.OperatorNamespace}, imageStream); err != nil {
@@ -524,7 +533,8 @@ func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, r
 		}
 	}
 
-	reqLogger.V(4).Info("successfully cleaned up mustgather resources")
+	logCleanupSummary(reqLogger, tmpJob.Name, len(podList.Items), instance.Namespace)
+
 	return nil
 }
 
@@ -672,4 +682,49 @@ func (r *MustGatherReconciler) cleanupTrustedCAConfigMap(ctx context.Context, re
 	reqLogger.V(4).Info("removed ownerReference from trustedCA ConfigMap",
 		"configMapName", r.TrustedCAConfigMap, "remainingNumOwners", len(updatedOwnerRefs))
 	return nil
+}
+
+// getJobAge returns a human-readable string describing how long ago the job was created.
+func getJobAge(job *batchv1.Job) string {
+	age := time.Since(job.CreationTimestamp.Time)
+	seconds := int(age.Seconds())
+	if seconds < 60 {
+		return fmt.Sprintf("%ds", seconds)
+	} else if seconds < 3600 {
+		return fmt.Sprintf("%dm%ds", seconds/60, seconds%60)
+	} else {
+		return fmt.Sprintf("%dh%dm", seconds/3600, (seconds%3600)/60)
+	}
+}
+
+// validateImageStreamRef validates that the ImageStreamRef fields are properly set.
+func validateImageStreamRef(ref *mustgatherv1alpha1.ImageStreamTagRef) error {
+	if ref.Name == "" {
+		return fmt.Errorf("imageStreamRef.name must not be empty")
+	}
+	if ref.Tag == "" {
+		return fmt.Errorf("imageStreamRef.tag must not be empty")
+	}
+	return nil
+}
+
+// logCleanupSummary logs a summary of the resources that were cleaned up.
+func logCleanupSummary(reqLogger logr.Logger, jobName string, podCount int, namespace string) {
+	msg := fmt.Sprintf("cleanup complete for job %s in namespace %s", jobName, namespace)
+	reqLogger.Info(msg, "podsDeleted", podCount)
+}
+
+func formatJobStatus(job *batchv1.Job, reqLogger logr.Logger) string {
+	status := "unknown"
+	if job.Status.Active > 0 {
+		status = "active"
+	} else if job.Status.Succeeded > 0 {
+		status = "succeeded"
+	} else if job.Status.Failed > 0 {
+		status = "failed"
+	}
+
+	result := fmt.Sprintf("Job %s: status=%s, active=%d, succeeded=%d, failed=%d",
+		job.Name, status, job.Status.Active, job.Status.Succeeded, job.Status.Failed)
+	return result
 }
