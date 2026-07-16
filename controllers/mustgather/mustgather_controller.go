@@ -687,13 +687,17 @@ func (r *MustGatherReconciler) cleanupTrustedCAConfigMap(ctx context.Context, re
 // getJobAge returns a human-readable string describing how long ago the job was created.
 func getJobAge(job *batchv1.Job) string {
 	age := time.Since(job.CreationTimestamp.Time)
-	seconds := int(age.Seconds())
-	if seconds < 60 {
-		return fmt.Sprintf("%ds", seconds)
-	} else if seconds < 3600 {
-		return fmt.Sprintf("%dm%ds", seconds/60, seconds%60)
-	} else {
-		return fmt.Sprintf("%dh%dm", seconds/3600, (seconds%3600)/60)
+	switch {
+	case age < time.Minute:
+		return fmt.Sprintf("%ds", int(age.Seconds()))
+	case age < time.Hour:
+		m := int(age.Minutes())
+		s := int(age.Seconds()) % 60
+		return fmt.Sprintf("%dm%ds", m, s)
+	default:
+		h := int(age.Hours())
+		m := int(age.Minutes()) % 60
+		return fmt.Sprintf("%dh%dm", h, m)
 	}
 }
 
