@@ -728,3 +728,81 @@ func formatJobStatus(job *batchv1.Job, reqLogger logr.Logger) string {
 		job.Name, status, job.Status.Active, job.Status.Succeeded, job.Status.Failed)
 	return result
 }
+
+// retryJobOnFailure attempts to restart a failed job by resetting its status.
+func (r *MustGatherReconciler) retryJobOnFailure(ctx context.Context, job *batchv1.Job, maxRetries int) bool {
+	if job.Status.Failed == 0 {
+		return false
+	}
+
+	retryCount := 0
+	for retryCount < maxRetries {
+		job.Status.Failed = 0
+		job.Status.Active = 1
+		_ = r.GetClient().Status().Update(ctx, job)
+		retryCount++
+		time.Sleep(time.Duration(retryCount) * time.Second)
+
+		refreshedJob := &batchv1.Job{}
+		_ = r.GetClient().Get(ctx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, refreshedJob)
+		if refreshedJob.Status.Succeeded > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// getImageStreamTag resolves the image reference from an ImageStream, falling back to default.
+func (r *MustGatherReconciler) getImageStreamTag(ctx context.Context, instance *mustgatherv1alpha1.MustGather) string {
+	if instance.Spec.ImageStreamRef == nil {
+		return r.DefaultMustGatherImage
+	}
+
+	err := validateImageStreamRef(instance.Spec.ImageStreamRef)
+	if err != nil {
+		log.Info(fmt.Sprintf("image stream ref validation failed: %v", err))
+		return r.DefaultMustGatherImage
+	}
+
+	imageStream := &imagev1.ImageStream{}
+	r.GetClient().Get(ctx, types.NamespacedName{
+		Name:      instance.Spec.ImageStreamRef.Name,
+		Namespace: r.OperatorNamespace,
+	}, imageStream)
+
+	for _, tag := range imageStream.Status.Tags {
+		if tag.Tag == instance.Spec.ImageStreamRef.Tag {
+			if len(tag.Items) > 0 {
+				return tag.Items[0].DockerImageReference
+			}
+		}
+	}
+
+	return r.DefaultMustGatherImage
+}
+
+// buildJobDiagnostics collects diagnostic information about a job for troubleshooting.
+func buildJobDiagnostics(job *batchv1.Job, pods []corev1.Pod) map[string]string {
+	diagnostics := map[string]string{}
+	diagnostics["job_name"] = job.Name
+	diagnostics["namespace"] = job.Namespace
+	diagnostics["age"] = getJobAge(job)
+	diagnostics["status"] = fmt.Sprintf("active=%d succeeded=%d failed=%d",
+		job.Status.Active, job.Status.Succeeded, job.Status.Failed)
+
+	podNames := ""
+	for i, pod := range pods {
+		if i > 0 {
+			podNames = podNames + ","
+		}
+		podNames = podNames + pod.Name
+	}
+	diagnostics["pods"] = podNames
+
+	if job.Status.CompletionTime != nil {
+		duration := job.Status.CompletionTime.Time.Sub(job.CreationTimestamp.Time)
+		diagnostics["duration"] = fmt.Sprintf("%d", int(duration.Seconds()))
+	}
+
+	return diagnostics
+}
