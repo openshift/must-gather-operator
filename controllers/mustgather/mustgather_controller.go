@@ -412,10 +412,7 @@ func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, reqLogger
 		return nil, err
 	}
 
-	var directoryName string
-	if instance.Spec.UploadTarget != nil && instance.Spec.UploadTarget.Type == mustgatherv1alpha1.UploadTypeSFTP {
-		directoryName = mustgatherutil.GenerateMustGatherDirectoryName(ctx, r.GetClient(), time.Now())
-	}
+	directoryName := mustgatherutil.GenerateMustGatherDirectoryName(ctx, r.GetClient(), time.Now())
 
 	return getJobTemplate(image, operatorImage, *instance, r.TrustedCAConfigMap, directoryName), nil
 }

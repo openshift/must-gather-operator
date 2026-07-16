@@ -110,6 +110,7 @@ func Test_initializeJobTemplate(t *testing.T) {
 
 func Test_getGatherContainer(t *testing.T) {
 	testSinceTime := time.Date(2026, 1, 7, 10, 0, 0, 0, time.UTC)
+	testDirName := "must-gather.local.456789abcdef.20260617T143025Z.042315"
 
 	tests := []struct {
 		name            string
@@ -121,6 +122,7 @@ func Test_getGatherContainer(t *testing.T) {
 		args            []string
 		caConfigMap     string
 		timeFilter      *GatherTimeFilter
+		directoryName   string
 	}{
 		{
 			name:            "no audit",
@@ -140,7 +142,7 @@ func Test_getGatherContainer(t *testing.T) {
 			caConfigMap:     "trusted-ca-cert-001",
 		},
 		{
-			name:    "with PVC",
+			name:    "with PVC and directory name",
 			timeout: 5 * time.Second,
 			storage: &mustgatherv1alpha1.Storage{
 				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
@@ -151,9 +153,10 @@ func Test_getGatherContainer(t *testing.T) {
 					SubPath: "test-path",
 				},
 			},
+			directoryName: testDirName,
 		},
 		{
-			name:    "with PVC empty subPath sets subPathExpr to POD_NAME only",
+			name:    "with PVC empty subPath uses directory name only",
 			timeout: 5 * time.Second,
 			storage: &mustgatherv1alpha1.Storage{
 				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
@@ -162,9 +165,10 @@ func Test_getGatherContainer(t *testing.T) {
 					SubPath: "",
 				},
 			},
+			directoryName: testDirName,
 		},
 		{
-			name:    "with PVC whitespace subPath sets subPathExpr to POD_NAME only",
+			name:    "with PVC whitespace subPath uses directory name only",
 			timeout: 5 * time.Second,
 			storage: &mustgatherv1alpha1.Storage{
 				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
@@ -173,9 +177,10 @@ func Test_getGatherContainer(t *testing.T) {
 					SubPath: "   ",
 				},
 			},
+			directoryName: testDirName,
 		},
 		{
-			name:    "with PVC slash-only subPath sets subPathExpr to POD_NAME only",
+			name:    "with PVC slash-only subPath uses directory name only",
 			timeout: 5 * time.Second,
 			storage: &mustgatherv1alpha1.Storage{
 				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
@@ -184,6 +189,7 @@ func Test_getGatherContainer(t *testing.T) {
 					SubPath: "/",
 				},
 			},
+			directoryName: testDirName,
 		},
 		{
 			name:            "robust timeout",
@@ -216,7 +222,7 @@ func Test_getGatherContainer(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			container := getGatherContainer(tt.mustGatherImage, tt.audit, tt.timeout, tt.storage, tt.caConfigMap, tt.timeFilter, tt.command, tt.args)
+			container := getGatherContainer(tt.mustGatherImage, tt.audit, tt.timeout, tt.storage, tt.caConfigMap, tt.timeFilter, tt.command, tt.args, tt.directoryName)
 
 			if len(tt.command) == 0 {
 				containerCommand := container.Command[2]
@@ -271,32 +277,13 @@ func Test_getGatherContainer(t *testing.T) {
 					t.Fatalf("volume mount name was not correctly set. got %v, wanted %v", volumeMount.Name, outputVolumeName)
 				}
 				base := strings.Trim(strings.TrimSpace(tt.storage.PersistentVolume.SubPath), "/")
-				wantExpr := path.Join(base, fmt.Sprintf("$(%s)", podNameEnvVar))
-				if volumeMount.SubPathExpr != wantExpr {
-					t.Fatalf("volume mount subPathExpr was not correctly set. got %q, wanted %q", volumeMount.SubPathExpr, wantExpr)
+				wantSubPath := path.Join(base, tt.directoryName)
+				if volumeMount.SubPath != wantSubPath {
+					t.Fatalf("volume mount subPath was not correctly set. got %q, wanted %q", volumeMount.SubPath, wantSubPath)
 				}
-				if volumeMount.SubPath != "" {
-					t.Fatalf("did not expect volume mount subPath to be set when using subPathExpr, got %q", volumeMount.SubPath)
+				if volumeMount.SubPathExpr != "" {
+					t.Fatalf("did not expect volume mount subPathExpr to be set, got %q", volumeMount.SubPathExpr)
 				}
-			}
-
-			// POD_NAME env var should be present only when SubPathExpr is used.
-			hasPodNameEnv := false
-			for _, env := range container.Env {
-				if env.Name == podNameEnvVar {
-					hasPodNameEnv = true
-					if env.ValueFrom == nil || env.ValueFrom.FieldRef == nil || env.ValueFrom.FieldRef.FieldPath != "metadata.name" {
-						t.Fatalf("expected %s env var to be sourced from metadata.name via fieldRef, got %#v", podNameEnvVar, env)
-					}
-				}
-			}
-			// SubPathExpr is always set for PVC storage (for per-pod isolation), so POD_NAME env is always present.
-			hasPVCStorage := tt.storage != nil && tt.storage.Type == mustgatherv1alpha1.StorageTypePersistentVolume
-			if hasPVCStorage && !hasPodNameEnv {
-				t.Fatalf("expected %s env var when PVC storage is used (SubPathExpr is set)", podNameEnvVar)
-			}
-			if !hasPVCStorage && hasPodNameEnv {
-				t.Fatalf("did not expect %s env var when storage is not PVC", podNameEnvVar)
 			}
 
 			// Check time filter environment variables
@@ -319,6 +306,8 @@ func Test_getGatherContainer(t *testing.T) {
 }
 
 func Test_getUploadContainer(t *testing.T) {
+	testDirName := "must-gather.local.456789abcdef.20260617T143025Z.042315"
+
 	tests := []struct {
 		name             string
 		operatorImage    string
@@ -331,6 +320,7 @@ func Test_getUploadContainer(t *testing.T) {
 		noProxy          string
 		mountCAConfigMap bool
 		secretKeyRefName v1.LocalObjectReference
+		directoryName    string
 	}{
 		{
 			name:             "All fields present",
@@ -386,7 +376,7 @@ func Test_getUploadContainer(t *testing.T) {
 			mountCAConfigMap: true,
 		},
 		{
-			name:          "With PVC subPath",
+			name:          "With PVC subPath and directory name",
 			operatorImage: "testImage",
 			caseId:        "1234",
 			secretKeyRefName: v1.LocalObjectReference{
@@ -401,9 +391,10 @@ func Test_getUploadContainer(t *testing.T) {
 					SubPath: "test-path",
 				},
 			},
+			directoryName: testDirName,
 		},
 		{
-			name:          "With PVC empty subPath sets subPathExpr to POD_NAME only",
+			name:          "With PVC empty subPath uses directory name only",
 			operatorImage: "testImage",
 			caseId:        "1234",
 			secretKeyRefName: v1.LocalObjectReference{
@@ -416,9 +407,10 @@ func Test_getUploadContainer(t *testing.T) {
 					SubPath: "",
 				},
 			},
+			directoryName: testDirName,
 		},
 		{
-			name:          "With PVC whitespace subPath sets subPathExpr to POD_NAME only",
+			name:          "With PVC whitespace subPath uses directory name only",
 			operatorImage: "testImage",
 			caseId:        "1234",
 			secretKeyRefName: v1.LocalObjectReference{
@@ -431,9 +423,10 @@ func Test_getUploadContainer(t *testing.T) {
 					SubPath: "   ",
 				},
 			},
+			directoryName: testDirName,
 		},
 		{
-			name:          "With PVC slash-only subPath sets subPathExpr to POD_NAME only",
+			name:          "With PVC slash-only subPath uses directory name only",
 			operatorImage: "testImage",
 			caseId:        "1234",
 			secretKeyRefName: v1.LocalObjectReference{
@@ -446,12 +439,13 @@ func Test_getUploadContainer(t *testing.T) {
 					SubPath: "/",
 				},
 			},
+			directoryName: testDirName,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testFailed := false
-			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.host, tt.internalUser, tt.storage, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName, tt.mountCAConfigMap, "")
+			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.host, tt.internalUser, tt.storage, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName, tt.mountCAConfigMap, tt.directoryName)
 
 			if container.Image != tt.operatorImage {
 				t.Fatalf("expected container image %v but got %v", tt.operatorImage, container.Image)
@@ -482,31 +476,13 @@ func Test_getUploadContainer(t *testing.T) {
 					t.Fatalf("expected output volume mount %q to be present", outputVolumeName)
 				}
 				base := strings.Trim(strings.TrimSpace(tt.storage.PersistentVolume.SubPath), "/")
-				wantExpr := path.Join(base, fmt.Sprintf("$(%s)", podNameEnvVar))
-				if outputMount.SubPathExpr != wantExpr {
-					t.Fatalf("expected output volume mount subPathExpr %q but got %q", wantExpr, outputMount.SubPathExpr)
+				wantSubPath := path.Join(base, tt.directoryName)
+				if outputMount.SubPath != wantSubPath {
+					t.Fatalf("expected output volume mount subPath %q but got %q", wantSubPath, outputMount.SubPath)
 				}
-				if outputMount.SubPath != "" {
-					t.Fatalf("did not expect output volume mount subPath to be set when using subPathExpr, got %q", outputMount.SubPath)
+				if outputMount.SubPathExpr != "" {
+					t.Fatalf("did not expect output volume mount subPathExpr to be set, got %q", outputMount.SubPathExpr)
 				}
-			}
-
-			// POD_NAME env var is present when SubPathExpr is used (always for PVC storage).
-			hasPodNameEnv := false
-			for _, env := range container.Env {
-				if env.Name == podNameEnvVar {
-					hasPodNameEnv = true
-					if env.ValueFrom == nil || env.ValueFrom.FieldRef == nil || env.ValueFrom.FieldRef.FieldPath != "metadata.name" {
-						t.Fatalf("expected %s env var to be sourced from metadata.name via fieldRef, got %#v", podNameEnvVar, env)
-					}
-				}
-			}
-			hasPVCStorage := tt.storage != nil && tt.storage.Type == mustgatherv1alpha1.StorageTypePersistentVolume
-			if hasPVCStorage && !hasPodNameEnv {
-				t.Fatalf("expected %s env var when PVC storage is used (SubPathExpr is set)", podNameEnvVar)
-			}
-			if !hasPVCStorage && hasPodNameEnv {
-				t.Fatalf("did not expect %s env var when storage is not PVC", podNameEnvVar)
 			}
 
 			for _, env := range container.Env {
@@ -774,6 +750,87 @@ func Test_getJobTemplate_FilenamePrefix(t *testing.T) {
 				if _, ok := uploadEnv[uploadEnvFilenamePrefix]; ok {
 					t.Fatalf("did not expect %s env var when directoryName is empty", uploadEnvFilenamePrefix)
 				}
+			}
+		})
+	}
+}
+
+func Test_outputSubPath(t *testing.T) {
+	tests := []struct {
+		name          string
+		storage       *mustgatherv1alpha1.Storage
+		directoryName string
+		wantPath      string
+		wantOk        bool
+	}{
+		{
+			name:     "nil storage returns empty",
+			storage:  nil,
+			wantPath: "",
+			wantOk:   false,
+		},
+		{
+			name: "PVC with subPath and directoryName",
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "pvc"},
+					SubPath: "base-path",
+				},
+			},
+			directoryName: "must-gather.local.abc.20260101T000000Z.123456",
+			wantPath:      "base-path/must-gather.local.abc.20260101T000000Z.123456",
+			wantOk:        true,
+		},
+		{
+			name: "PVC with empty subPath and directoryName",
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "pvc"},
+					SubPath: "",
+				},
+			},
+			directoryName: "must-gather.local.abc.20260101T000000Z.123456",
+			wantPath:      "must-gather.local.abc.20260101T000000Z.123456",
+			wantOk:        true,
+		},
+		{
+			name: "PVC with whitespace subPath and directoryName",
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "pvc"},
+					SubPath: "  / ",
+				},
+			},
+			directoryName: "must-gather.local.abc.20260101T000000Z.123456",
+			wantPath:      "must-gather.local.abc.20260101T000000Z.123456",
+			wantOk:        true,
+		},
+		{
+			name: "PVC with subPath and empty directoryName",
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "pvc"},
+					SubPath: "base-path",
+				},
+			},
+			directoryName: "",
+			wantPath:      "base-path",
+			wantOk:        true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotPath, gotOk := outputSubPath(tt.storage, tt.directoryName)
+			if gotOk != tt.wantOk {
+				t.Fatalf("outputSubPath() ok = %v, want %v", gotOk, tt.wantOk)
+			}
+			if gotPath != tt.wantPath {
+				t.Fatalf("outputSubPath() path = %q, want %q", gotPath, tt.wantPath)
 			}
 		})
 	}

@@ -56,7 +56,7 @@ const (
 	knownHostsFile = "/tmp/must-gather-operator/.ssh/known_hosts"
 )
 
-func outputSubPathExpr(storage *v1alpha1.Storage) (string, bool) {
+func outputSubPath(storage *v1alpha1.Storage, directoryName string) (string, bool) {
 	if storage == nil || storage.Type != v1alpha1.StorageTypePersistentVolume {
 		return "", false
 	}
@@ -64,20 +64,7 @@ func outputSubPathExpr(storage *v1alpha1.Storage) (string, bool) {
 	base := strings.TrimSpace(storage.PersistentVolume.SubPath)
 	base = strings.Trim(base, "/")
 
-	// Isolate each run using the pod name to avoid overwriting prior collections on the PVC.
-	// When base is empty, path.Join("", ...) yields just the pod name expr, giving per-run isolation at PVC root.
-	return path.Join(base, fmt.Sprintf("$(%s)", podNameEnvVar)), true
-}
-
-func podNameEnvVars() []corev1.EnvVar {
-	return []corev1.EnvVar{
-		{
-			Name: podNameEnvVar,
-			ValueFrom: &corev1.EnvVarSource{
-				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"},
-			},
-		},
-	}
+	return path.Join(base, directoryName), true
 }
 
 // GatherTimeFilter holds the time-based filtering options for log collection
@@ -137,7 +124,7 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 
 	job.Spec.Template.Spec.Containers = append(
 		job.Spec.Template.Spec.Containers,
-		getGatherContainer(image, audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName, timeFilter, command, args),
+		getGatherContainer(image, audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName, timeFilter, command, args, directoryName),
 	)
 
 	// Add the upload container only if the upload target is specified
@@ -245,7 +232,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 	}
 }
 
-func getGatherContainer(image string, audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string, timeFilter *GatherTimeFilter, command []string, args []string) corev1.Container {
+func getGatherContainer(image string, audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string, timeFilter *GatherTimeFilter, command []string, args []string, directoryName string) corev1.Container {
 	var commandBinary string
 	if audit {
 		commandBinary = gatherCommandBinaryAudit
@@ -258,9 +245,9 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 		Name:      outputVolumeName,
 	}
 
-	subPathExpr, hasSubPathExpr := outputSubPathExpr(storage)
-	if hasSubPathExpr {
-		volumeMount.SubPathExpr = subPathExpr
+	subPath, hasPVC := outputSubPath(storage, directoryName)
+	if hasPVC {
+		volumeMount.SubPath = subPath
 	}
 
 	volumeMounts := []corev1.VolumeMount{volumeMount}
@@ -294,10 +281,6 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 		container.Args = args
 	}
 
-	// Provide pod name env var only when SubPathExpr is used (PVC subPath is set).
-	if hasSubPathExpr {
-		container.Env = append(container.Env, podNameEnvVars()...)
-	}
 	// Add time filter environment variables if specified
 	if timeFilter != nil {
 		if timeFilter.Since > 0 {
@@ -338,9 +321,9 @@ func getUploadContainer(
 		MountPath: volumeMountPath,
 		Name:      outputVolumeName,
 	}
-	subPathExpr, hasSubPathExpr := outputSubPathExpr(storage)
-	if hasSubPathExpr {
-		outputMount.SubPathExpr = subPathExpr
+	subPath, hasPVC := outputSubPath(storage, directoryName)
+	if hasPVC {
+		outputMount.SubPath = subPath
 	}
 
 	volumeMounts := []corev1.VolumeMount{
@@ -408,11 +391,6 @@ func getUploadContainer(
 				Value: strconv.FormatBool(internalUser),
 			},
 		},
-	}
-
-	// Provide pod name env var only when SubPathExpr is used (PVC subPath is set).
-	if hasSubPathExpr {
-		container.Env = append(container.Env, podNameEnvVars()...)
 	}
 
 	if httpProxy != "" {

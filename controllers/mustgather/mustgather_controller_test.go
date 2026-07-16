@@ -1641,6 +1641,69 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{
+			name: "reconcile_job_created_with_PVC_uses_generated_subpath",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: "default",
+						Storage: &mustgatherv1alpha1.Storage{
+							Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+							PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+								Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "test-pvc"},
+								SubPath: "my-data",
+							},
+						},
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("01234567-89ab-cdef-0123-456789abcdef")},
+					Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}}},
+				}
+				return []client.Object{mg, sa, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err != nil {
+					t.Fatalf("expected job to be created, got error: %v", err)
+				}
+				var gatherContainer *corev1.Container
+				for i := range job.Spec.Template.Spec.Containers {
+					if job.Spec.Template.Spec.Containers[i].Name == "gather" {
+						gatherContainer = &job.Spec.Template.Spec.Containers[i]
+						break
+					}
+				}
+				if gatherContainer == nil {
+					t.Fatal("gather container not found in job")
+				}
+				var outputMount *corev1.VolumeMount
+				for i := range gatherContainer.VolumeMounts {
+					if gatherContainer.VolumeMounts[i].Name == "must-gather-output" {
+						outputMount = &gatherContainer.VolumeMounts[i]
+						break
+					}
+				}
+				if outputMount == nil {
+					t.Fatal("output volume mount not found in gather container")
+				}
+				if !strings.HasPrefix(outputMount.SubPath, "my-data/must-gather.local.") {
+					t.Fatalf("expected SubPath to start with 'my-data/must-gather.local.', got %q", outputMount.SubPath)
+				}
+				if outputMount.SubPathExpr != "" {
+					t.Fatalf("expected SubPathExpr to be empty, got %q", outputMount.SubPathExpr)
+				}
+				if strings.Contains(outputMount.SubPath, "$(POD_NAME)") {
+					t.Fatalf("SubPath should not contain $(POD_NAME), got %q", outputMount.SubPath)
+				}
+			},
+		},
+		{
 			name: "reconcile_imagestream_tag_not_found_sets_validation_failure",
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
