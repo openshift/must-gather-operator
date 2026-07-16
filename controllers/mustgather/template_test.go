@@ -216,7 +216,7 @@ func Test_getGatherContainer(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			container := getGatherContainer(tt.mustGatherImage, tt.audit, tt.timeout, tt.storage, tt.caConfigMap, tt.timeFilter, tt.command, tt.args, "must-gather.local.test.20240101T120000Z.000001")
+			container := getGatherContainer(tt.mustGatherImage, tt.audit, tt.timeout, tt.storage, tt.caConfigMap, tt.timeFilter, tt.command, tt.args)
 
 			if len(tt.command) == 0 {
 				containerCommand := container.Command[2]
@@ -451,7 +451,7 @@ func Test_getUploadContainer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testFailed := false
-			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.host, tt.internalUser, tt.storage, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName, tt.mountCAConfigMap)
+			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.host, tt.internalUser, tt.storage, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName, tt.mountCAConfigMap, "")
 
 			if container.Image != tt.operatorImage {
 				t.Fatalf("expected container image %v but got %v", tt.operatorImage, container.Image)
@@ -719,32 +719,23 @@ func Test_getJobTemplate_ProxyAuditTimeout(t *testing.T) {
 	}
 }
 
-func Test_getJobTemplate_DirectoryNameEnvVar(t *testing.T) {
+func Test_getJobTemplate_FilenamePrefix(t *testing.T) {
 	t.Setenv(DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
 
 	tests := []struct {
 		name          string
 		directoryName string
-		gatherSpec    *mustgatherv1alpha1.GatherSpec
 		expectEnvVar  bool
-		wantSince     string
 	}{
 		{
-			name:          "non-empty directoryName — gather gets MUST_GATHER_DEST_DIR, upload does not",
+			name:          "non-empty directoryName — upload gets FILENAME_PREFIX",
 			directoryName: "must-gather.local.456789abcdef.20260617T143025Z.042315",
 			expectEnvVar:  true,
 		},
 		{
-			name:          "empty directoryName — env var not injected",
+			name:          "empty directoryName — FILENAME_PREFIX not injected",
 			directoryName: "",
 			expectEnvVar:  false,
-		},
-		{
-			name:          "directoryName coexists with time-filter env vars",
-			directoryName: "must-gather.local.456789abcdef.20260617T143025Z.042315",
-			gatherSpec:    &mustgatherv1alpha1.GatherSpec{Since: &metav1.Duration{Duration: 2 * time.Hour}},
-			expectEnvVar:  true,
-			wantSince:     "2h0m0s",
 		},
 	}
 
@@ -754,7 +745,6 @@ func Test_getJobTemplate_DirectoryNameEnvVar(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
 					ServiceAccountName: "default",
-					GatherSpec:         tt.gatherSpec,
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -769,34 +759,21 @@ func Test_getJobTemplate_DirectoryNameEnvVar(t *testing.T) {
 			}
 
 			job := getJobTemplate("img", "operator-image", mg, "", tt.directoryName)
-			gather := findGatherContainerInJob(t, job)
-			env := envValues(gather)
-
-			if tt.expectEnvVar {
-				val, ok := env[gatherEnvDestDir]
-				if !ok {
-					t.Fatalf("expected %s env var in gather container, not found", gatherEnvDestDir)
-				}
-				if val != tt.directoryName {
-					t.Fatalf("expected %s=%s, got %s", gatherEnvDestDir, tt.directoryName, val)
-				}
-			} else {
-				if _, ok := env[gatherEnvDestDir]; ok {
-					t.Fatalf("did not expect %s env var when directoryName is empty", gatherEnvDestDir)
-				}
-			}
-
-			if tt.wantSince != "" {
-				if env[gatherEnvSince] != tt.wantSince {
-					t.Fatalf("expected %s=%s alongside directory name, got %s", gatherEnvSince, tt.wantSince, env[gatherEnvSince])
-				}
-			}
-
-			// Verify upload container does NOT have MUST_GATHER_DEST_DIR
 			upload := findUploadContainerInJob(t, job)
 			uploadEnv := envValues(upload)
-			if _, ok := uploadEnv[gatherEnvDestDir]; ok {
-				t.Fatalf("%s should not be set on upload container", gatherEnvDestDir)
+
+			if tt.expectEnvVar {
+				val, ok := uploadEnv[uploadEnvFilenamePrefix]
+				if !ok {
+					t.Fatalf("expected %s env var in upload container, not found", uploadEnvFilenamePrefix)
+				}
+				if val != tt.directoryName {
+					t.Fatalf("expected %s=%s, got %s", uploadEnvFilenamePrefix, tt.directoryName, val)
+				}
+			} else {
+				if _, ok := uploadEnv[uploadEnvFilenamePrefix]; ok {
+					t.Fatalf("did not expect %s env var when directoryName is empty", uploadEnvFilenamePrefix)
+				}
 			}
 		})
 	}

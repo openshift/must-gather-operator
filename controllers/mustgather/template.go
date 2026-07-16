@@ -36,9 +36,6 @@ const (
 	gatherEnvSince     = "MUST_GATHER_SINCE"
 	gatherEnvSinceTime = "MUST_GATHER_SINCE_TIME"
 
-	// Environment variable for must-gather output directory name
-	gatherEnvDestDir = "MUST_GATHER_DEST_DIR"
-
 	backoffLimit              = 3
 	uploadContainerName       = "upload"
 	uploadEnvUsername         = "username"
@@ -51,6 +48,7 @@ const (
 	uploadEnvNoProxy          = "no_proxy"
 	uploadEnvMustGatherOutput = "must_gather_output"
 	uploadEnvMustGatherUpload = "must_gather_upload"
+	uploadEnvFilenamePrefix   = "FILENAME_PREFIX"
 	uploadCommand             = "count=0\nuntil [ $count -gt 4 ]\ndo\n  while `pgrep -a gather > /dev/null`\n  do\n    echo \"waiting for gathers to complete ...\"\n    sleep 120\n    count=0\n  done\n  echo \"no gather is running ($count / 4)\"\n  ((count++))\n  sleep 30\ndone\n/usr/local/bin/upload"
 
 	// SSH directory and known hosts file
@@ -139,7 +137,7 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 
 	job.Spec.Template.Spec.Containers = append(
 		job.Spec.Template.Spec.Containers,
-		getGatherContainer(image, audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName, timeFilter, command, args, directoryName),
+		getGatherContainer(image, audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName, timeFilter, command, args),
 	)
 
 	// Add the upload container only if the upload target is specified
@@ -159,6 +157,7 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 					noProxy,
 					s.CaseManagementAccountSecretRef,
 					trustedCAConfigMapName != "",
+					directoryName,
 				),
 			)
 		}
@@ -246,7 +245,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 	}
 }
 
-func getGatherContainer(image string, audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string, timeFilter *GatherTimeFilter, command []string, args []string, directoryName string) corev1.Container {
+func getGatherContainer(image string, audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string, timeFilter *GatherTimeFilter, command []string, args []string) corev1.Container {
 	var commandBinary string
 	if audit {
 		commandBinary = gatherCommandBinaryAudit
@@ -315,15 +314,6 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 		}
 	}
 
-	// Add must-gather directory name environment variable
-	// This follows the same naming convention as oc adm must-gather
-	if directoryName != "" {
-		container.Env = append(container.Env, corev1.EnvVar{
-			Name:  gatherEnvDestDir,
-			Value: directoryName,
-		})
-	}
-
 	return container
 }
 
@@ -338,6 +328,7 @@ func getUploadContainer(
 	noProxy string,
 	secretKeyRefName corev1.LocalObjectReference,
 	shouldMountTrustedCAConfigMap bool,
+	directoryName string,
 ) corev1.Container {
 	// Create the modified upload command that includes SSH setup
 	uploadCommandWithSSH := fmt.Sprintf("mkdir -p %s; touch %s; chmod 700 %s; chmod 600 %s; %s",
@@ -432,6 +423,13 @@ func getUploadContainer(
 	}
 	if noProxy != "" {
 		container.Env = append(container.Env, corev1.EnvVar{Name: uploadEnvNoProxy, Value: noProxy})
+	}
+
+	if directoryName != "" {
+		container.Env = append(container.Env, corev1.EnvVar{
+			Name:  uploadEnvFilenamePrefix,
+			Value: directoryName,
+		})
 	}
 
 	return container

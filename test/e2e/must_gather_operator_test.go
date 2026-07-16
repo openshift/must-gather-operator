@@ -2258,6 +2258,26 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 		ginkgo.BeforeEach(func() {
 			mustGatherName = fmt.Sprintf("dirtest-e2e-%d", time.Now().UnixNano())
+
+			sftpUsername, sftpPassword, err := getCaseCreds()
+			Expect(err).NotTo(HaveOccurred(), "Failed to get SFTP credentials")
+
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      caseManagementSecretNameValid,
+					Namespace: ns.Name,
+					Labels:    map[string]string{"test": nonAdminLabel},
+				},
+				Type: corev1.SecretTypeOpaque,
+				StringData: map[string]string{
+					"username": sftpUsername,
+					"password": sftpPassword,
+				},
+			}
+			err = nonAdminClient.Create(testCtx, secret)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred(), "Failed to create case management secret")
+			}
 		})
 
 		ginkgo.AfterEach(func() {
@@ -2271,9 +2291,13 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}
 		})
 
-		ginkgo.It("should set MUST_GATHER_DEST_DIR env var on gather container with correct naming convention", func() {
-			ginkgo.By("Creating MustGather CR")
-			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, false, nil)
+		ginkgo.It("should set FILENAME_PREFIX env var on upload container with correct naming convention", func() {
+			caseID := generateTestCaseID()
+
+			ginkgo.By("Creating MustGather CR with SFTP upload target")
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, false, &MustGatherCROptions{
+				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: prodHostName},
+			})
 
 			ginkgo.By("Waiting for operator to create Job")
 			job := &batchv1.Job{}
@@ -2281,44 +2305,38 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				return adminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, job)
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
-			ginkgo.By("Verifying gather container has MUST_GATHER_DEST_DIR env var")
-			var destDirValue string
+			ginkgo.By("Verifying upload container has FILENAME_PREFIX env var")
+			var filenamePrefixValue string
 			for _, container := range job.Spec.Template.Spec.Containers {
-				if container.Name == gatherContainerName {
+				if container.Name == uploadContainerName {
 					for _, env := range container.Env {
-						if env.Name == "MUST_GATHER_DEST_DIR" {
-							destDirValue = env.Value
+						if env.Name == "FILENAME_PREFIX" {
+							filenamePrefixValue = env.Value
 						}
 					}
 				}
 			}
-			Expect(destDirValue).NotTo(BeEmpty(), "MUST_GATHER_DEST_DIR should be set on gather container")
+			Expect(filenamePrefixValue).NotTo(BeEmpty(), "FILENAME_PREFIX should be set on upload container")
 
-			ginkgo.By("Verifying directory name follows the must-gather.local convention")
-			Expect(destDirValue).To(HavePrefix("must-gather.local."),
-				"Directory name should start with 'must-gather.local.'")
+			ginkgo.By("Verifying FILENAME_PREFIX follows the must-gather.local convention")
+			Expect(filenamePrefixValue).To(HavePrefix("must-gather.local."),
+				"FILENAME_PREFIX should start with 'must-gather.local.'")
 
-			parts := strings.Split(destDirValue, ".")
+			parts := strings.Split(filenamePrefixValue, ".")
 			Expect(len(parts)).To(BeNumerically(">=", 4),
-				"Directory name should have at least 4 dot-separated parts (must-gather.local.<timestamp>.<random>)")
+				"FILENAME_PREFIX should have at least 4 dot-separated parts (must-gather.local.<timestamp>.<random>)")
 
-			ginkgo.GinkgoWriter.Printf("MUST_GATHER_DEST_DIR value: %s\n", destDirValue)
-
-			ginkgo.By("Verifying upload container does NOT have MUST_GATHER_DEST_DIR")
-			for _, container := range job.Spec.Template.Spec.Containers {
-				if container.Name == uploadContainerName {
-					for _, env := range container.Env {
-						Expect(env.Name).NotTo(Equal("MUST_GATHER_DEST_DIR"),
-							"Upload container should not have MUST_GATHER_DEST_DIR env var")
-					}
-				}
-			}
+			ginkgo.GinkgoWriter.Printf("FILENAME_PREFIX value: %s\n", filenamePrefixValue)
 		})
 
-		ginkgo.It("should generate unique directory names for different MustGather CRs", func() {
+		ginkgo.It("should generate unique FILENAME_PREFIX values for different MustGather CRs", func() {
+			caseID := generateTestCaseID()
+
 			ginkgo.By("Creating first MustGather CR")
 			name1 := mustGatherName
-			mustGatherCR = createMustGatherCR(name1, ns.Name, serviceAccount, false, nil)
+			mustGatherCR = createMustGatherCR(name1, ns.Name, serviceAccount, false, &MustGatherCROptions{
+				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: prodHostName},
+			})
 
 			ginkgo.By("Waiting for first Job to be created")
 			job1 := &batchv1.Job{}
@@ -2326,12 +2344,12 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				return adminClient.Get(testCtx, client.ObjectKey{Name: name1, Namespace: ns.Name}, job1)
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
-			var destDir1 string
+			var prefix1 string
 			for _, c := range job1.Spec.Template.Spec.Containers {
-				if c.Name == gatherContainerName {
+				if c.Name == uploadContainerName {
 					for _, env := range c.Env {
-						if env.Name == "MUST_GATHER_DEST_DIR" {
-							destDir1 = env.Value
+						if env.Name == "FILENAME_PREFIX" {
+							prefix1 = env.Value
 						}
 					}
 				}
@@ -2339,7 +2357,10 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.By("Creating second MustGather CR")
 			name2 := fmt.Sprintf("dirtest2-e2e-%d", time.Now().UnixNano())
-			mg2 := createMustGatherCR(name2, ns.Name, serviceAccount, false, nil)
+			caseID2 := generateTestCaseID()
+			mg2 := createMustGatherCR(name2, ns.Name, serviceAccount, false, &MustGatherCROptions{
+				UploadTarget: &UploadTargetOptions{CaseID: caseID2, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: prodHostName},
+			})
 
 			ginkgo.By("Waiting for second Job to be created")
 			job2 := &batchv1.Job{}
@@ -2347,12 +2368,12 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				return adminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, job2)
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
-			var destDir2 string
+			var prefix2 string
 			for _, c := range job2.Spec.Template.Spec.Containers {
-				if c.Name == gatherContainerName {
+				if c.Name == uploadContainerName {
 					for _, env := range c.Env {
-						if env.Name == "MUST_GATHER_DEST_DIR" {
-							destDir2 = env.Value
+						if env.Name == "FILENAME_PREFIX" {
+							prefix2 = env.Value
 						}
 					}
 				}
@@ -2365,13 +2386,13 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				return apierrors.IsNotFound(err)
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
-			ginkgo.By("Verifying directory names are different")
-			Expect(destDir1).NotTo(BeEmpty(), "First CR should have MUST_GATHER_DEST_DIR set")
-			Expect(destDir2).NotTo(BeEmpty(), "Second CR should have MUST_GATHER_DEST_DIR set")
-			Expect(destDir1).NotTo(Equal(destDir2),
-				"Different MustGather CRs should generate unique directory names")
+			ginkgo.By("Verifying FILENAME_PREFIX values are different")
+			Expect(prefix1).NotTo(BeEmpty(), "First CR should have FILENAME_PREFIX set")
+			Expect(prefix2).NotTo(BeEmpty(), "Second CR should have FILENAME_PREFIX set")
+			Expect(prefix1).NotTo(Equal(prefix2),
+				"Different MustGather CRs should generate unique FILENAME_PREFIX values")
 
-			ginkgo.GinkgoWriter.Printf("Dir1: %s\nDir2: %s\n", destDir1, destDir2)
+			ginkgo.GinkgoWriter.Printf("Prefix1: %s\nPrefix2: %s\n", prefix1, prefix2)
 		})
 	})
 })

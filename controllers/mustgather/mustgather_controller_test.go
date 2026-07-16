@@ -1522,21 +1522,35 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "reconcile_job_created_with_MUST_GATHER_DEST_DIR_env_var",
+			name: "reconcile_job_created_with_FILENAME_PREFIX_env_var",
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
 						ServiceAccountName: "default",
+						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+							Type: mustgatherv1alpha1.UploadTypeSFTP,
+							SFTP: &mustgatherv1alpha1.SFTPSpec{
+								CaseID:                         "12345678",
+								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "case-management-creds"},
+							},
+						},
 					},
 				}
 				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				secret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "case-management-creds", Namespace: "ns"},
+					Data: map[string][]byte{
+						"username": []byte("testuser"),
+						"password": []byte("testpass"),
+					},
+				}
 				cv := &configv1.ClusterVersion{
 					ObjectMeta: metav1.ObjectMeta{Name: "version"},
 					Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("01234567-89ab-cdef-0123-456789abcdef")},
 					Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}}},
 				}
-				return []client.Object{mg, sa, cv}
+				return []client.Object{mg, sa, secret, cv}
 			},
 			interceptors: func() interceptClient { return interceptClient{} },
 			expectError:  false,
@@ -1546,33 +1560,33 @@ func TestReconcile(t *testing.T) {
 				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err != nil {
 					t.Fatalf("expected job to be created, got error: %v", err)
 				}
-				var gatherContainer *corev1.Container
+				var uploadContainer *corev1.Container
 				for i := range job.Spec.Template.Spec.Containers {
-					if job.Spec.Template.Spec.Containers[i].Name == "gather" {
-						gatherContainer = &job.Spec.Template.Spec.Containers[i]
+					if job.Spec.Template.Spec.Containers[i].Name == "upload" {
+						uploadContainer = &job.Spec.Template.Spec.Containers[i]
 						break
 					}
 				}
-				if gatherContainer == nil {
-					t.Fatal("gather container not found in job")
+				if uploadContainer == nil {
+					t.Fatal("upload container not found in job")
 				}
-				var destDirValue string
+				var filenamePrefixValue string
 				var found bool
-				for _, env := range gatherContainer.Env {
-					if env.Name == "MUST_GATHER_DEST_DIR" {
-						destDirValue = env.Value
+				for _, env := range uploadContainer.Env {
+					if env.Name == "FILENAME_PREFIX" {
+						filenamePrefixValue = env.Value
 						found = true
 						break
 					}
 				}
 				if !found {
-					t.Fatal("MUST_GATHER_DEST_DIR env var not found in gather container")
+					t.Fatal("FILENAME_PREFIX env var not found in upload container")
 				}
-				if !strings.HasPrefix(destDirValue, "must-gather.local.") {
-					t.Fatalf("expected MUST_GATHER_DEST_DIR to start with 'must-gather.local.', got %q", destDirValue)
+				if !strings.HasPrefix(filenamePrefixValue, "must-gather.local.") {
+					t.Fatalf("expected FILENAME_PREFIX to start with 'must-gather.local.', got %q", filenamePrefixValue)
 				}
-				if !strings.Contains(destDirValue, "456789abcdef") {
-					t.Fatalf("expected MUST_GATHER_DEST_DIR to contain cluster ID suffix '456789abcdef', got %q", destDirValue)
+				if !strings.Contains(filenamePrefixValue, "456789abcdef") {
+					t.Fatalf("expected FILENAME_PREFIX to contain cluster ID suffix '456789abcdef', got %q", filenamePrefixValue)
 				}
 			},
 		},
@@ -1614,12 +1628,12 @@ func TestReconcile(t *testing.T) {
 				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err != nil {
 					t.Fatalf("expected job to still exist, got error: %v", err)
 				}
-				// The existing job should not have been recreated — gather container should have no MUST_GATHER_DEST_DIR
+				// The existing job should not have been recreated — upload container should have no FILENAME_PREFIX
 				for _, c := range job.Spec.Template.Spec.Containers {
-					if c.Name == "gather" {
+					if c.Name == "upload" {
 						for _, env := range c.Env {
-							if env.Name == "MUST_GATHER_DEST_DIR" {
-								t.Fatal("existing job should not have MUST_GATHER_DEST_DIR injected on re-reconcile")
+							if env.Name == "FILENAME_PREFIX" {
+								t.Fatal("existing job should not have FILENAME_PREFIX injected on re-reconcile")
 							}
 						}
 					}

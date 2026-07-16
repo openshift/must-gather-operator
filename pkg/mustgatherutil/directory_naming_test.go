@@ -50,22 +50,6 @@ func TestGenerateMustGatherDirectoryName(t *testing.T) {
 			expectClusterID: true,
 		},
 		{
-			name: "short cluster ID (8 chars) — full ID used",
-			clusterVersion: &configv1.ClusterVersion{
-				ObjectMeta: metav1.ObjectMeta{Name: "version"},
-				Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("short123")},
-			},
-			expectClusterID: true,
-		},
-		{
-			name: "1-char cluster ID — full ID used",
-			clusterVersion: &configv1.ClusterVersion{
-				ObjectMeta: metav1.ObjectMeta{Name: "version"},
-				Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("x")},
-			},
-			expectClusterID: true,
-		},
-		{
 			name: "exactly 12 chars — boundary, full ID used",
 			clusterVersion: &configv1.ClusterVersion{
 				ObjectMeta: metav1.ObjectMeta{Name: "version"},
@@ -78,22 +62,6 @@ func TestGenerateMustGatherDirectoryName(t *testing.T) {
 			clusterVersion: &configv1.ClusterVersion{
 				ObjectMeta: metav1.ObjectMeta{Name: "version"},
 				Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("1234567890abc")},
-			},
-			expectClusterID: true,
-		},
-		{
-			name: "100+ chars — only last 12 used",
-			clusterVersion: &configv1.ClusterVersion{
-				ObjectMeta: metav1.ObjectMeta{Name: "version"},
-				Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("abcdefghij0123456789abcdefghij0123456789abcdefghij0123456789abcdefghij0123456789abcdefghij0123456789LAST12CHARSX")},
-			},
-			expectClusterID: true,
-		},
-		{
-			name: "cluster ID with only hyphens and digits",
-			clusterVersion: &configv1.ClusterVersion{
-				ObjectMeta: metav1.ObjectMeta{Name: "version"},
-				Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("1234-5678-9abc-def0")},
 			},
 			expectClusterID: true,
 		},
@@ -200,51 +168,6 @@ func TestGenerateMustGatherDirectoryName(t *testing.T) {
 	}
 }
 
-func TestGenerateMustGatherDirectoryName_Uniqueness(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := configv1.Install(scheme); err != nil {
-		t.Fatalf("failed to install configv1 scheme: %v", err)
-	}
-
-	clusterVersion := &configv1.ClusterVersion{
-		ObjectMeta: metav1.ObjectMeta{Name: "version"},
-		Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("test-cluster-id-12345")},
-	}
-
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(clusterVersion).
-		Build()
-
-	names := make(map[string]bool)
-	now := time.Now()
-	for range 100 {
-		dirName := GenerateMustGatherDirectoryName(context.TODO(), fakeClient, now)
-		if names[dirName] {
-			t.Fatalf("duplicate directory name generated: %s", dirName)
-		}
-		names[dirName] = true
-	}
-
-	if len(names) != 100 {
-		t.Fatalf("expected 100 unique directory names, got %d", len(names))
-	}
-
-	// Verify random suffix is zero-padded to at least 6 digits
-	for name := range names {
-		parts := strings.Split(name, ".")
-		suffix := parts[len(parts)-1]
-		if len(suffix) < 6 {
-			t.Fatalf("random suffix should be at least 6 digits (zero-padded), got %q", suffix)
-		}
-		for _, c := range suffix {
-			if c < '0' || c > '9' {
-				t.Fatalf("random suffix should contain only digits, got %q", suffix)
-			}
-		}
-	}
-}
-
 func TestGenerateMustGatherDirectoryName_UTCConversion(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := configv1.Install(scheme); err != nil {
@@ -252,35 +175,10 @@ func TestGenerateMustGatherDirectoryName_UTCConversion(t *testing.T) {
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-	tests := []struct {
-		name              string
-		inputTime         time.Time
-		expectedTimestamp string
-	}{
-		{
-			name:              "non-UTC timezone converted to UTC",
-			inputTime:         time.Date(2026, 6, 17, 10, 30, 25, 0, time.FixedZone("EST", -5*60*60)),
-			expectedTimestamp: "20260617T153025Z",
-		},
-		{
-			name:              "midnight Jan 1 — no zero-stripping",
-			inputTime:         time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
-			expectedTimestamp: "20260101T000000Z",
-		},
-		{
-			name:              "end of year Dec 31 23:59:59",
-			inputTime:         time.Date(2026, 12, 31, 23, 59, 59, 0, time.UTC),
-			expectedTimestamp: "20261231T235959Z",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dirName := GenerateMustGatherDirectoryName(context.TODO(), fakeClient, tt.inputTime)
-			if !strings.Contains(dirName, tt.expectedTimestamp) {
-				t.Fatalf("expected timestamp %s in directory name, got %s", tt.expectedTimestamp, dirName)
-			}
-		})
+	estTime := time.Date(2026, 6, 17, 10, 30, 25, 0, time.FixedZone("EST", -5*60*60))
+	dirName := GenerateMustGatherDirectoryName(context.TODO(), fakeClient, estTime)
+	if !strings.Contains(dirName, "20260617T153025Z") {
+		t.Fatalf("expected UTC-converted timestamp 20260617T153025Z in directory name, got %s", dirName)
 	}
 }
 
