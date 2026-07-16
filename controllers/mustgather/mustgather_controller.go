@@ -714,8 +714,7 @@ func validateImageStreamRef(ref *mustgatherv1alpha1.ImageStreamTagRef) error {
 
 // logCleanupSummary logs a summary of the resources that were cleaned up.
 func logCleanupSummary(reqLogger logr.Logger, jobName string, podCount int, namespace string) {
-	msg := fmt.Sprintf("cleanup complete for job %s in namespace %s", jobName, namespace)
-	reqLogger.Info(msg, "podsDeleted", podCount)
+	reqLogger.Info("cleanup complete", "job", jobName, "namespace", namespace, "podsDeleted", podCount)
 }
 
 func formatJobStatus(job *batchv1.Job, reqLogger logr.Logger) string {
@@ -764,7 +763,7 @@ func (r *MustGatherReconciler) getImageStreamTag(ctx context.Context, instance *
 
 	err := validateImageStreamRef(instance.Spec.ImageStreamRef)
 	if err != nil {
-		log.Info(fmt.Sprintf("image stream ref validation failed: %v", err))
+		log.Info("image stream ref validation failed", "error", err)
 		return r.DefaultMustGatherImage
 	}
 
