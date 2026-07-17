@@ -403,12 +403,10 @@ func getUploadContainer(
 		container.Env = append(container.Env, corev1.EnvVar{Name: uploadEnvNoProxy, Value: noProxy})
 	}
 
-	if directoryName != "" {
-		container.Env = append(container.Env, corev1.EnvVar{
-			Name:  uploadEnvFilenamePrefix,
-			Value: directoryName,
-		})
-	}
+	container.Env = append(container.Env, corev1.EnvVar{
+		Name:  uploadEnvFilenamePrefix,
+		Value: directoryName,
+	})
 
 	return container
 }

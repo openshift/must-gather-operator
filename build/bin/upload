@@ -12,12 +12,7 @@ set -o errexit
 
 must_gather_output=${must_gather_output:="/must-gather-output"}
 must_gather_upload=${must_gather_upload:="/must-gather-upload"}
-if [ -n "${FILENAME_PREFIX}" ]; then
-  CSP_FILENAME=${FILENAME_PREFIX}.tar.gz
-else
-  CURRENT_TIMESTAMP=$(date --utc +%Y%m%d_%H%M%SZ)
-  CSP_FILENAME=must-gather-${CURRENT_TIMESTAMP}.tar.gz
-fi
+CSP_FILENAME=${FILENAME_PREFIX}.tar.gz
 CSP_FILE="${must_gather_upload}/${CSP_FILENAME}"
 FTP_HOST=${host:-"sftp.access.redhat.com"}
 KNOWN_HOSTS_PATH="/tmp/must-gather-operator/.ssh/known_hosts"

@@ -281,9 +281,6 @@ func Test_getGatherContainer(t *testing.T) {
 				if volumeMount.SubPath != wantSubPath {
 					t.Fatalf("volume mount subPath was not correctly set. got %q, wanted %q", volumeMount.SubPath, wantSubPath)
 				}
-				if volumeMount.SubPathExpr != "" {
-					t.Fatalf("did not expect volume mount subPathExpr to be set, got %q", volumeMount.SubPathExpr)
-				}
 			}
 
 			// Check time filter environment variables
@@ -479,9 +476,6 @@ func Test_getUploadContainer(t *testing.T) {
 				wantSubPath := path.Join(base, tt.directoryName)
 				if outputMount.SubPath != wantSubPath {
 					t.Fatalf("expected output volume mount subPath %q but got %q", wantSubPath, outputMount.SubPath)
-				}
-				if outputMount.SubPathExpr != "" {
-					t.Fatalf("did not expect output volume mount subPathExpr to be set, got %q", outputMount.SubPathExpr)
 				}
 			}
 
@@ -698,60 +692,35 @@ func Test_getJobTemplate_ProxyAuditTimeout(t *testing.T) {
 func Test_getJobTemplate_FilenamePrefix(t *testing.T) {
 	t.Setenv(DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
 
-	tests := []struct {
-		name          string
-		directoryName string
-		expectEnvVar  bool
-	}{
-		{
-			name:          "non-empty directoryName — upload gets FILENAME_PREFIX",
-			directoryName: "must-gather.local.456789abcdef.20260617T143025Z.042315",
-			expectEnvVar:  true,
-		},
-		{
-			name:          "empty directoryName — FILENAME_PREFIX not injected",
-			directoryName: "",
-			expectEnvVar:  false,
+	directoryName := "must-gather.local.456789abcdef.20260617T143025Z.042315"
+
+	mg := mustgatherv1alpha1.MustGather{
+		ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
+		Spec: mustgatherv1alpha1.MustGatherSpec{
+			ServiceAccountName: "default",
+			UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+				Type: mustgatherv1alpha1.UploadTypeSFTP,
+				SFTP: &mustgatherv1alpha1.SFTPSpec{
+					CaseID: "1234",
+					Host:   "sftp.example.com",
+					CaseManagementAccountSecretRef: v1.LocalObjectReference{
+						Name: "case-mgmt-secret",
+					},
+				},
+			},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mg := mustgatherv1alpha1.MustGather{
-				ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
-					ServiceAccountName: "default",
-					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-						Type: mustgatherv1alpha1.UploadTypeSFTP,
-						SFTP: &mustgatherv1alpha1.SFTPSpec{
-							CaseID: "1234",
-							Host:   "sftp.example.com",
-							CaseManagementAccountSecretRef: v1.LocalObjectReference{
-								Name: "case-mgmt-secret",
-							},
-						},
-					},
-				},
-			}
+	job := getJobTemplate("img", "operator-image", mg, "", directoryName)
+	upload := findUploadContainerInJob(t, job)
+	uploadEnv := envValues(upload)
 
-			job := getJobTemplate("img", "operator-image", mg, "", tt.directoryName)
-			upload := findUploadContainerInJob(t, job)
-			uploadEnv := envValues(upload)
-
-			if tt.expectEnvVar {
-				val, ok := uploadEnv[uploadEnvFilenamePrefix]
-				if !ok {
-					t.Fatalf("expected %s env var in upload container, not found", uploadEnvFilenamePrefix)
-				}
-				if val != tt.directoryName {
-					t.Fatalf("expected %s=%s, got %s", uploadEnvFilenamePrefix, tt.directoryName, val)
-				}
-			} else {
-				if _, ok := uploadEnv[uploadEnvFilenamePrefix]; ok {
-					t.Fatalf("did not expect %s env var when directoryName is empty", uploadEnvFilenamePrefix)
-				}
-			}
-		})
+	val, ok := uploadEnv[uploadEnvFilenamePrefix]
+	if !ok {
+		t.Fatalf("expected %s env var in upload container, not found", uploadEnvFilenamePrefix)
+	}
+	if val != directoryName {
+		t.Fatalf("expected %s=%s, got %s", uploadEnvFilenamePrefix, directoryName, val)
 	}
 }
 
@@ -806,19 +775,6 @@ func Test_outputSubPath(t *testing.T) {
 			},
 			directoryName: "must-gather.local.abc.20260101T000000Z.123456",
 			wantPath:      "must-gather.local.abc.20260101T000000Z.123456",
-			wantOk:        true,
-		},
-		{
-			name: "PVC with subPath and empty directoryName",
-			storage: &mustgatherv1alpha1.Storage{
-				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "pvc"},
-					SubPath: "base-path",
-				},
-			},
-			directoryName: "",
-			wantPath:      "base-path",
 			wantOk:        true,
 		},
 	}

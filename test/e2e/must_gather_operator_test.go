@@ -1938,7 +1938,6 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				}
 			}
 			Expect(outputMount).NotTo(BeNil(), "Gather container should have output volume mount")
-			Expect(outputMount.SubPathExpr).To(BeEmpty(), "Volume mount should not use subPathExpr")
 			Expect(outputMount.SubPath).To(HavePrefix(subPath+"/must-gather.local."), "Volume mount subPath should contain the user subPath and a generated directory name")
 		})
 

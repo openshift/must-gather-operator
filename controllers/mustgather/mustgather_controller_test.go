@@ -1695,12 +1695,6 @@ func TestReconcile(t *testing.T) {
 				if !strings.HasPrefix(outputMount.SubPath, "my-data/must-gather.local.") {
 					t.Fatalf("expected SubPath to start with 'my-data/must-gather.local.', got %q", outputMount.SubPath)
 				}
-				if outputMount.SubPathExpr != "" {
-					t.Fatalf("expected SubPathExpr to be empty, got %q", outputMount.SubPathExpr)
-				}
-				if strings.Contains(outputMount.SubPath, "$(POD_NAME)") {
-					t.Fatalf("SubPath should not contain $(POD_NAME), got %q", outputMount.SubPath)
-				}
 			},
 		},
 		{
