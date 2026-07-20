@@ -27,6 +27,7 @@ import (
 	imagev1 "github.com/openshift/api/image/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -121,6 +122,7 @@ var (
 
 func init() {
 	testScheme = k8sruntime.NewScheme()
+	utilruntime.Must(admissionregistrationv1.AddToScheme(testScheme))
 	utilruntime.Must(mustgatherv1alpha1.AddToScheme(testScheme))
 	utilruntime.Must(appsv1.AddToScheme(testScheme))
 	utilruntime.Must(corev1.AddToScheme(testScheme))
@@ -3200,6 +3202,165 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			Eventually(func() bool {
 				err := adminClient.Get(testCtx, client.ObjectKey{Namespace: ns.Name, Name: cmName}, &corev1.ConfigMap{})
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+		})
+	})
+
+	ginkgo.Context("Namespace Restriction Tests", func() {
+		const (
+			vapName     = "block-mustgather-restricted-namespaces"
+			vapBindName = "block-mustgather-restricted-namespaces"
+		)
+
+		var mustGatherName string
+
+		ginkgo.BeforeEach(func() {
+			mustGatherName = fmt.Sprintf("vap-ns-restrict-%d", time.Now().UnixNano())
+		})
+
+		ginkgo.It("should verify ValidatingAdmissionPolicy and binding are deployed", func() {
+			ginkgo.By("Checking that the ValidatingAdmissionPolicy exists")
+			vap := &admissionregistrationv1.ValidatingAdmissionPolicy{}
+			err := adminClient.Get(testCtx, client.ObjectKey{Name: vapName}, vap)
+			Expect(err).NotTo(HaveOccurred(), "ValidatingAdmissionPolicy %q should exist", vapName)
+			Expect(vap.Spec.MatchConstraints).NotTo(BeNil(), "VAP should have matchConstraints")
+			Expect(vap.Spec.Validations).To(HaveLen(3), "VAP should have 3 validation expressions")
+
+			ginkgo.By("Checking that the ValidatingAdmissionPolicyBinding exists")
+			binding := &admissionregistrationv1.ValidatingAdmissionPolicyBinding{}
+			err = adminClient.Get(testCtx, client.ObjectKey{Name: vapBindName}, binding)
+			Expect(err).NotTo(HaveOccurred(), "ValidatingAdmissionPolicyBinding %q should exist", vapBindName)
+			Expect(binding.Spec.PolicyName).To(Equal(vapName), "Binding should reference the correct policy")
+		})
+
+		ginkgo.It("should reject MustGather creation in openshift-* namespaces", func() {
+			ginkgo.By("Attempting to create a MustGather CR in openshift-monitoring")
+			mg := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: "openshift-monitoring",
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
+				},
+			}
+			err := adminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "VAP should reject MustGather in openshift-* namespace")
+			Expect(apierrors.IsForbidden(err)).To(BeTrue(), "expected Forbidden from VAP, got: %v", err)
+			Expect(err.Error()).To(ContainSubstring("openshift-"),
+				"error should mention the restricted namespace prefix")
+		})
+
+		ginkgo.It("should reject MustGather creation in kube-* namespaces", func() {
+			ginkgo.By("Attempting to create a MustGather CR in kube-system")
+			mg := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: "kube-system",
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
+				},
+			}
+			err := adminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "VAP should reject MustGather in kube-* namespace")
+			Expect(apierrors.IsForbidden(err)).To(BeTrue(), "expected Forbidden from VAP, got: %v", err)
+			Expect(err.Error()).To(ContainSubstring("kube-"),
+				"error should mention the restricted namespace prefix")
+		})
+
+		ginkgo.It("should reject MustGather creation in hypershift-* namespaces", func() {
+			hypershiftNs := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "hypershift-e2e-test",
+				},
+			}
+
+			ginkgo.By("Creating hypershift-e2e-test namespace")
+			err := adminClient.Create(testCtx, hypershiftNs)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred(), "Failed to create hypershift test namespace")
+			}
+			defer func() {
+				_ = adminClient.Delete(testCtx, hypershiftNs)
+			}()
+
+			ginkgo.By("Attempting to create a MustGather CR in hypershift-e2e-test")
+			mg := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: "hypershift-e2e-test",
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
+				},
+			}
+			err = adminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "VAP should reject MustGather in hypershift-* namespace")
+			Expect(apierrors.IsForbidden(err)).To(BeTrue(), "expected Forbidden from VAP, got: %v", err)
+			Expect(err.Error()).To(ContainSubstring("hypershift-"),
+				"error should mention the restricted namespace prefix")
+		})
+
+		ginkgo.It("should allow MustGather creation in unrestricted namespaces", func() {
+			ginkgo.By("Creating a MustGather CR in the test namespace")
+			mg := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
+				},
+			}
+			err := adminClient.Create(testCtx, mg)
+			Expect(err).NotTo(HaveOccurred(), "MustGather should be allowed in unrestricted namespace %q", ns.Name)
+
+			ginkgo.By("Cleaning up the created MustGather CR")
+			_ = adminClient.Delete(testCtx, mg)
+			Eventually(func() bool {
+				err := adminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+		})
+
+		ginkgo.It("should allow MustGather creation in bare openshift namespace without hyphen", func() {
+			openshiftNs := &corev1.Namespace{}
+			nsCreated := false
+
+			ginkgo.By("Ensuring the openshift namespace exists")
+			err := adminClient.Get(testCtx, client.ObjectKey{Name: "openshift"}, openshiftNs)
+			if apierrors.IsNotFound(err) {
+				openshiftNs = &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{Name: "openshift"},
+				}
+				Expect(adminClient.Create(testCtx, openshiftNs)).To(Succeed())
+				nsCreated = true
+			}
+			defer func() {
+				if nsCreated {
+					_ = adminClient.Delete(testCtx, openshiftNs)
+				}
+			}()
+
+			ginkgo.By("Creating a MustGather CR in the openshift namespace (no hyphen suffix)")
+			mg := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: "openshift",
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
+				},
+			}
+			err = adminClient.Create(testCtx, mg)
+			Expect(err).NotTo(HaveOccurred(), "MustGather should be allowed in bare 'openshift' namespace (no hyphen)")
+
+			ginkgo.By("Cleaning up the created MustGather CR")
+			_ = adminClient.Delete(testCtx, mg)
+			Eventually(func() bool {
+				err := adminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: "openshift"}, &mustgatherv1alpha1.MustGather{})
 				return apierrors.IsNotFound(err)
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 		})
