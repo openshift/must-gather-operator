@@ -2568,6 +2568,14 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.GinkgoWriter.Printf("FILENAME_PREFIX: %s\nGather subPath: %s\nUpload subPath: %s\n",
 				filenamePrefixValue, gatherSubPath, uploadSubPath)
 
+			ginkgo.By("Cleaning up MustGather CR before PVC")
+			_ = nonAdminClient.Delete(testCtx, mustGatherCR)
+			Eventually(func() bool {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+			mustGatherCR = nil
+
 			ginkgo.By("Cleaning up PVC")
 			loader.DeleteFromFile(testassets.ReadFile, filepath.Join("testdata", "must-gather-pvc.yaml"), ns.Name)
 			Eventually(func() bool {
