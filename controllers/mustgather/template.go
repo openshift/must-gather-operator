@@ -114,6 +114,7 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 	timeout := time.Duration(0)
 	if mustGather.Spec.MustGatherTimeout != nil {
 		timeout = mustGather.Spec.MustGatherTimeout.Duration
+		log.V(4).Info("gather timeout configured", "timeout", timeout.String())
 	}
 
 	// Build time filter from spec

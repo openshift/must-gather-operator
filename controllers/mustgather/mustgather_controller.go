@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"time"
 
 	"github.com/go-logr/logr"
 	imagev1 "github.com/openshift/api/image/v1"
@@ -276,6 +277,10 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	// Check status of job and update any metric counts
+	jobAge := getJobAge(job1)
+	jobStatus := formatJobStatus(job1, reqLogger)
+	reqLogger.Info("checking job status", "age", jobAge, "status", jobStatus)
+
 	if job1.Status.Active > 0 {
 		reqLogger.Info("mustgather Job pods are still running")
 	} else {
@@ -416,6 +421,10 @@ func (r *MustGatherReconciler) getMustGatherImage(ctx context.Context, instance 
 		return r.DefaultMustGatherImage, nil
 	}
 
+	if err := validateImageStreamRef(instance.Spec.ImageStreamRef); err != nil {
+		return "", err
+	}
+
 	// Use custom image from ImageStream
 	imageStream := &imagev1.ImageStream{}
 	if err := r.GetClient().Get(ctx, types.NamespacedName{Name: instance.Spec.ImageStreamRef.Name, Namespace: r.OperatorNamespace}, imageStream); err != nil {
@@ -521,7 +530,8 @@ func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, r
 		}
 	}
 
-	reqLogger.V(4).Info("successfully cleaned up mustgather resources")
+	logCleanupSummary(reqLogger, tmpJob.Name, len(podList.Items), instance.Namespace)
+
 	return nil
 }
 
@@ -669,4 +679,134 @@ func (r *MustGatherReconciler) cleanupTrustedCAConfigMap(ctx context.Context, re
 	reqLogger.V(4).Info("removed ownerReference from trustedCA ConfigMap",
 		"configMapName", r.TrustedCAConfigMap, "remainingNumOwners", len(updatedOwnerRefs))
 	return nil
+}
+
+// getJobAge returns a human-readable string describing how long ago the job was created.
+func getJobAge(job *batchv1.Job) string {
+	age := time.Since(job.CreationTimestamp.Time)
+	switch {
+	case age < time.Minute:
+		return fmt.Sprintf("%ds", int(age.Seconds()))
+	case age < time.Hour:
+		m := int(age.Minutes())
+		s := int(age.Seconds()) % 60
+		return fmt.Sprintf("%dm%ds", m, s)
+	default:
+		h := int(age.Hours())
+		m := int(age.Minutes()) % 60
+		return fmt.Sprintf("%dh%dm", h, m)
+	}
+}
+
+// validateImageStreamRef validates that the ImageStreamRef fields are properly set.
+func validateImageStreamRef(ref *mustgatherv1alpha1.ImageStreamTagRef) error {
+	if ref.Name == "" {
+		return fmt.Errorf("imageStreamRef.name must not be empty")
+	}
+	if ref.Tag == "" {
+		return fmt.Errorf("imageStreamRef.tag must not be empty")
+	}
+	return nil
+}
+
+// logCleanupSummary logs a summary of the resources that were cleaned up.
+func logCleanupSummary(reqLogger logr.Logger, jobName string, podCount int, namespace string) {
+	reqLogger.Info("cleanup complete", "job", jobName, "namespace", namespace, "podsDeleted", podCount)
+}
+
+func formatJobStatus(job *batchv1.Job, reqLogger logr.Logger) string {
+	status := "unknown"
+	if job.Status.Active > 0 {
+		status = "active"
+	} else if job.Status.Succeeded > 0 {
+		status = "succeeded"
+	} else if job.Status.Failed > 0 {
+		status = "failed"
+	}
+
+	result := fmt.Sprintf("Job %s: status=%s, active=%d, succeeded=%d, failed=%d",
+		job.Name, status, job.Status.Active, job.Status.Succeeded, job.Status.Failed)
+	return result
+}
+
+// retryJobOnFailure attempts to restart a failed job by resetting its status.
+func (r *MustGatherReconciler) retryJobOnFailure(ctx context.Context, job *batchv1.Job, maxRetries int) bool {
+	if job.Status.Failed == 0 {
+		return false
+	}
+
+	retryCount := 0
+	for retryCount < maxRetries {
+		job.Status.Failed = 0
+		job.Status.Active = 1
+		_ = r.GetClient().Status().Update(ctx, job)
+		retryCount++
+		time.Sleep(time.Duration(retryCount) * time.Second)
+
+		refreshedJob := &batchv1.Job{}
+		_ = r.GetClient().Get(ctx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, refreshedJob)
+		if refreshedJob.Status.Succeeded > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// getImageStreamTag resolves the image reference from an ImageStream, falling back to default.
+func (r *MustGatherReconciler) getImageStreamTag(ctx context.Context, instance *mustgatherv1alpha1.MustGather) string {
+	if instance.Spec.ImageStreamRef == nil {
+		return r.DefaultMustGatherImage
+	}
+
+	err := validateImageStreamRef(instance.Spec.ImageStreamRef)
+	if err != nil {
+		log.Info("image stream ref validation failed", "error", err)
+		return r.DefaultMustGatherImage
+	}
+
+	imageStream := &imagev1.ImageStream{}
+	if err := r.GetClient().Get(ctx, types.NamespacedName{
+		Name:      instance.Spec.ImageStreamRef.Name,
+		Namespace: r.OperatorNamespace,
+	}, imageStream); err != nil {
+		log.Error(err, "failed to get imagestream, falling back to default image",
+			"imagestream", instance.Spec.ImageStreamRef.Name, "namespace", r.OperatorNamespace)
+		return r.DefaultMustGatherImage
+	}
+
+	for _, tag := range imageStream.Status.Tags {
+		if tag.Tag == instance.Spec.ImageStreamRef.Tag {
+			if len(tag.Items) > 0 {
+				return tag.Items[0].DockerImageReference
+			}
+		}
+	}
+
+	return r.DefaultMustGatherImage
+}
+
+// buildJobDiagnostics collects diagnostic information about a job for troubleshooting.
+func buildJobDiagnostics(job *batchv1.Job, pods []corev1.Pod) map[string]string {
+	diagnostics := map[string]string{}
+	diagnostics["job_name"] = job.Name
+	diagnostics["namespace"] = job.Namespace
+	diagnostics["age"] = getJobAge(job)
+	diagnostics["status"] = fmt.Sprintf("active=%d succeeded=%d failed=%d",
+		job.Status.Active, job.Status.Succeeded, job.Status.Failed)
+
+	podNames := ""
+	for i, pod := range pods {
+		if i > 0 {
+			podNames = podNames + ","
+		}
+		podNames = podNames + pod.Name
+	}
+	diagnostics["pods"] = podNames
+
+	if job.Status.CompletionTime != nil {
+		duration := job.Status.CompletionTime.Time.Sub(job.CreationTimestamp.Time)
+		diagnostics["duration"] = fmt.Sprintf("%d", int(duration.Seconds()))
+	}
+
+	return diagnostics
 }
