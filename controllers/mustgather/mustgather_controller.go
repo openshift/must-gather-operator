@@ -22,11 +22,13 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"time"
 
 	"github.com/go-logr/logr"
 	imagev1 "github.com/openshift/api/image/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
+	"github.com/openshift/must-gather-operator/pkg/mustgatherutil"
 	"github.com/redhat-cop/operator-utils/pkg/util"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -173,28 +175,28 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		}
 	}
 
-	job, err := r.getJobFromInstance(ctx, reqLogger, instance)
-	if err != nil {
-		if goerror.Is(err, errImageValidation) {
-			return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationImageStream, err)
-		}
-		reqLogger.Error(err, "unable to get job from", "instance", instance)
-		return r.ManageError(ctx, instance, err)
-	}
-
-	job1 := &batchv1.Job{}
+	existingJob := &batchv1.Job{}
 	err = r.GetClient().Get(ctx, types.NamespacedName{
-		Name:      job.GetName(),
-		Namespace: job.GetNamespace(),
-	}, job1)
+		Name:      instance.Name,
+		Namespace: instance.Namespace,
+	}, existingJob)
 
 	if err != nil {
 		if !errors.IsNotFound(err) {
-			// Error reading the object - requeue the request.
 			reqLogger.Error(err, "unable to look up", "job", types.NamespacedName{
-				Name:      job.GetName(),
-				Namespace: job.GetNamespace(),
+				Name:      instance.Name,
+				Namespace: instance.Namespace,
 			})
+			return r.ManageError(ctx, instance, err)
+		}
+
+		// Job not found — build the template and validate before creating
+		job, err := r.getJobFromInstance(ctx, reqLogger, instance)
+		if err != nil {
+			if goerror.Is(err, errImageValidation) {
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationImageStream, err)
+			}
+			reqLogger.Error(err, "unable to get job from instance", "name", instance.Name, "namespace", instance.Namespace)
 			return r.ManageError(ctx, instance, err)
 		}
 
@@ -276,20 +278,20 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	// Check status of job and update any metric counts
-	if job1.Status.Active > 0 {
+	if existingJob.Status.Active > 0 {
 		reqLogger.Info("mustgather Job pods are still running")
 	} else {
 		// if the job has been marked as Succeeded or Failed but instance has no DeletionTimestamp,
 		// requeue instance to handle resource clean-up (delete secret, job, and MustGather)
-		if job1.Status.Succeeded > 0 {
+		if existingJob.Status.Succeeded > 0 {
 			reqLogger.Info("mustgather Job pods succeeded")
 			return r.handleJobCompletion(ctx, reqLogger, instance, "Completed", "MustGather Job pods succeeded")
 		}
 		backoffLimit := int32(0)
-		if job1.Spec.BackoffLimit != nil {
-			backoffLimit = *job1.Spec.BackoffLimit
+		if existingJob.Spec.BackoffLimit != nil {
+			backoffLimit = *existingJob.Spec.BackoffLimit
 		}
-		if job1.Status.Failed > backoffLimit {
+		if existingJob.Status.Failed > backoffLimit {
 			reqLogger.Info("MustGather Job pods failed")
 			localmetrics.MetricMustGatherErrors.Inc()
 			return r.handleJobCompletion(ctx, reqLogger, instance, "Failed", "MustGather Job pods failed")
@@ -300,7 +302,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	// 1. the mustgather instance was updated, which we don't support and we are going to ignore
 	// 2. the job was updated, probably the status piece. we should the update the status of the instance, not supported yet.
 
-	return r.updateStatus(ctx, instance, job1)
+	return r.updateStatus(ctx, instance, existingJob)
 
 }
 
@@ -407,7 +409,9 @@ func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, reqLogger
 		return nil, err
 	}
 
-	return getJobTemplate(image, operatorImage, *instance, r.TrustedCAConfigMap), nil
+	directoryName := mustgatherutil.GenerateMustGatherDirectoryName(ctx, r.GetClient(), time.Now())
+
+	return getJobTemplate(image, operatorImage, *instance, r.TrustedCAConfigMap, directoryName), nil
 }
 
 func (r *MustGatherReconciler) getMustGatherImage(ctx context.Context, instance *mustgatherv1alpha1.MustGather) (string, error) {

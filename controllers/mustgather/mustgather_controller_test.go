@@ -1436,6 +1436,182 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{
+			name: "reconcile_job_created_with_FILENAME_PREFIX_env_var",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: "default",
+						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+							Type: mustgatherv1alpha1.UploadTypeSFTP,
+							SFTP: &mustgatherv1alpha1.SFTPSpec{
+								CaseID:                         "12345678",
+								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "case-management-creds"},
+							},
+						},
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				secret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "case-management-creds", Namespace: "ns"},
+					Data: map[string][]byte{
+						"username": []byte("testuser"),
+						"password": []byte("testpass"),
+					},
+				}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("01234567-89ab-cdef-0123-456789abcdef")},
+					Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}}},
+				}
+				return []client.Object{mg, sa, secret, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err != nil {
+					t.Fatalf("expected job to be created, got error: %v", err)
+				}
+				var uploadContainer *corev1.Container
+				for i := range job.Spec.Template.Spec.Containers {
+					if job.Spec.Template.Spec.Containers[i].Name == "upload" {
+						uploadContainer = &job.Spec.Template.Spec.Containers[i]
+						break
+					}
+				}
+				if uploadContainer == nil {
+					t.Fatal("upload container not found in job")
+				}
+				var filenamePrefixValue string
+				var found bool
+				for _, env := range uploadContainer.Env {
+					if env.Name == "FILENAME_PREFIX" {
+						filenamePrefixValue = env.Value
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Fatal("FILENAME_PREFIX env var not found in upload container")
+				}
+				if !strings.HasPrefix(filenamePrefixValue, "must-gather.local.") {
+					t.Fatalf("expected FILENAME_PREFIX to start with 'must-gather.local.', got %q", filenamePrefixValue)
+				}
+				if !strings.Contains(filenamePrefixValue, "456789abcdef") {
+					t.Fatalf("expected FILENAME_PREFIX to contain cluster ID suffix '456789abcdef', got %q", filenamePrefixValue)
+				}
+			},
+		},
+		{
+			name: "reconcile_existing_job_does_not_regenerate_directory_name",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: "default",
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				existingJob := &batchv1.Job{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns"},
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{
+									{Name: "gather", Image: "img"},
+								},
+								RestartPolicy: corev1.RestartPolicyNever,
+							},
+						},
+					},
+					Status: batchv1.JobStatus{Active: 1},
+				}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}}},
+				}
+				return []client.Object{mg, sa, existingJob, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err != nil {
+					t.Fatalf("expected job to still exist, got error: %v", err)
+				}
+				// The existing job should not have been recreated — upload container should have no FILENAME_PREFIX
+				for _, c := range job.Spec.Template.Spec.Containers {
+					if c.Name == "upload" {
+						for _, env := range c.Env {
+							if env.Name == "FILENAME_PREFIX" {
+								t.Fatal("existing job should not have FILENAME_PREFIX injected on re-reconcile")
+							}
+						}
+					}
+				}
+			},
+		},
+		{
+			name: "reconcile_job_created_with_PVC_uses_generated_subpath",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: "default",
+						Storage: &mustgatherv1alpha1.Storage{
+							Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+							PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+								Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "test-pvc"},
+								SubPath: "my-data",
+							},
+						},
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("01234567-89ab-cdef-0123-456789abcdef")},
+					Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}}},
+				}
+				return []client.Object{mg, sa, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err != nil {
+					t.Fatalf("expected job to be created, got error: %v", err)
+				}
+				var gatherContainer *corev1.Container
+				for i := range job.Spec.Template.Spec.Containers {
+					if job.Spec.Template.Spec.Containers[i].Name == "gather" {
+						gatherContainer = &job.Spec.Template.Spec.Containers[i]
+						break
+					}
+				}
+				if gatherContainer == nil {
+					t.Fatal("gather container not found in job")
+				}
+				var outputMount *corev1.VolumeMount
+				for i := range gatherContainer.VolumeMounts {
+					if gatherContainer.VolumeMounts[i].Name == "must-gather-output" {
+						outputMount = &gatherContainer.VolumeMounts[i]
+						break
+					}
+				}
+				if outputMount == nil {
+					t.Fatal("output volume mount not found in gather container")
+				}
+				if !strings.HasPrefix(outputMount.SubPath, "my-data/must-gather.local.") {
+					t.Fatalf("expected SubPath to start with 'my-data/must-gather.local.', got %q", outputMount.SubPath)
+				}
+			},
+		},
+		{
 			name: "reconcile_imagestream_tag_not_found_sets_validation_failure",
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
