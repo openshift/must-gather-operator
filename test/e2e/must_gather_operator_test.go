@@ -3207,13 +3207,86 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		})
 	})
 
-	ginkgo.Context("Namespace Restriction Tests", func() {
+	ginkgo.Context("Namespace Restriction Tests", ginkgo.Ordered, func() {
 		const (
 			vapName     = "block-mustgather-restricted-namespaces"
 			vapBindName = "block-mustgather-restricted-namespaces"
 		)
 
 		var mustGatherName string
+
+		ginkgo.BeforeAll(func() {
+			ginkgo.By("Creating ValidatingAdmissionPolicy for namespace restrictions")
+			failPolicy := admissionregistrationv1.Fail
+			vap := &admissionregistrationv1.ValidatingAdmissionPolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: vapName},
+				Spec: admissionregistrationv1.ValidatingAdmissionPolicySpec{
+					FailurePolicy: &failPolicy,
+					MatchConstraints: &admissionregistrationv1.MatchResources{
+						ResourceRules: []admissionregistrationv1.NamedRuleWithOperations{{
+							RuleWithOperations: admissionregistrationv1.RuleWithOperations{
+								Operations: []admissionregistrationv1.OperationType{admissionregistrationv1.Create},
+								Rule: admissionregistrationv1.Rule{
+									APIGroups:   []string{"operator.openshift.io"},
+									APIVersions: []string{"v1alpha1"},
+									Resources:   []string{"mustgathers"},
+								},
+							},
+						}},
+					},
+					Validations: []admissionregistrationv1.Validation{
+						{Expression: "!object.metadata.namespace.startsWith('openshift-')", Message: "MustGather resources cannot be created in openshift-* namespaces."},
+						{Expression: "!object.metadata.namespace.startsWith('kube-')", Message: "MustGather resources cannot be created in kube-* namespaces."},
+						{Expression: "!object.metadata.namespace.startsWith('hypershift-')", Message: "MustGather resources cannot be created in hypershift-* namespaces."},
+					},
+				},
+			}
+			err := adminClient.Create(testCtx, vap)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create ValidatingAdmissionPolicy")
+
+			ginkgo.By("Creating ValidatingAdmissionPolicyBinding")
+			binding := &admissionregistrationv1.ValidatingAdmissionPolicyBinding{
+				ObjectMeta: metav1.ObjectMeta{Name: vapBindName},
+				Spec: admissionregistrationv1.ValidatingAdmissionPolicyBindingSpec{
+					PolicyName:        vapName,
+					ValidationActions: []admissionregistrationv1.ValidationAction{admissionregistrationv1.Deny},
+				},
+			}
+			err = adminClient.Create(testCtx, binding)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create ValidatingAdmissionPolicyBinding")
+
+			ginkgo.By("Waiting for VAP to become enforced")
+			Eventually(func() bool {
+				probe := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      fmt.Sprintf("vap-probe-%d", time.Now().UnixNano()),
+						Namespace: "openshift-monitoring",
+					},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: "default",
+					},
+				}
+				err := adminClient.Create(testCtx, probe)
+				if err != nil && apierrors.IsForbidden(err) {
+					return true
+				}
+				if err == nil {
+					_ = adminClient.Delete(testCtx, probe)
+				}
+				return false
+			}).WithTimeout(1*time.Minute).WithPolling(2*time.Second).Should(BeTrue(),
+				"VAP should start rejecting MustGather in restricted namespaces")
+		})
+
+		ginkgo.AfterAll(func() {
+			ginkgo.By("Cleaning up ValidatingAdmissionPolicy and binding")
+			_ = adminClient.Delete(testCtx, &admissionregistrationv1.ValidatingAdmissionPolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: vapName},
+			})
+			_ = adminClient.Delete(testCtx, &admissionregistrationv1.ValidatingAdmissionPolicyBinding{
+				ObjectMeta: metav1.ObjectMeta{Name: vapBindName},
+			})
+		})
 
 		ginkgo.BeforeEach(func() {
 			mustGatherName = fmt.Sprintf("vap-ns-restrict-%d", time.Now().UnixNano())
