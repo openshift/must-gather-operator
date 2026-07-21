@@ -2141,8 +2141,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				}
 			}
 			Expect(outputMount).NotTo(BeNil(), "Gather container should have output volume mount")
-			Expect(outputMount.SubPathExpr).To(Equal(subPath+"/$(POD_NAME)"), "Volume mount should have subPathExpr configured")
-			Expect(outputMount.SubPath).To(BeEmpty(), "Volume mount subPath should be empty when using subPathExpr")
+			Expect(outputMount.SubPath).To(HavePrefix(subPath+"/must-gather.local."), "Volume mount subPath should contain the user subPath and a generated directory name")
 		})
 
 		ginkgo.It("should create MustGather with PVC storage, configure Job correctly, and persist data", func() {
@@ -2284,6 +2283,168 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			_ = nonAdminClient.Delete(testCtx, verifyPod)
 
 			ginkgo.GinkgoWriter.Println("Must-gather data successfully persisted to PVC and verified after Job completion")
+		})
+
+		ginkgo.It("should produce isolated subdirectories for sequential runs on the same PVC", func() {
+			subPath := "sequential-test"
+
+			ginkgo.By("Creating first MustGather CR with PVC storage")
+			name1 := mustGatherName
+			mg1 := createMustGatherCR(name1, ns.Name, serviceAccount, true, &MustGatherCROptions{
+				PersistentVolume: &PersistentVolumeOptions{PVCName: mustGatherPVCName, SubPath: subPath},
+			})
+
+			ginkgo.By("Waiting for first Job to complete")
+			job1 := &batchv1.Job{}
+			Eventually(func() error {
+				return nonAdminClient.Get(testCtx, client.ObjectKey{Name: name1, Namespace: ns.Name}, job1)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			Eventually(func() int32 {
+				_ = nonAdminClient.Get(testCtx, client.ObjectKey{Name: name1, Namespace: ns.Name}, job1)
+				return job1.Status.Succeeded
+			}).WithTimeout(5*time.Minute).WithPolling(5*time.Second).Should(
+				BeNumerically(">=", 1), "First Job should complete successfully")
+
+			ginkgo.By("Extracting subPath from first Job's gather container")
+			var subPath1 string
+			for i := range job1.Spec.Template.Spec.Containers {
+				if job1.Spec.Template.Spec.Containers[i].Name == gatherContainerName {
+					for _, vm := range job1.Spec.Template.Spec.Containers[i].VolumeMounts {
+						if vm.Name == outputVolumeName {
+							subPath1 = vm.SubPath
+						}
+					}
+				}
+			}
+			Expect(subPath1).To(HavePrefix(subPath+"/must-gather.local."),
+				"First Job should have subPath with generated directory name")
+
+			ginkgo.By("Cleaning up first MustGather CR")
+			_ = nonAdminClient.Delete(testCtx, mg1)
+			Eventually(func() bool {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name1, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+
+			ginkgo.By("Creating second MustGather CR with the same PVC and subPath")
+			name2 := fmt.Sprintf("pv-seq-run2-%d", time.Now().UnixNano())
+			mustGatherCR = createMustGatherCR(name2, ns.Name, serviceAccount, true, &MustGatherCROptions{
+				PersistentVolume: &PersistentVolumeOptions{PVCName: mustGatherPVCName, SubPath: subPath},
+			})
+
+			ginkgo.By("Waiting for second Job to complete")
+			job2 := &batchv1.Job{}
+			Eventually(func() error {
+				return nonAdminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, job2)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			Eventually(func() int32 {
+				_ = nonAdminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, job2)
+				return job2.Status.Succeeded
+			}).WithTimeout(5*time.Minute).WithPolling(5*time.Second).Should(
+				BeNumerically(">=", 1), "Second Job should complete successfully")
+
+			ginkgo.By("Extracting subPath from second Job's gather container")
+			var subPath2 string
+			for i := range job2.Spec.Template.Spec.Containers {
+				if job2.Spec.Template.Spec.Containers[i].Name == gatherContainerName {
+					for _, vm := range job2.Spec.Template.Spec.Containers[i].VolumeMounts {
+						if vm.Name == outputVolumeName {
+							subPath2 = vm.SubPath
+						}
+					}
+				}
+			}
+			Expect(subPath2).To(HavePrefix(subPath+"/must-gather.local."),
+				"Second Job should have subPath with generated directory name")
+
+			ginkgo.By("Verifying the two runs produced different subdirectories")
+			Expect(subPath1).NotTo(Equal(subPath2),
+				"Sequential runs on the same PVC should produce different subdirectories")
+
+			ginkgo.By("Creating verification Pod to confirm both directories exist on PVC")
+			verifyPodName := fmt.Sprintf("pvc-seq-verify-%d", time.Now().UnixNano())
+			verifyPod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      verifyPodName,
+					Namespace: ns.Name,
+				},
+				Spec: corev1.PodSpec{
+					RestartPolicy:      corev1.RestartPolicyNever,
+					ServiceAccountName: serviceAccount,
+					SecurityContext: &corev1.PodSecurityContext{
+						RunAsNonRoot: func() *bool { b := true; return &b }(),
+						SeccompProfile: &corev1.SeccompProfile{
+							Type: corev1.SeccompProfileTypeRuntimeDefault,
+						},
+					},
+					Containers: []corev1.Container{
+						{
+							Name:  "pvc-verify",
+							Image: operatorImage,
+							Command: []string{
+								"/bin/sh", "-c",
+								fmt.Sprintf(
+									`echo '=== Listing subdirectories under %s ===' &&
+									ls -la /mnt/%s/ &&
+									COUNT=$(ls -d /mnt/%s/must-gather.local.* 2>/dev/null | wc -l) &&
+									echo "must-gather.local.* directories found: $COUNT"`,
+									subPath, subPath, subPath),
+							},
+							SecurityContext: &corev1.SecurityContext{
+								AllowPrivilegeEscalation: func() *bool { b := false; return &b }(),
+								Capabilities: &corev1.Capabilities{
+									Drop: []corev1.Capability{"ALL"},
+								},
+								RunAsNonRoot: func() *bool { b := true; return &b }(),
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "pvc-data",
+									MountPath: "/mnt",
+								},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "pvc-data",
+							VolumeSource: corev1.VolumeSource{
+								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+									ClaimName: mustGatherPVCName,
+								},
+							},
+						},
+					},
+				},
+			}
+
+			err := nonAdminClient.Create(testCtx, verifyPod)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create verification pod")
+
+			ginkgo.By("Waiting for verification Pod to complete")
+			Eventually(func() corev1.PodPhase {
+				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      verifyPodName,
+					Namespace: ns.Name,
+				}, verifyPod); err != nil {
+					return corev1.PodUnknown
+				}
+				return verifyPod.Status.Phase
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(
+				Or(Equal(corev1.PodSucceeded), Equal(corev1.PodFailed)))
+
+			logs, logErr := getContainerLogs(ns.Name, verifyPodName, "pvc-verify")
+			Expect(logErr).NotTo(HaveOccurred())
+			ginkgo.GinkgoWriter.Printf("Verification Pod logs:\n%s\n", logs)
+			Expect(logs).To(ContainSubstring("must-gather.local."),
+				"PVC should contain must-gather.local.* subdirectories from both runs")
+
+			ginkgo.By("Cleaning up verification Pod")
+			_ = nonAdminClient.Delete(testCtx, verifyPod)
+
+			ginkgo.GinkgoWriter.Printf("SubPath1: %s\nSubPath2: %s\n", subPath1, subPath2)
 		})
 	})
 
@@ -3440,6 +3601,244 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				err := adminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: "openshift"}, &mustgatherv1alpha1.MustGather{})
 				return apierrors.IsNotFound(err)
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+		})
+	})
+
+	ginkgo.Context("Directory Naming Convention Tests", func() {
+		var mustGatherName string
+		var mustGatherCR *mustgatherv1alpha1.MustGather
+
+		ginkgo.BeforeEach(func() {
+			mustGatherName = fmt.Sprintf("dirtest-e2e-%d", time.Now().UnixNano())
+
+			sftpUsername, sftpPassword, err := getCaseCreds()
+			Expect(err).NotTo(HaveOccurred(), "Failed to get SFTP credentials")
+
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      caseManagementSecretNameValid,
+					Namespace: ns.Name,
+					Labels:    map[string]string{"test": nonAdminLabel},
+				},
+				Type: corev1.SecretTypeOpaque,
+				StringData: map[string]string{
+					"username": sftpUsername,
+					"password": sftpPassword,
+				},
+			}
+			err = nonAdminClient.Create(testCtx, secret)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred(), "Failed to create case management secret")
+			}
+		})
+
+		ginkgo.AfterEach(func() {
+			if mustGatherCR != nil {
+				_ = nonAdminClient.Delete(testCtx, mustGatherCR)
+				Eventually(func() bool {
+					err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+					return apierrors.IsNotFound(err)
+				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+				mustGatherCR = nil
+			}
+		})
+
+		ginkgo.It("should set FILENAME_PREFIX env var on upload container with correct naming convention", func() {
+			caseID := generateTestCaseID()
+
+			ginkgo.By("Creating MustGather CR with SFTP upload target")
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, false, &MustGatherCROptions{
+				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: prodHostName},
+			})
+
+			ginkgo.By("Waiting for operator to create Job")
+			job := &batchv1.Job{}
+			Eventually(func() error {
+				return adminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, job)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			ginkgo.By("Verifying upload container has FILENAME_PREFIX env var")
+			var filenamePrefixValue string
+			for _, container := range job.Spec.Template.Spec.Containers {
+				if container.Name == uploadContainerName {
+					for _, env := range container.Env {
+						if env.Name == "FILENAME_PREFIX" {
+							filenamePrefixValue = env.Value
+						}
+					}
+				}
+			}
+			Expect(filenamePrefixValue).NotTo(BeEmpty(), "FILENAME_PREFIX should be set on upload container")
+
+			ginkgo.By("Verifying FILENAME_PREFIX follows the must-gather.local convention")
+			Expect(filenamePrefixValue).To(HavePrefix("must-gather.local."),
+				"FILENAME_PREFIX should start with 'must-gather.local.'")
+
+			parts := strings.Split(filenamePrefixValue, ".")
+			Expect(len(parts)).To(BeNumerically(">=", 4),
+				"FILENAME_PREFIX should have at least 4 dot-separated parts (must-gather.local.<timestamp>.<random>)")
+
+			ginkgo.GinkgoWriter.Printf("FILENAME_PREFIX value: %s\n", filenamePrefixValue)
+		})
+
+		ginkgo.It("should have consistent directoryName across PVC subPath and FILENAME_PREFIX when both are configured", func() {
+			caseID := generateTestCaseID()
+			subPath := "combined-data"
+
+			ginkgo.By("Creating PersistentVolumeClaim for combined test")
+			loader.CreateFromFile(testassets.ReadFile, filepath.Join("testdata", "must-gather-pvc.yaml"), ns.Name)
+
+			ginkgo.By("Waiting for PVC to be created")
+			pvc := &corev1.PersistentVolumeClaim{}
+			Eventually(func() error {
+				return nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherPVCName,
+					Namespace: ns.Name,
+				}, pvc)
+			}).WithTimeout(3 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			ginkgo.By("Creating MustGather CR with both PVC storage and SFTP upload target")
+			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, false, &MustGatherCROptions{
+				UploadTarget:     &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: prodHostName},
+				PersistentVolume: &PersistentVolumeOptions{PVCName: mustGatherPVCName, SubPath: subPath},
+			})
+
+			ginkgo.By("Waiting for operator to create Job")
+			job := &batchv1.Job{}
+			Eventually(func() error {
+				return adminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, job)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			ginkgo.By("Extracting FILENAME_PREFIX from upload container")
+			var filenamePrefixValue string
+			for _, container := range job.Spec.Template.Spec.Containers {
+				if container.Name == uploadContainerName {
+					for _, env := range container.Env {
+						if env.Name == "FILENAME_PREFIX" {
+							filenamePrefixValue = env.Value
+						}
+					}
+				}
+			}
+			Expect(filenamePrefixValue).NotTo(BeEmpty(), "FILENAME_PREFIX should be set on upload container")
+			Expect(filenamePrefixValue).To(HavePrefix("must-gather.local."))
+
+			ginkgo.By("Extracting subPath from gather container volume mount")
+			var gatherSubPath string
+			for i := range job.Spec.Template.Spec.Containers {
+				if job.Spec.Template.Spec.Containers[i].Name == gatherContainerName {
+					for _, vm := range job.Spec.Template.Spec.Containers[i].VolumeMounts {
+						if vm.Name == outputVolumeName {
+							gatherSubPath = vm.SubPath
+						}
+					}
+				}
+			}
+			Expect(gatherSubPath).NotTo(BeEmpty(), "Gather container should have subPath set")
+
+			ginkgo.By("Extracting subPath from upload container volume mount")
+			var uploadSubPath string
+			for i := range job.Spec.Template.Spec.Containers {
+				if job.Spec.Template.Spec.Containers[i].Name == uploadContainerName {
+					for _, vm := range job.Spec.Template.Spec.Containers[i].VolumeMounts {
+						if vm.Name == outputVolumeName {
+							uploadSubPath = vm.SubPath
+						}
+					}
+				}
+			}
+			Expect(uploadSubPath).NotTo(BeEmpty(), "Upload container should have subPath set")
+
+			ginkgo.By("Verifying subPath = userSubPath/directoryName for both containers")
+			expectedSubPath := subPath + "/" + filenamePrefixValue
+			Expect(gatherSubPath).To(Equal(expectedSubPath),
+				"Gather container subPath should be userSubPath/directoryName")
+			Expect(uploadSubPath).To(Equal(expectedSubPath),
+				"Upload container subPath should be userSubPath/directoryName")
+
+			ginkgo.GinkgoWriter.Printf("FILENAME_PREFIX: %s\nGather subPath: %s\nUpload subPath: %s\n",
+				filenamePrefixValue, gatherSubPath, uploadSubPath)
+
+			ginkgo.By("Cleaning up MustGather CR before PVC")
+			_ = nonAdminClient.Delete(testCtx, mustGatherCR)
+			Eventually(func() bool {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+			mustGatherCR = nil
+
+			ginkgo.By("Cleaning up PVC")
+			loader.DeleteFromFile(testassets.ReadFile, filepath.Join("testdata", "must-gather-pvc.yaml"), ns.Name)
+			Eventually(func() bool {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: mustGatherPVCName, Namespace: ns.Name}, pvc)
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+		})
+
+		ginkgo.It("should generate unique FILENAME_PREFIX values for different MustGather CRs", func() {
+			caseID := generateTestCaseID()
+
+			ginkgo.By("Creating first MustGather CR")
+			name1 := mustGatherName
+			mustGatherCR = createMustGatherCR(name1, ns.Name, serviceAccount, false, &MustGatherCROptions{
+				UploadTarget: &UploadTargetOptions{CaseID: caseID, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: prodHostName},
+			})
+
+			ginkgo.By("Waiting for first Job to be created")
+			job1 := &batchv1.Job{}
+			Eventually(func() error {
+				return adminClient.Get(testCtx, client.ObjectKey{Name: name1, Namespace: ns.Name}, job1)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			var prefix1 string
+			for _, c := range job1.Spec.Template.Spec.Containers {
+				if c.Name == uploadContainerName {
+					for _, env := range c.Env {
+						if env.Name == "FILENAME_PREFIX" {
+							prefix1 = env.Value
+						}
+					}
+				}
+			}
+
+			ginkgo.By("Creating second MustGather CR")
+			name2 := fmt.Sprintf("dirtest2-e2e-%d", time.Now().UnixNano())
+			caseID2 := generateTestCaseID()
+			mg2 := createMustGatherCR(name2, ns.Name, serviceAccount, false, &MustGatherCROptions{
+				UploadTarget: &UploadTargetOptions{CaseID: caseID2, SecretName: caseManagementSecretNameValid, InternalUser: false, Host: prodHostName},
+			})
+
+			ginkgo.By("Waiting for second Job to be created")
+			job2 := &batchv1.Job{}
+			Eventually(func() error {
+				return adminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, job2)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			var prefix2 string
+			for _, c := range job2.Spec.Template.Spec.Containers {
+				if c.Name == uploadContainerName {
+					for _, env := range c.Env {
+						if env.Name == "FILENAME_PREFIX" {
+							prefix2 = env.Value
+						}
+					}
+				}
+			}
+
+			ginkgo.By("Cleaning up second MustGather CR")
+			_ = nonAdminClient.Delete(testCtx, mg2)
+			Eventually(func() bool {
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+				return apierrors.IsNotFound(err)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+
+			ginkgo.By("Verifying FILENAME_PREFIX values are different")
+			Expect(prefix1).NotTo(BeEmpty(), "First CR should have FILENAME_PREFIX set")
+			Expect(prefix2).NotTo(BeEmpty(), "Second CR should have FILENAME_PREFIX set")
+			Expect(prefix1).NotTo(Equal(prefix2),
+				"Different MustGather CRs should generate unique FILENAME_PREFIX values")
+
+			ginkgo.GinkgoWriter.Printf("Prefix1: %s\nPrefix2: %s\n", prefix1, prefix2)
 		})
 	})
 })
