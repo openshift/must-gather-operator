@@ -3418,8 +3418,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.By("Probing whether VAP enforcement is active on this cluster")
 			vapEnforced := false
-			for i := 0; i < 15; i++ {
-				time.Sleep(2 * time.Second)
+			var probeCleanupNames []string
+			Eventually(func() bool {
 				probe := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      fmt.Sprintf("vap-probe-%d", time.Now().UnixNano()),
@@ -3432,12 +3432,26 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				probeErr := adminClient.Create(testCtx, probe)
 				if probeErr != nil && apierrors.IsForbidden(probeErr) {
 					vapEnforced = true
-					break
+					return true
 				}
 				if probeErr == nil {
-					_ = adminClient.Delete(testCtx, probe)
+					probeCleanupNames = append(probeCleanupNames, probe.Name)
 				}
+				return false
+			}).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Or(BeTrue(), BeFalse()))
+
+			for _, name := range probeCleanupNames {
+				probe := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "openshift-monitoring"},
+				}
+				_ = adminClient.Delete(testCtx, probe)
+				Eventually(func() bool {
+					err := adminClient.Get(testCtx, client.ObjectKey{Name: name, Namespace: "openshift-monitoring"}, &mustgatherv1alpha1.MustGather{})
+					return apierrors.IsNotFound(err)
+				}).WithTimeout(30*time.Second).WithPolling(2*time.Second).Should(BeTrue(),
+					"probe CR %q should be fully deleted", name)
 			}
+
 			if !vapEnforced {
 				ginkgo.Skip("ValidatingAdmissionPolicy enforcement is not active on this cluster (requires TechPreview feature gate)")
 			}
