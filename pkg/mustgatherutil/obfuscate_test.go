@@ -142,10 +142,10 @@ func TestRunObfuscateSmokeProducesReport(t *testing.T) {
       target: All
   omit: []
 `)
-	if err := os.WriteFile(configPath, config, 0o644); err != nil {
+	if err := os.WriteFile(configPath, config, 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(inputDir, "sample.txt"), []byte("contact 10.0.0.1\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(inputDir, "sample.txt"), []byte("contact 10.0.0.1\n"), 0o600); err != nil {
 		t.Fatalf("write sample: %v", err)
 	}
 
@@ -165,7 +165,7 @@ func obfuscateDefaultConfigPath() string {
 
 func writeObfuscateTestFile(t *testing.T, dir, name, content string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
 		t.Fatalf("write %s: %v", name, err)
 	}
 }
