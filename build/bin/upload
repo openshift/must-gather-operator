@@ -12,7 +12,9 @@ set -o errexit
 
 must_gather_output=${must_gather_output:="/must-gather-output"}
 must_gather_upload=${must_gather_upload:="/must-gather-upload"}
-CSP_FILENAME=${FILENAME_PREFIX}.tar.gz
+FILENAME_PREFIX=${FILENAME_PREFIX:="must-gather"}
+CURRENT_TIMESTAMP=$(date --utc +%Y%m%d_%H%M%SZ)
+CSP_FILENAME=${FILENAME_PREFIX}-${CURRENT_TIMESTAMP}.tar.gz
 CSP_FILE="${must_gather_upload}/${CSP_FILENAME}"
 FTP_HOST=${host:-"sftp.access.redhat.com"}
 # Wrap bare IPv6 addresses in brackets for sftp/ssh compatibility
@@ -65,8 +67,27 @@ if [ -n "${http_proxy}" ] || [ -n "${https_proxy}" ]; then
 fi
 
 
+if [ "${obfuscate}" = "true" ]; then
+  config_flag=""
+  if [ -n "${obfuscate_config}" ]; then
+    config_flag="--config ${obfuscate_config}"
+  fi
+  echo "Running obfuscation on $must_gather_output ..."
+  mkdir -p "/must-gather-upload/cleaned"
+  /usr/local/bin/must-gather-operator obfuscate \
+    --input "$must_gather_output" \
+    --output "/must-gather-upload/cleaned" \
+    ${config_flag} -v=3
+  echo "Obfuscation complete."
+  must_gather_output="/must-gather-upload/cleaned"
+fi
+
 if [ -z "${caseid}" ] || [ -z "${username}" ] || [ -z "${password}" ];
 then
+  if [ "${obfuscate}" = "true" ]; then
+    echo "Obfuscation complete; SFTP credentials not provided — skipping upload."
+    exit 0
+  fi
   echo "Error: Required Parameters have not been provided. Exiting..."
   exit 1
 fi

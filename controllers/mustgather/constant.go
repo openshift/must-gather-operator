@@ -22,4 +22,17 @@ const (
 
 	// DefaultMustGatherImageEnv represents the environment variable for the default must-gather image
 	DefaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"
+
+	// Obfuscation env vars consumed by build/bin/upload.
+	obfuscateEnvEnabled = "obfuscate"
+	obfuscateEnvConfig  = "obfuscate_config"
+
+	// Obfuscation custom ConfigMap volume/mount paths.
+	obfuscateConfigVolumeName = "obfuscate-config"
+	obfuscateConfigMountDir   = "/etc/must-gather-clean/custom-config"
+	obfuscateConfigMountPath  = "/etc/must-gather-clean/custom-config/config.yaml"
+	obfuscateConfigMapKey     = "config.yaml"
+
+	// obfuscateChownSuffix transfers gather output ownership to the upload container UID (65534).
+	obfuscateChownSuffix = "chown -R 65534:65534 /must-gather"
 )

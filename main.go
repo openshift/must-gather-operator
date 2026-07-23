@@ -48,6 +48,7 @@ import (
 	"github.com/openshift/must-gather-operator/controllers/mustgather"
 	"github.com/openshift/must-gather-operator/pkg/k8sutil"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
+	"github.com/openshift/must-gather-operator/pkg/mustgatherutil"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	//+kubebuilder:scaffold:imports
 )
@@ -88,6 +89,10 @@ func init() {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "obfuscate" {
+		os.Exit(mustgatherutil.RunObfuscate(os.Args[2:]))
+	}
+
 	// var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string

@@ -175,6 +175,13 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		}
 	}
 
+	if instance.Spec.Obfuscate != nil && instance.Spec.Obfuscate.ObfuscationConfigRef != nil && instance.Spec.Obfuscate.ObfuscationConfigRef.Name != "" {
+		if err := r.ensureObfuscateConfigMap(ctx, reqLogger, instance); err != nil {
+			reqLogger.Error(err, "failed to ensure obfuscate ConfigMap exists")
+			return r.ManageError(ctx, instance, err)
+		}
+	}
+
 	existingJob := &batchv1.Job{}
 	err = r.GetClient().Get(ctx, types.NamespacedName{
 		Name:      instance.Name,
@@ -525,6 +532,13 @@ func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, r
 		}
 	}
 
+	if instance.Spec.Obfuscate != nil && instance.Spec.Obfuscate.ObfuscationConfigRef != nil && instance.Spec.Obfuscate.ObfuscationConfigRef.Name != "" {
+		if err := r.cleanupObfuscateConfigMap(ctx, reqLogger, instance); err != nil {
+			reqLogger.Error(err, "failed to cleanup obfuscate ConfigMap")
+			return err
+		}
+	}
+
 	reqLogger.V(4).Info("successfully cleaned up mustgather resources")
 	return nil
 }
@@ -672,5 +686,151 @@ func (r *MustGatherReconciler) cleanupTrustedCAConfigMap(ctx context.Context, re
 	}
 	reqLogger.V(4).Info("removed ownerReference from trustedCA ConfigMap",
 		"configMapName", r.TrustedCAConfigMap, "remainingNumOwners", len(updatedOwnerRefs))
+	return nil
+}
+
+func obfuscateConfigMapRefName(instance *mustgatherv1alpha1.MustGather) string {
+	if instance.Spec.Obfuscate == nil || instance.Spec.Obfuscate.ObfuscationConfigRef == nil {
+		return ""
+	}
+	return instance.Spec.Obfuscate.ObfuscationConfigRef.Name
+}
+
+// ensureObfuscateConfigMap copies the obfuscation config ConfigMap from the operator namespace
+// to the CR namespace when they differ, and adds/updates the ownerReference to include the MustGather CR.
+func (r *MustGatherReconciler) ensureObfuscateConfigMap(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather) error {
+	configMapName := obfuscateConfigMapRefName(instance)
+	if configMapName == "" {
+		return nil
+	}
+
+	if instance.Namespace == r.OperatorNamespace {
+		reqLogger.V(4).Info("MustGather CR is in the same namespace as the operator, skipping obfuscate ConfigMap copy")
+		return nil
+	}
+
+	sourceConfigMap := &corev1.ConfigMap{}
+	err := r.GetClient().Get(ctx, types.NamespacedName{
+		Namespace: r.OperatorNamespace,
+		Name:      configMapName,
+	}, sourceConfigMap)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			reqLogger.Info("obfuscate ConfigMap not found in operator namespace",
+				"configMapName", configMapName, "operatorNamespace", r.OperatorNamespace)
+		}
+		return fmt.Errorf("failed to get obfuscate ConfigMap from operator namespace: %w", err)
+	}
+
+	existingConfigMap := &corev1.ConfigMap{}
+	err = r.GetClient().Get(ctx, types.NamespacedName{
+		Namespace: instance.Namespace,
+		Name:      configMapName,
+	}, existingConfigMap)
+	if err != nil {
+		if !errors.IsNotFound(err) {
+			return fmt.Errorf("failed to check for existing obfuscate ConfigMap in instance namespace: %w", err)
+		}
+
+		newConfigMap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      configMapName,
+				Namespace: instance.Namespace,
+				Labels:    sourceConfigMap.Labels,
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: instance.APIVersion,
+						Kind:       instance.Kind,
+						Name:       instance.Name,
+						UID:        instance.UID,
+					},
+				},
+			},
+			Data: sourceConfigMap.Data,
+		}
+
+		err = r.GetClient().Create(ctx, newConfigMap)
+		if err != nil {
+			return fmt.Errorf("failed to create obfuscate ConfigMap in instance namespace: %w", err)
+		}
+		reqLogger.V(4).Info("successfully copied obfuscate ConfigMap", "configMapName", configMapName)
+		return nil
+	}
+
+	ownerRefExists := false
+	for _, ownerRef := range existingConfigMap.OwnerReferences {
+		if ownerRef.UID == instance.UID {
+			ownerRefExists = true
+			break
+		}
+	}
+
+	if !ownerRefExists {
+		existingConfigMap.OwnerReferences = append(existingConfigMap.OwnerReferences, metav1.OwnerReference{
+			APIVersion: instance.APIVersion,
+			Kind:       instance.Kind,
+			Name:       instance.Name,
+			UID:        instance.UID,
+		})
+
+		err = r.GetClient().Update(ctx, existingConfigMap)
+		if err != nil {
+			return fmt.Errorf("failed to update ownerReferences on obfuscate ConfigMap: %w", err)
+		}
+		reqLogger.V(4).Info("added ownerReference to existing obfuscate ConfigMap", "configMapName", configMapName)
+	}
+
+	return nil
+}
+
+// cleanupObfuscateConfigMap removes the owner reference for the given instance from the copied
+// obfuscation config ConfigMap in the CR namespace.
+func (r *MustGatherReconciler) cleanupObfuscateConfigMap(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather) error {
+	configMapName := obfuscateConfigMapRefName(instance)
+	if configMapName == "" {
+		return nil
+	}
+
+	if instance.Namespace == r.OperatorNamespace {
+		return nil
+	}
+
+	existingConfigMap := &corev1.ConfigMap{}
+	err := r.GetClient().Get(ctx, types.NamespacedName{
+		Namespace: instance.Namespace,
+		Name:      configMapName,
+	}, existingConfigMap)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			reqLogger.V(4).Info("obfuscate ConfigMap not found, nothing to cleanup", "configMapName", configMapName)
+			return nil
+		}
+		return fmt.Errorf("failed to get obfuscate ConfigMap: %w", err)
+	}
+
+	updatedOwnerRefs := make([]metav1.OwnerReference, 0, len(existingConfigMap.OwnerReferences))
+	for _, ownerRef := range existingConfigMap.OwnerReferences {
+		if ownerRef.UID != instance.UID {
+			updatedOwnerRefs = append(updatedOwnerRefs, ownerRef)
+		}
+	}
+
+	if len(updatedOwnerRefs) == 0 {
+		err = r.GetClient().Delete(ctx, existingConfigMap)
+		if err != nil {
+			return fmt.Errorf("failed to delete obfuscate ConfigMap: %w", err)
+		}
+		reqLogger.V(4).Info("deleted obfuscate ConfigMap", "configMapName", configMapName)
+		return nil
+	}
+
+	updatedConfigMap := existingConfigMap.DeepCopy()
+	updatedConfigMap.OwnerReferences = updatedOwnerRefs
+	err = r.GetClient().Update(ctx, updatedConfigMap)
+	if err != nil {
+		return fmt.Errorf("failed to update obfuscate ConfigMap owner references: %w", err)
+	}
+	reqLogger.V(4).Info("removed ownerReference from obfuscate ConfigMap",
+		"configMapName", configMapName, "remainingNumOwners", len(updatedOwnerRefs))
 	return nil
 }
