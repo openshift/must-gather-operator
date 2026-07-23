@@ -1,0 +1,242 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "description": "This configuration defines the behaviour of the must-gather-clean CLI. The CLI helps to obfuscate and omit output from OpenShift debug information ('must-gathers'). You can find more information in our GitHub repository at https://github.com/openshift/must-gather-clean.",
+    "required": [
+        "config"
+    ],
+    "title": "must-gather-clean configuration file schema",
+    "type": "object",
+    "properties": {
+        "config": {
+            "description": "There are two main sections, \"omit\" which defines the omission behaviour and \"obfuscate\" which defines the obfuscation behaviour.",
+            "required": [],
+            "title": "must-gather-clean omission and obfuscation definitions",
+            "type": "object",
+            "properties": {
+                "obfuscate": {
+                    "description": "The obfuscation schema determines what is being detected and how it is being replaced. We ship with several built-in replacements for common types such as IP or MAC, Keywords and Regex. The replacements are done in order of the whole list, so you can define chains of replacements that built on top of one another - for example replacing a keyword and later matching its replacement with a regex. The input to the given replacements are always a line of text (string). Since file names and directories can also have private content in them, they are also processed as a line - exactly as they would with file content.",
+                    "examples": [
+                        [
+                            {
+                                "type": "IP",
+                                "replacementType": "Consistent",
+                                "target": "All"
+                            },
+                            {
+                                "type": "MAC"
+                            },
+                            {
+                                "type": "Domain",
+                                "domainNames": ["rhcloud.com", "dev.rhcloud.com"]
+                            },
+                            {
+                                "type": "Regex",
+                                "target": "FilePath",
+                                "regex": "release-4.10/ingress_controllers/*/haproxy.*"
+                            },
+                            {
+                                "type": "Regex",
+                                "target": "FileContents",
+                                "regex": ".*ssl-min-ver TLSv1.2$"
+                            },
+                            {
+                              "type": "Keywords",
+                              "replacement": {
+                                "hello": "bye",
+                                "true": "false"
+                              }
+                            },
+                            {
+                                "type": "Keywords",
+                                "target": "FilePath",
+                                "replacement": {
+                                    "some_secret": "redacted"
+                                }
+                            }
+                        ]
+                    ],
+                    "title": "Obfuscation Schema",
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "$ref": "#/Definitions/obfuscate"
+                    }
+                },
+                "omit": {
+                    "type": "array",
+                    "title": "Omission Schema",
+                    "description": "The omission schema defines what kind of files shall not be included in the final must-gather. This can be seen as a filter and can operate on file paths or Kubernetes and OpenShift and other custom resources. Omissions are settled first in the process of obfuscating a must-gather, so its content won't be scanned and replaced.",
+                    "examples": [
+                        [
+                            {
+                                "type": "Kubernetes",
+                                "kubernetesResource": {
+                                    "kind": "Secret"
+                                }
+                            },
+                            {
+                                "type": "Kubernetes",
+                                "kubernetesResource": {
+                                    "kind": "ConfigMap",
+                                    "namespaces": [
+                                        "kube-system"
+                                    ]
+                                }
+                            },
+                            {
+                                "type": "Kubernetes",
+                                "kubernetesResource": {
+                                    "kind": "CertificateSigningRequest",
+                                    "apiVersion": "certificates.k8s.io/v1"
+                                }
+                            },
+                            {
+                                "type": "File",
+                                "pattern": "*.log"
+                            },
+                            {
+                                "type": "File",
+                                "pattern": "release-4.10/ingress_controllers/*/haproxy.*"
+                            },
+                            {
+                                "type": "File",
+                                "pattern": "*/namespaces/openshift-sdn/pods/*/openvswitch/openvswitch/logs/current.log"
+                            }
+                        ]
+                    ],
+                    "additionalItems": true,
+                    "items": {
+                        "$ref": "#/Definitions/omit"
+                    }
+                },
+                "randSeed": {
+                    "type": "integer",
+                    "description": "RandSeed is the seed to use for priming randomly generated values. When empty or zero, the seed is time.Now().UnixNano(), when set it is honored. It is useful to set for predictable names. It is useful not to set when you want variance in randomly generated names instead of counters to avoid confusion between bugs."
+                }
+            },
+            "additionalProperties": true
+        }
+    },
+    "Definitions": {
+        "obfuscate": {
+            "type": "object",
+            "required": [
+                "type"
+            ],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "AzureResources",
+                        "Domain",
+                        "Exact",
+                        "IP",
+                        "Keywords",
+                        "MAC",
+                        "Regex"
+                    ],
+                    "description": "type defines the kind of detection you want to use. For example IP will find IP addresses, whereas Keywords will find keywords defined in the 'replacement' mapping. Domain must be used in conjunction with the 'domainNames' property, that defines what domains should be obfuscated. MAC currently only supports static replacement where a detected mac address will be replaced by 'x'. Regex should be used with the 'regex' property that will define the regex, here the replacement also will be static by 'x'-ing out the matched string."
+                },
+                "domainNames": {
+                    "description": "The list of domains and their subdomains which should be obfuscated in the output, only used with the type Domain obfuscator.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "exactReplacements": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": [
+                            "original",
+                            "replacement"
+                        ],
+                        "properties": {
+                            "original": {
+                                "type": "string",
+                                "description": "original is the exact text to be replaced."
+                            },
+                            "replacement": {
+                                "type": "string",
+                                "description": "replacement is the string to replace original with."
+                            }
+                        },
+                        "description": "Provides original,replacement tuples to replace all.  They will be executed in order."
+                    },
+                    "description": "Provides original,replacement tuples to replace all.  They will be executed in order."
+                },
+                "target": {
+                    "type": "string",
+                    "default": "FileContents",
+                    "enum": [
+                        "FilePath",
+                        "FileContents",
+                        "All"
+                    ],
+                    "description": "This determines if the obfuscation should be performed on the file path (relative path from the must-gather root folder) or on the file contents. The file contents are obfuscated by default."
+                },
+                "replacementType": {
+                    "type": "string",
+                    "default": "Static",
+                    "enum": [
+                        "Consistent",
+                        "Static"
+                    ],
+                    "description": "This defines how the detected string will be replaced. Type 'Consistent' will guarantee the same input will always create the same output string. 'Static' is used by default and will just try to mask the matching input."
+                },
+                "replacement": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "on replacement 'Keywords', this will override a given input string with another output string. On duplicate keys it will use the last defined value as replacement. The input values are matched in a case-sensitive fashion and only as a full words, substrings must be matched using a regex."
+                },
+                "regex": {
+                    "type": "string",
+                    "description": "when replacementType 'Regex' is used, the supplied Golang regexp (https://pkg.go.dev/regexp) will be used to detect the string that should be replaced. The regex is line based, spanning multi-line regex statements is not supported."
+                }
+            }
+        },
+        "omit": {
+            "type": "object",
+            "required": [
+                "type"
+            ],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "Kubernetes",
+                        "File",
+                        "SymbolicLink"
+                    ]
+                },
+                "kubernetesResource": {
+                    "type": "object",
+                    "properties": {
+                        "apiVersion": {
+                            "type": "string",
+                            "description": "This defines the apiVersion of the kubernetes resource. That can be used to further refine specific versions of a resource that should be omitted."
+                        },
+                        "kind": {
+                            "type": "string",
+                            "description": "This defines the kind of kubernetes resource that should be omitted. This can be further specified with the apiVersion and namespaces."
+                        },
+                        "namespaces": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "This defines the namespaces which are supposed to be omitted. When used together with kind and apiVersions, it becomes a filter. Standalone it will be used as a filter for all resources in a given namespace."
+                        }
+                    }
+                },
+                "pattern": {
+                    "type": "string",
+                    "description": "A file glob pattern on file paths relative to the must-gather root. The pattern should be as described in https://pkg.go.dev/path/filepath#Match"
+                }
+            }
+        }
+    }
+}
