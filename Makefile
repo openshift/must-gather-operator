@@ -28,22 +28,32 @@ test-e2e:
 ## coverage data written during E2E tests, and uploading the report to Codecov.
 ##
 ## Typical flow (local):
-##   make docker-build-coverage docker-push-coverage   # build & push coverage image
-##   COVERAGE_IMAGE=<pullspec> hack/e2e-coverage.sh setup  # patch CSV
-##   make test-e2e                                      # run E2E suite
-##   make e2e-coverage-collect                           # collect + upload
+##   make image-build-coverage image-push-coverage       # build & push coverage image
+##   COVERAGE_IMAGE=<pullspec> hack/e2e-coverage.sh setup  # patch CSV/deployment
+##   make test-e2e                                         # run E2E suite
+##   make e2e-coverage-collect                             # collect + upload
 ##
 ## In CI, hack/e2e-coverage.sh handles setup and collection automatically.
 
 COVERAGE_IMG ?= $(IMG)-e2e-coverage
 
-.PHONY: docker-build-coverage
-docker-build-coverage: ## Build coverage Docker image from images/ci/Dockerfile.coverage.
-	$(CONTAINER_TOOL) build -f images/ci/Dockerfile.coverage -t $(COVERAGE_IMG) .
+# OpenShift cluster nodes are linux/amd64. When building on macOS (especially
+# Apple Silicon), cross-build so the image can be pulled and run on the cluster.
+# Override with COVERAGE_PLATFORM_FLAG= to disable, or set another platform.
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+COVERAGE_PLATFORM_FLAG ?= --platform=linux/amd64
+else
+COVERAGE_PLATFORM_FLAG ?=
+endif
 
-.PHONY: docker-push-coverage
-docker-push-coverage: ## Push coverage Docker image.
-	$(CONTAINER_TOOL) push $(COVERAGE_IMG)
+.PHONY: image-build-coverage
+image-build-coverage: ## Build coverage-instrumented container image.
+	$(CONTAINER_ENGINE) build $(COVERAGE_PLATFORM_FLAG) -f images/ci/Dockerfile.coverage -t $(COVERAGE_IMG) .
+
+.PHONY: image-push-coverage
+image-push-coverage: ## Push coverage-instrumented container image.
+	$(CONTAINER_ENGINE) push $(COVERAGE_IMG)
 
 .PHONY: e2e-coverage-collect
 e2e-coverage-collect: ## Collect e2e coverage data and optionally upload to Codecov.
