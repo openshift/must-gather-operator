@@ -1,0 +1,15 @@
+# Mode 2: Obfuscate Only (existing bundle on PVC, no gather, no upload)
+apiVersion: operator.openshift.io/v1alpha1
+kind: MustGather
+metadata:
+  name: obfuscate-existing-bundle
+spec:
+  serviceAccountName: must-gather-admin
+  obfuscate:
+    enabled: true
+    obfuscationConfigRef:
+      name: my-obfuscation-rules
+    source:
+      claim:
+        name: must-gather-pvc
+      subPath: must-gather-data

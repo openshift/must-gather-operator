@@ -107,6 +107,85 @@ spec:
                   Will default to no time limit.
                 format: duration
                 type: string
+              obfuscate:
+                description: |-
+                  obfuscate configures post-gather obfuscation of sensitive data
+                  (IPs, MACs, Secrets, ConfigMaps) before upload using must-gather-clean.
+                  When obfuscate.enabled is true, the operator runs obfuscation on the
+                  collected or referenced bundle before tarring and uploading.
+                  Supported operational modes:
+                    - Gather + Obfuscate + Upload: enabled with uploadTarget (full pipeline)
+                    - Gather + Obfuscate + PVC: enabled with storage (cleaned output persisted, no upload)
+                    - Obfuscate Only: enabled with source (redact existing PVC bundle, no upload)
+                    - Obfuscate + Upload: enabled with source and uploadTarget (redact and upload)
+                properties:
+                  enabled:
+                    default: false
+                    description: |-
+                      enabled activates obfuscation of the must-gather bundle.
+                      When true, the operator runs obfuscation on the collected or
+                      referenced bundle before tarring and uploading.
+                    type: boolean
+                  obfuscationConfigRef:
+                    description: |-
+                      obfuscationConfigRef references a ConfigMap in the operator namespace
+                      containing a must-gather-clean configuration file.
+                      The ConfigMap must have a key named "config.yaml" whose value is a
+                      valid must-gather-clean obfuscation config.
+                      If omitted, the operator uses the built-in default config which
+                      consistently replaces IPs and MACs, and omits Secrets and ConfigMaps.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  source:
+                    description: |-
+                      source references an existing must-gather bundle on a PVC
+                      for obfuscation without running a new gather.
+                      When set, the operator skips the gather step and runs obfuscation
+                      directly on the referenced PVC contents.
+                    properties:
+                      claim:
+                        description: |-
+                          claim references the PersistentVolumeClaim containing the existing
+                          must-gather bundle to obfuscate.
+                          The PVC must be in the operator namespace.
+                        properties:
+                          name:
+                            description: |-
+                              name defines the PersistentVolumeClaim to use,
+                              should be already present in the same namespace.
+                            maxLength: 253
+                            type: string
+                            x-kubernetes-validations:
+                            - message: a lowercase RFC 1123 subdomain must consist
+                                of lower case alphanumeric characters, '-' or '.',
+                                and must start and end with an alphanumeric character.
+                              rule: '!format.dns1123Subdomain().validate(self).hasValue()'
+                        required:
+                        - name
+                        type: object
+                      subPath:
+                        description: |-
+                          subPath is the path within the PVC where the must-gather bundle
+                          is located. If omitted, the root of the PVC is used.
+                        type: string
+                    required:
+                    - claim
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: obfuscationConfigRef.name must not be empty
+                  rule: '!has(self.obfuscationConfigRef) || size(self.obfuscationConfigRef.name)
+                    > 0'
               retainResourcesOnCompletion:
                 default: false
                 description: |-
@@ -232,13 +311,30 @@ spec:
             - serviceAccountName
             type: object
             x-kubernetes-validations:
-            - message: audit mode is only supported with the default must-gather image
+            - message: audit cannot be enabled when using a custom image (imageStreamRef)
               rule: '!(has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.audit)
                 && self.gatherSpec.audit)'
-            - message: audit mode cannot be combined with custom gather commands
+            - message: audit cannot be enabled when gatherSpec.command is set with
+                the default must-gather image
               rule: '!(!has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.command)
                 && size(self.gatherSpec.command) > 0 && has(self.gatherSpec.audit)
                 && self.gatherSpec.audit)'
+            - message: obfuscate.enabled requires uploadTarget, obfuscate.source,
+                or storage
+              rule: '!(has(self.obfuscate) && has(self.obfuscate.enabled) && self.obfuscate.enabled
+                && !(has(self.uploadTarget) || has(self.obfuscate.source) || has(self.storage)))'
+            - message: obfuscate.source requires obfuscate.enabled
+              rule: '!(has(self.obfuscate) && has(self.obfuscate.source) && (!has(self.obfuscate.enabled)
+                || !self.obfuscate.enabled))'
+            - message: obfuscate.source requires uploadTarget or storage to persist
+                obfuscated output
+              rule: '!(has(self.obfuscate) && has(self.obfuscate.source) && !(has(self.uploadTarget)
+                || has(self.storage)))'
+            - message: obfuscate.source cannot be combined with imageStreamRef or
+                gatherSpec.command/audit (gather is skipped)
+              rule: '!(has(self.obfuscate) && has(self.obfuscate.source) && (has(self.imageStreamRef)
+                || (has(self.gatherSpec) && (has(self.gatherSpec.command) || has(self.gatherSpec.audit)
+                && self.gatherSpec.audit))))'
           status:
             description: MustGatherStatus defines the observed state of MustGather
             properties:
@@ -310,8 +406,6 @@ spec:
             required:
             - completed
             type: object
-        required:
-        - spec
         type: object
         x-kubernetes-validations:
         - message: spec values are immutable once set
