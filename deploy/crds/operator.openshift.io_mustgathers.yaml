@@ -182,6 +182,10 @@ spec:
                     - claim
                     type: object
                 type: object
+                x-kubernetes-validations:
+                - message: obfuscationConfigRef.name must not be empty
+                  rule: '!has(self.obfuscationConfigRef) || size(self.obfuscationConfigRef.name)
+                    > 0'
               retainResourcesOnCompletion:
                 default: false
                 description: |-
@@ -189,9 +193,11 @@ spec:
                   If set to true, resources will be retained. If false or not set, resources will be deleted (default behavior).
                 type: boolean
               serviceAccountName:
-                default: default
-                description: the service account to use to run the must gather job
-                  pod, defaults to default
+                description: |-
+                  ServiceAccountName is the name of the ServiceAccount to use for running the must-gather Job.
+                  This field is required and must reference a ServiceAccount with sufficient RBAC permissions
+                  to collect cluster data. The operator will verify the ServiceAccount exists before creating the Job.
+                minLength: 1
                 type: string
               storage:
                 description: |-
@@ -301,6 +307,8 @@ spec:
                     is SFTP, and forbidden otherwise
                   rule: 'has(self.type) && self.type == ''SFTP'' ? has(self.sftp)
                     : !has(self.sftp)'
+            required:
+            - serviceAccountName
             type: object
             x-kubernetes-validations:
             - message: audit cannot be enabled when using a custom image (imageStreamRef)
@@ -318,6 +326,15 @@ spec:
             - message: obfuscate.source requires obfuscate.enabled
               rule: '!(has(self.obfuscate) && has(self.obfuscate.source) && (!has(self.obfuscate.enabled)
                 || !self.obfuscate.enabled))'
+            - message: obfuscate.source requires uploadTarget or storage to persist
+                obfuscated output
+              rule: '!(has(self.obfuscate) && has(self.obfuscate.source) && !(has(self.uploadTarget)
+                || has(self.storage)))'
+            - message: obfuscate.source cannot be combined with imageStreamRef or
+                gatherSpec.command/audit (gather is skipped)
+              rule: '!(has(self.obfuscate) && has(self.obfuscate.source) && (has(self.imageStreamRef)
+                || (has(self.gatherSpec) && (has(self.gatherSpec.command) || has(self.gatherSpec.audit)
+                && self.gatherSpec.audit))))'
           status:
             description: MustGatherStatus defines the observed state of MustGather
             properties:

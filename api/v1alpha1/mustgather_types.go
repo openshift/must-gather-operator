@@ -29,6 +29,8 @@ import (
 // +kubebuilder:validation:XValidation:rule="!(!has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0 && has(self.gatherSpec.audit) && self.gatherSpec.audit)",message="audit cannot be enabled when gatherSpec.command is set with the default must-gather image"
 // +kubebuilder:validation:XValidation:rule="!(has(self.obfuscate) && has(self.obfuscate.enabled) && self.obfuscate.enabled && !(has(self.uploadTarget) || has(self.obfuscate.source) || has(self.storage)))",message="obfuscate.enabled requires uploadTarget, obfuscate.source, or storage"
 // +kubebuilder:validation:XValidation:rule="!(has(self.obfuscate) && has(self.obfuscate.source) && (!has(self.obfuscate.enabled) || !self.obfuscate.enabled))",message="obfuscate.source requires obfuscate.enabled"
+// +kubebuilder:validation:XValidation:rule="!(has(self.obfuscate) && has(self.obfuscate.source) && !(has(self.uploadTarget) || has(self.storage)))",message="obfuscate.source requires uploadTarget or storage to persist obfuscated output"
+// +kubebuilder:validation:XValidation:rule="!(has(self.obfuscate) && has(self.obfuscate.source) && (has(self.imageStreamRef) || (has(self.gatherSpec) && (has(self.gatherSpec.command) || has(self.gatherSpec.audit) && self.gatherSpec.audit))))",message="obfuscate.source cannot be combined with imageStreamRef or gatherSpec.command/audit (gather is skipped)"
 type MustGatherSpec struct {
 	// ServiceAccountName is the name of the ServiceAccount to use for running the must-gather Job.
 	// This field is required and must reference a ServiceAccount with sufficient RBAC permissions
@@ -222,6 +224,7 @@ type PersistentVolumeClaimReference struct {
 }
 
 // ObfuscateConfig configures the obfuscation behavior for a MustGather run.
+// +kubebuilder:validation:XValidation:rule="!has(self.obfuscationConfigRef) || size(self.obfuscationConfigRef.name) > 0",message="obfuscationConfigRef.name must not be empty"
 type ObfuscateConfig struct {
 	// enabled activates obfuscation of the must-gather bundle.
 	// When true, the operator runs obfuscation on the collected or

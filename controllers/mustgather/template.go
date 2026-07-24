@@ -428,7 +428,7 @@ func getUploadContainer(
 		storage != nil && storage.Type == v1alpha1.StorageTypePersistentVolume {
 		base := strings.TrimSpace(storage.PersistentVolume.SubPath)
 		base = strings.Trim(base, "/")
-		uploadMount.SubPath = path.Join(base, directoryName, "cleaned")
+		uploadMount.SubPath = path.Join(base, directoryName)
 	}
 
 	volumeMounts := []corev1.VolumeMount{outputMount, uploadMount}

@@ -823,7 +823,7 @@ func Test_getJobTemplate_GatherObfuscatePVC(t *testing.T) {
 				t.Fatalf("expected upload volume mount %q", uploadVolumeName)
 			}
 			base := strings.Trim(strings.TrimSpace(tt.subPath), "/")
-			wantSubPath := path.Join(base, directoryName, "cleaned")
+			wantSubPath := path.Join(base, directoryName)
 			if uploadMount.SubPath != wantSubPath {
 				t.Fatalf("expected upload mount SubPath %q, got %q", wantSubPath, uploadMount.SubPath)
 			}

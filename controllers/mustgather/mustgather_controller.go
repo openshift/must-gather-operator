@@ -175,7 +175,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		}
 	}
 
-	if instance.Spec.Obfuscate != nil && instance.Spec.Obfuscate.ObfuscationConfigRef != nil && instance.Spec.Obfuscate.ObfuscationConfigRef.Name != "" {
+	if obfuscateConfigMapRefName(instance) != "" {
 		if err := r.ensureObfuscateConfigMap(ctx, reqLogger, instance); err != nil {
 			reqLogger.Error(err, "failed to ensure obfuscate ConfigMap exists")
 			return r.ManageError(ctx, instance, err)
@@ -532,7 +532,7 @@ func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, r
 		}
 	}
 
-	if instance.Spec.Obfuscate != nil && instance.Spec.Obfuscate.ObfuscationConfigRef != nil && instance.Spec.Obfuscate.ObfuscationConfigRef.Name != "" {
+	if obfuscateConfigMapRefName(instance) != "" {
 		if err := r.cleanupObfuscateConfigMap(ctx, reqLogger, instance); err != nil {
 			reqLogger.Error(err, "failed to cleanup obfuscate ConfigMap")
 			return err
