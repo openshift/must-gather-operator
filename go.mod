@@ -102,3 +102,7 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
+
+// must-gather-clean uses a fork of go-jsonschema for code generation; its replace
+// directive doesn't carry over, so we mirror it here for offline resolution.
+replace github.com/atombender/go-jsonschema => github.com/tjungblu/go-jsonschema v0.9.1-0.20210922142453-a1b781d84980
