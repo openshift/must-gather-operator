@@ -997,9 +997,25 @@ func Test_getGatherContainer_ChownSuffix(t *testing.T) {
 		t.Fatalf("expected no chown suffix without obfuscation, got %q", gatherCmdNoObfuscate)
 	}
 
-	containerCustomCmd := getGatherContainer("img", false, 5*time.Second, nil, "", nil, []string{"/custom"}, nil, "", &mustgatherv1alpha1.ObfuscateConfig{Enabled: ToPtr(true)})
-	if len(containerCustomCmd.Command) != 1 || containerCustomCmd.Command[0] != "/custom" {
-		t.Fatalf("expected custom command to be preserved even with obfuscate, got %v", containerCustomCmd.Command)
+	containerCustomCmd := getGatherContainer("img", false, 5*time.Second, nil, "", nil, []string{"/custom"}, []string{"--flag"}, "", &mustgatherv1alpha1.ObfuscateConfig{Enabled: ToPtr(true)})
+	if len(containerCustomCmd.Command) != 4 || containerCustomCmd.Command[0] != "/bin/bash" {
+		t.Fatalf("expected custom command to be wrapped in bash for chown, got %v", containerCustomCmd.Command)
+	}
+	wrappedScript := containerCustomCmd.Command[2]
+	if !strings.Contains(wrappedScript, `"$@"`) {
+		t.Fatalf("expected wrapped script to contain \"$@\" passthrough, got %q", wrappedScript)
+	}
+	if !strings.Contains(wrappedScript, obfuscateChownSuffix) {
+		t.Fatalf("expected wrapped script to contain chown suffix, got %q", wrappedScript)
+	}
+	expectedArgs := []string{"/custom", "--flag"}
+	if len(containerCustomCmd.Args) != 2 || containerCustomCmd.Args[0] != expectedArgs[0] || containerCustomCmd.Args[1] != expectedArgs[1] {
+		t.Fatalf("expected original command+args as container args, got %v", containerCustomCmd.Args)
+	}
+
+	containerCustomCmdNoObfuscate := getGatherContainer("img", false, 5*time.Second, nil, "", nil, []string{"/custom"}, nil, "", nil)
+	if len(containerCustomCmdNoObfuscate.Command) != 1 || containerCustomCmdNoObfuscate.Command[0] != "/custom" {
+		t.Fatalf("expected custom command to be preserved without obfuscate, got %v", containerCustomCmdNoObfuscate.Command)
 	}
 }
 

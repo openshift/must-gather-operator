@@ -1,10 +1,16 @@
-# Mode 2: Obfuscate Only (existing bundle on PVC, no gather, no upload)
+# Mode: Obfuscate Only (existing bundle on PVC, no gather, output persisted on PVC)
+# obfuscate.source requires storage or uploadTarget to persist the obfuscated output.
 apiVersion: operator.openshift.io/v1alpha1
 kind: MustGather
 metadata:
   name: obfuscate-existing-bundle
 spec:
   serviceAccountName: must-gather-admin
+  storage:
+    type: PersistentVolume
+    persistentVolume:
+      claim:
+        name: must-gather-output-pvc
   obfuscate:
     enabled: true
     obfuscationConfigRef:

@@ -49,6 +49,20 @@ type MustGatherCROptions struct {
 	Timeout          *time.Duration
 	ImageStreamRef   *mustgatherv1alpha1.ImageStreamTagRef
 	GatherSpec       *mustgatherv1alpha1.GatherSpec
+	Obfuscate        *ObfuscateOptions
+}
+
+// ObfuscateOptions configures obfuscation for a MustGather CR.
+type ObfuscateOptions struct {
+	Enabled       bool
+	ConfigRefName string
+	Source        *ObfuscateSourceOptions
+}
+
+// ObfuscateSourceOptions configures the source PVC for obfuscate-only mode.
+type ObfuscateSourceOptions struct {
+	ClaimName string
+	SubPath   string
 }
 
 // UploadTargetOptions configures SFTP upload target
@@ -3603,6 +3617,604 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.GinkgoWriter.Printf("Prefix1: %s\nPrefix2: %s\n", prefix1, prefix2)
 		})
 	})
+
+	// ─── Obfuscation Integration Tests ───────────────────────────────────
+
+	ginkgo.Context("Obfuscation CRD Validation Tests", func() {
+		ginkgo.It("should reject obfuscate.enabled without uploadTarget, source, or storage", func() {
+			mg := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("obf-val-no-target-%d", time.Now().UnixNano()),
+					Namespace: ns.Name,
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: serviceAccount,
+					Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
+						Enabled: func() *bool { b := true; return &b }(),
+					},
+				},
+			}
+			err := nonAdminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "API should reject obfuscate.enabled without any output target")
+			Expect(err.Error()).To(ContainSubstring("obfuscate.enabled requires uploadTarget"))
+		})
+
+		ginkgo.It("should reject obfuscate.source without enabled", func() {
+			mg := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("obf-val-src-no-en-%d", time.Now().UnixNano()),
+					Namespace: ns.Name,
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: serviceAccount,
+					Storage: &mustgatherv1alpha1.Storage{
+						Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+						PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+							Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
+						},
+					},
+					Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
+						Source: &mustgatherv1alpha1.ObfuscateSourceConfig{
+							Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
+						},
+					},
+				},
+			}
+			err := nonAdminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "API should reject obfuscate.source without enabled")
+			Expect(err.Error()).To(ContainSubstring("obfuscate.source requires obfuscate.enabled"))
+		})
+
+		ginkgo.It("should reject obfuscate.source without storage or uploadTarget", func() {
+			mg := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("obf-val-src-no-persist-%d", time.Now().UnixNano()),
+					Namespace: ns.Name,
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: serviceAccount,
+					Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
+						Enabled: func() *bool { b := true; return &b }(),
+						Source: &mustgatherv1alpha1.ObfuscateSourceConfig{
+							Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
+						},
+					},
+				},
+			}
+			err := nonAdminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "API should reject obfuscate.source without persistence")
+			Expect(err.Error()).To(ContainSubstring("obfuscate.source requires uploadTarget or storage"))
+		})
+
+		ginkgo.It("should reject obfuscate.source combined with imageStreamRef", func() {
+			mg := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("obf-val-src-imgref-%d", time.Now().UnixNano()),
+					Namespace: ns.Name,
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: serviceAccount,
+					ImageStreamRef:     &mustgatherv1alpha1.ImageStreamTagRef{Name: "some-is", Tag: "latest"},
+					Storage: &mustgatherv1alpha1.Storage{
+						Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+						PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+							Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
+						},
+					},
+					Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
+						Enabled: func() *bool { b := true; return &b }(),
+						Source: &mustgatherv1alpha1.ObfuscateSourceConfig{
+							Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
+						},
+					},
+				},
+			}
+			err := nonAdminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "API should reject obfuscate.source with imageStreamRef")
+			Expect(err.Error()).To(ContainSubstring("obfuscate.source cannot be combined with imageStreamRef"))
+		})
+
+		ginkgo.It("should reject empty obfuscationConfigRef.name", func() {
+			mg := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("obf-val-empty-cfgref-%d", time.Now().UnixNano()),
+					Namespace: ns.Name,
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: serviceAccount,
+					Storage: &mustgatherv1alpha1.Storage{
+						Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+						PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+							Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
+						},
+					},
+					Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
+						Enabled:              func() *bool { b := true; return &b }(),
+						ObfuscationConfigRef: &corev1.LocalObjectReference{Name: ""},
+					},
+				},
+			}
+			err := nonAdminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "API should reject empty obfuscationConfigRef.name")
+			Expect(err.Error()).To(ContainSubstring("obfuscationConfigRef.name must not be empty"))
+		})
+	})
+
+	ginkgo.Context("Gather + Obfuscate + PVC (obfuscation with default config)", func() {
+		ginkgo.It("should gather, obfuscate with default config, and persist cleaned output on PVC", func() {
+			pvcName := fmt.Sprintf("obfuscate-pvc-%d", time.Now().UnixNano()%100000)
+			ginkgo.By("Creating a PVC for obfuscated output")
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcName,
+					Namespace: ns.Name,
+					Labels:    map[string]string{"test": nonAdminLabel},
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+					Resources: corev1.VolumeResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceStorage: resource.MustParse("2Gi"),
+						},
+					},
+				},
+			}
+			err := nonAdminClient.Create(testCtx, pvc)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create PVC for obfuscation test")
+			defer func() { _ = nonAdminClient.Delete(testCtx, pvc) }()
+
+			mgName := fmt.Sprintf("obf-gather-pvc-%d", time.Now().UnixNano()%100000)
+			timeout := 10 * time.Minute
+			ginkgo.By("Creating MustGather CR with obfuscate enabled and PVC storage")
+			mustGatherCR := createMustGatherCR(mgName, ns.Name, serviceAccount, true, &MustGatherCROptions{
+				Timeout: &timeout,
+				PersistentVolume: &PersistentVolumeOptions{
+					PVCName: pvcName,
+					SubPath: "collections",
+				},
+				Obfuscate: &ObfuscateOptions{
+					Enabled: true,
+				},
+			})
+			defer func() {
+				_ = nonAdminClient.Delete(testCtx, mustGatherCR)
+				Eventually(func() bool {
+					return apierrors.IsNotFound(nonAdminClient.Get(testCtx,
+						client.ObjectKey{Name: mgName, Namespace: ns.Name},
+						&mustgatherv1alpha1.MustGather{}))
+				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+			}()
+
+			ginkgo.By("Waiting for Job to be created")
+			job := &batchv1.Job{}
+			Eventually(func() error {
+				return adminClient.Get(testCtx, client.ObjectKey{Name: mgName, Namespace: ns.Name}, job)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed(),
+				"Operator should create the Job")
+
+			ginkgo.By("Verifying Job has both gather and upload containers")
+			var hasGather, hasUpload bool
+			for _, c := range job.Spec.Template.Spec.Containers {
+				switch c.Name {
+				case gatherContainerName:
+					hasGather = true
+					gatherCmd := strings.Join(c.Command, " ")
+					Expect(gatherCmd).To(ContainSubstring("chown"),
+						"Gather command should include chown suffix for obfuscation")
+				case uploadContainerName:
+					hasUpload = true
+					envMap := make(map[string]string)
+					for _, env := range c.Env {
+						envMap[env.Name] = env.Value
+					}
+					Expect(envMap).To(HaveKeyWithValue("obfuscate", "true"),
+						"Upload container should have obfuscate=true env var")
+				}
+			}
+			Expect(hasGather).To(BeTrue(), "Job should have a gather container")
+			Expect(hasUpload).To(BeTrue(), "Job should have an upload container when obfuscation is enabled")
+
+			ginkgo.By("Waiting for MustGather to complete")
+			Eventually(func() bool {
+				mg := &mustgatherv1alpha1.MustGather{}
+				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name: mgName, Namespace: ns.Name,
+				}, mg); err != nil {
+					return false
+				}
+				return mg.Status.Completed
+			}).WithTimeout(15*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
+				"MustGather should complete (gather + obfuscate)")
+
+			ginkgo.By("Creating reader pod to verify obfuscated output on PVC")
+			readerPodName := fmt.Sprintf("obf-reader-%d", time.Now().UnixNano()%100000)
+			readerPod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      readerPodName,
+					Namespace: ns.Name,
+				},
+				Spec: corev1.PodSpec{
+					RestartPolicy:      corev1.RestartPolicyNever,
+					ServiceAccountName: serviceAccount,
+					SecurityContext: &corev1.PodSecurityContext{
+						RunAsNonRoot: func() *bool { b := true; return &b }(),
+						SeccompProfile: &corev1.SeccompProfile{
+							Type: corev1.SeccompProfileTypeRuntimeDefault,
+						},
+					},
+					Containers: []corev1.Container{
+						{
+							Name:  "reader",
+							Image: operatorImage,
+							Command: []string{
+								"/bin/sh", "-c",
+								// List cleaned directory and check for report.yaml (obfuscation report)
+								`echo "=== PVC top-level ===" && ls -la /pvc/collections/ 2>/dev/null &&
+echo "=== Cleaned directories ===" && find /pvc/collections -name 'cleaned' -type d 2>/dev/null &&
+echo "=== report.yaml ===" && find /pvc/collections -name 'report.yaml' -type f 2>/dev/null | head -5 &&
+echo "=== Sample obfuscated content ===" && find /pvc/collections -path '*/cleaned/*' -name '*.log' -type f -exec head -5 {} \; 2>/dev/null | head -20`,
+							},
+							SecurityContext: &corev1.SecurityContext{
+								AllowPrivilegeEscalation: func() *bool { b := false; return &b }(),
+								Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+								RunAsNonRoot:             func() *bool { b := true; return &b }(),
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{Name: "pvc-data", MountPath: "/pvc"},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "pvc-data",
+							VolumeSource: corev1.VolumeSource{
+								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+									ClaimName: pvcName,
+								},
+							},
+						},
+					},
+				},
+			}
+			err = nonAdminClient.Create(testCtx, readerPod)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create reader pod")
+			defer func() { _ = nonAdminClient.Delete(testCtx, readerPod) }()
+
+			ginkgo.By("Waiting for reader pod to complete")
+			Eventually(func() corev1.PodPhase {
+				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name: readerPodName, Namespace: ns.Name,
+				}, readerPod); err != nil {
+					return corev1.PodUnknown
+				}
+				return readerPod.Status.Phase
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(
+				Or(Equal(corev1.PodSucceeded), Equal(corev1.PodFailed)),
+				"Reader pod should complete")
+
+			Expect(readerPod.Status.Phase).To(Equal(corev1.PodSucceeded),
+				"Reader pod should succeed")
+
+			logs, err := getContainerLogs(ns.Name, readerPodName, "reader")
+			Expect(err).NotTo(HaveOccurred(), "Failed to get reader pod logs")
+			ginkgo.GinkgoWriter.Printf("Reader pod logs:\n%s\n", logs)
+
+			Expect(logs).To(ContainSubstring("cleaned"),
+				"PVC should contain a 'cleaned' directory from obfuscation")
+			Expect(logs).To(ContainSubstring("report.yaml"),
+				"PVC should contain report.yaml (obfuscation report)")
+		})
+	})
+
+	ginkgo.Context("Obfuscation ConfigMap lifecycle", func() {
+		ginkgo.It("should copy obfuscation ConfigMap to CR namespace and clean up on deletion", func() {
+			configMapName := fmt.Sprintf("obf-cfg-%d", time.Now().UnixNano()%100000)
+
+			ginkgo.By("Creating obfuscation ConfigMap in operator namespace")
+			obfConfigMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      configMapName,
+					Namespace: operatorNamespace,
+				},
+				Data: map[string]string{
+					"config.yaml": `config:
+  obfuscate:
+    - type: IP
+      replacementType: Consistent
+      target: All
+  omit: []
+`,
+				},
+			}
+			err := adminClient.Create(testCtx, obfConfigMap)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create obfuscation ConfigMap in operator namespace")
+			defer func() { _ = adminClient.Delete(testCtx, obfConfigMap) }()
+
+			pvcName := fmt.Sprintf("obf-cm-pvc-%d", time.Now().UnixNano()%100000)
+			ginkgo.By("Creating PVC for output")
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcName,
+					Namespace: ns.Name,
+					Labels:    map[string]string{"test": nonAdminLabel},
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+					Resources: corev1.VolumeResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceStorage: resource.MustParse("2Gi"),
+						},
+					},
+				},
+			}
+			err = nonAdminClient.Create(testCtx, pvc)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = nonAdminClient.Delete(testCtx, pvc) }()
+
+			mgName := fmt.Sprintf("obf-cm-test-%d", time.Now().UnixNano()%100000)
+			timeout := 10 * time.Minute
+			ginkgo.By("Creating MustGather CR with custom obfuscationConfigRef")
+			mustGatherCR := createMustGatherCR(mgName, ns.Name, serviceAccount, false, &MustGatherCROptions{
+				Timeout: &timeout,
+				PersistentVolume: &PersistentVolumeOptions{
+					PVCName: pvcName,
+				},
+				Obfuscate: &ObfuscateOptions{
+					Enabled:       true,
+					ConfigRefName: configMapName,
+				},
+			})
+
+			ginkgo.By("Waiting for Job to be created (confirms ConfigMap was copied)")
+			job := &batchv1.Job{}
+			Eventually(func() error {
+				return adminClient.Get(testCtx, client.ObjectKey{Name: mgName, Namespace: ns.Name}, job)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			if ns.Name != operatorNamespace {
+				ginkgo.By("Verifying ConfigMap was copied to CR namespace")
+				copiedCM := &corev1.ConfigMap{}
+				err = adminClient.Get(testCtx, client.ObjectKey{
+					Name:      configMapName,
+					Namespace: ns.Name,
+				}, copiedCM)
+				Expect(err).NotTo(HaveOccurred(),
+					"Obfuscation ConfigMap should be copied to the CR namespace")
+				Expect(copiedCM.Data).To(HaveKey("config.yaml"),
+					"Copied ConfigMap should contain config.yaml key")
+
+				mg := &mustgatherv1alpha1.MustGather{}
+				err = nonAdminClient.Get(testCtx, client.ObjectKey{Name: mgName, Namespace: ns.Name}, mg)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(configMapHasOwnerReference(copiedCM, mg.UID)).To(BeTrue(),
+					"Copied ConfigMap should have MustGather CR as owner")
+			}
+
+			ginkgo.By("Verifying upload container has obfuscate_config env var")
+			for _, c := range job.Spec.Template.Spec.Containers {
+				if c.Name == uploadContainerName {
+					envMap := make(map[string]string)
+					for _, env := range c.Env {
+						envMap[env.Name] = env.Value
+					}
+					Expect(envMap).To(HaveKey("obfuscate_config"),
+						"Upload container should have obfuscate_config env for custom ConfigMap")
+				}
+			}
+
+			ginkgo.By("Waiting for MustGather to complete")
+			Eventually(func() bool {
+				mg := &mustgatherv1alpha1.MustGather{}
+				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name: mgName, Namespace: ns.Name,
+				}, mg); err != nil {
+					return false
+				}
+				return mg.Status.Completed
+			}).WithTimeout(15*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
+				"MustGather with custom config should complete")
+
+			ginkgo.By("Deleting MustGather CR and verifying ConfigMap cleanup")
+			err = nonAdminClient.Delete(testCtx, mustGatherCR)
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func() bool {
+				return apierrors.IsNotFound(nonAdminClient.Get(testCtx,
+					client.ObjectKey{Name: mgName, Namespace: ns.Name},
+					&mustgatherv1alpha1.MustGather{}))
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+
+			if ns.Name != operatorNamespace {
+				ginkgo.By("Verifying copied ConfigMap was cleaned up")
+				Eventually(func() bool {
+					return apierrors.IsNotFound(adminClient.Get(testCtx,
+						client.ObjectKey{Name: configMapName, Namespace: ns.Name},
+						&corev1.ConfigMap{}))
+				}).WithTimeout(1*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
+					"Copied ConfigMap should be deleted after MustGather cleanup")
+			}
+		})
+	})
+
+	ginkgo.Context("Obfuscation Job template verification", func() {
+		ginkgo.It("should set correct obfuscation env vars and chown suffix in the gather command", func() {
+			pvcName := fmt.Sprintf("obf-tmpl-pvc-%d", time.Now().UnixNano()%100000)
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcName,
+					Namespace: ns.Name,
+					Labels:    map[string]string{"test": nonAdminLabel},
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+					Resources: corev1.VolumeResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceStorage: resource.MustParse("2Gi"),
+						},
+					},
+				},
+			}
+			err := nonAdminClient.Create(testCtx, pvc)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = nonAdminClient.Delete(testCtx, pvc) }()
+
+			mgName := fmt.Sprintf("obf-tmpl-%d", time.Now().UnixNano()%100000)
+			timeout := 10 * time.Minute
+			mustGatherCR := createMustGatherCR(mgName, ns.Name, serviceAccount, true, &MustGatherCROptions{
+				Timeout: &timeout,
+				PersistentVolume: &PersistentVolumeOptions{
+					PVCName: pvcName,
+				},
+				Obfuscate: &ObfuscateOptions{
+					Enabled: true,
+				},
+			})
+			defer func() {
+				_ = nonAdminClient.Delete(testCtx, mustGatherCR)
+				Eventually(func() bool {
+					return apierrors.IsNotFound(nonAdminClient.Get(testCtx,
+						client.ObjectKey{Name: mgName, Namespace: ns.Name},
+						&mustgatherv1alpha1.MustGather{}))
+				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+			}()
+
+			ginkgo.By("Waiting for Job creation")
+			job := &batchv1.Job{}
+			Eventually(func() error {
+				return adminClient.Get(testCtx, client.ObjectKey{Name: mgName, Namespace: ns.Name}, job)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			ginkgo.By("Verifying gather container has chown suffix that preserves exit code")
+			for _, c := range job.Spec.Template.Spec.Containers {
+				if c.Name == gatherContainerName && len(c.Command) >= 3 {
+					gatherCmd := c.Command[2]
+					Expect(gatherCmd).To(ContainSubstring("gather_rc=$?"),
+						"chown wrapper should capture gather exit code")
+					Expect(gatherCmd).To(ContainSubstring("chown -R 65534:65534 /must-gather"),
+						"chown should fix permissions for upload container UID")
+					Expect(gatherCmd).To(ContainSubstring("exit $gather_rc"),
+						"chown wrapper should restore original exit code")
+				}
+			}
+
+			ginkgo.By("Verifying upload container environment")
+			for _, c := range job.Spec.Template.Spec.Containers {
+				if c.Name == uploadContainerName {
+					envMap := make(map[string]string)
+					for _, env := range c.Env {
+						envMap[env.Name] = env.Value
+					}
+					Expect(envMap).To(HaveKeyWithValue("obfuscate", "true"),
+						"Upload container should have obfuscate=true")
+					Expect(envMap).NotTo(HaveKey("obfuscate_config"),
+						"Upload container should NOT have obfuscate_config when no custom ConfigMap is set")
+				}
+			}
+
+			ginkgo.By("Verifying ShareProcessNamespace is enabled")
+			Expect(job.Spec.Template.Spec.ShareProcessNamespace).NotTo(BeNil())
+			Expect(*job.Spec.Template.Spec.ShareProcessNamespace).To(BeTrue(),
+				"ShareProcessNamespace must be true for gather+upload coordination")
+		})
+
+		ginkgo.It("should skip gather container when obfuscate.source is set", func() {
+			sourcePVCName := fmt.Sprintf("obf-src-pvc-%d", time.Now().UnixNano()%100000)
+			outputPVCName := fmt.Sprintf("obf-out-pvc-%d", time.Now().UnixNano()%100000)
+
+			for _, pvcName := range []string{sourcePVCName, outputPVCName} {
+				pvc := &corev1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      pvcName,
+						Namespace: ns.Name,
+						Labels:    map[string]string{"test": nonAdminLabel},
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+						Resources: corev1.VolumeResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse("1Gi"),
+							},
+						},
+					},
+				}
+				err := nonAdminClient.Create(testCtx, pvc)
+				Expect(err).NotTo(HaveOccurred())
+				defer func(p *corev1.PersistentVolumeClaim) { _ = nonAdminClient.Delete(testCtx, p) }(pvc)
+			}
+
+			mgName := fmt.Sprintf("obf-source-%d", time.Now().UnixNano()%100000)
+			mg := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mgName,
+					Namespace: ns.Name,
+					Labels:    map[string]string{"test": nonAdminLabel},
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName:          serviceAccount,
+					RetainResourcesOnCompletion: func() *bool { b := true; return &b }(),
+					Storage: &mustgatherv1alpha1.Storage{
+						Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+						PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+							Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: outputPVCName},
+						},
+					},
+					Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
+						Enabled: func() *bool { b := true; return &b }(),
+						Source: &mustgatherv1alpha1.ObfuscateSourceConfig{
+							Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: sourcePVCName},
+						},
+					},
+				},
+			}
+			err := nonAdminClient.Create(testCtx, mg)
+			Expect(err).NotTo(HaveOccurred(), "Creating obfuscate-source MustGather CR should succeed")
+			defer func() {
+				_ = nonAdminClient.Delete(testCtx, mg)
+				Eventually(func() bool {
+					return apierrors.IsNotFound(nonAdminClient.Get(testCtx,
+						client.ObjectKey{Name: mgName, Namespace: ns.Name},
+						&mustgatherv1alpha1.MustGather{}))
+				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+			}()
+
+			ginkgo.By("Waiting for Job creation")
+			job := &batchv1.Job{}
+			Eventually(func() error {
+				return adminClient.Get(testCtx, client.ObjectKey{Name: mgName, Namespace: ns.Name}, job)
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			ginkgo.By("Verifying Job has no gather container")
+			for _, c := range job.Spec.Template.Spec.Containers {
+				Expect(c.Name).NotTo(Equal(gatherContainerName),
+					"Job should not have a gather container in obfuscate-source mode")
+			}
+
+			ginkgo.By("Verifying upload container is present with obfuscate env")
+			var foundUpload bool
+			for _, c := range job.Spec.Template.Spec.Containers {
+				if c.Name == uploadContainerName {
+					foundUpload = true
+					envMap := make(map[string]string)
+					for _, env := range c.Env {
+						envMap[env.Name] = env.Value
+					}
+					Expect(envMap).To(HaveKeyWithValue("obfuscate", "true"))
+				}
+			}
+			Expect(foundUpload).To(BeTrue(), "Upload container should be present in obfuscate-source mode")
+
+			ginkgo.By("Verifying source PVC is mounted on output volume")
+			var foundSourceMount bool
+			for _, v := range job.Spec.Template.Spec.Volumes {
+				if v.Name == outputVolumeName && v.PersistentVolumeClaim != nil {
+					Expect(v.PersistentVolumeClaim.ClaimName).To(Equal(sourcePVCName))
+					foundSourceMount = true
+				}
+			}
+			Expect(foundSourceMount).To(BeTrue(),
+				"Output volume should use the source PVC in obfuscate-source mode")
+		})
+	})
 })
 
 // Helper Functions
@@ -3756,6 +4368,26 @@ func createMustGatherCR(name, namespace, serviceAccountName string, retainResour
 
 		if opts.GatherSpec != nil {
 			mg.Spec.GatherSpec = opts.GatherSpec
+		}
+
+		if opts.Obfuscate != nil {
+			enabled := opts.Obfuscate.Enabled
+			mg.Spec.Obfuscate = &mustgatherv1alpha1.ObfuscateConfig{
+				Enabled: &enabled,
+			}
+			if opts.Obfuscate.ConfigRefName != "" {
+				mg.Spec.Obfuscate.ObfuscationConfigRef = &corev1.LocalObjectReference{
+					Name: opts.Obfuscate.ConfigRefName,
+				}
+			}
+			if opts.Obfuscate.Source != nil {
+				mg.Spec.Obfuscate.Source = &mustgatherv1alpha1.ObfuscateSourceConfig{
+					Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{
+						Name: opts.Obfuscate.Source.ClaimName,
+					},
+					SubPath: opts.Obfuscate.Source.SubPath,
+				}
+			}
 		}
 	}
 

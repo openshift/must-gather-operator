@@ -252,6 +252,7 @@ type ObfuscateConfig struct {
 
 // ObfuscateSourceConfig defines the source of an existing must-gather bundle
 // to obfuscate without running a new gather.
+// +kubebuilder:validation:XValidation:rule="!has(self.subPath) || !self.subPath.contains('..')",message="subPath must not contain '..'"
 type ObfuscateSourceConfig struct {
 	// claim references the PersistentVolumeClaim containing the existing
 	// must-gather bundle to obfuscate.
@@ -291,7 +292,8 @@ type MustGather struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   MustGatherSpec   `json:"spec,omitempty"`
+	// +kubebuilder:validation:Required
+	Spec MustGatherSpec `json:"spec"`
 	Status MustGatherStatus `json:"status,omitempty"`
 }
 

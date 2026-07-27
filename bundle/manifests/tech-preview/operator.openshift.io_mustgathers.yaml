@@ -181,6 +181,9 @@ spec:
                     required:
                     - claim
                     type: object
+                    x-kubernetes-validations:
+                    - message: subPath must not contain '..'
+                      rule: '!has(self.subPath) || !self.subPath.contains(''..'') '
                 type: object
                 x-kubernetes-validations:
                 - message: obfuscationConfigRef.name must not be empty
@@ -406,6 +409,8 @@ spec:
             required:
             - completed
             type: object
+        required:
+        - spec
         type: object
         x-kubernetes-validations:
         - message: spec values are immutable once set

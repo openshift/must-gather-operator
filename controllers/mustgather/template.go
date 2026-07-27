@@ -348,7 +348,21 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 	}
 
 	if len(command) > 0 {
-		container.Command = command
+		if shouldAppendObfuscateChown(obfuscate) {
+			// Wrap the custom command so chown still runs for the upload container (UID 65534).
+			// "$@" re-executes the original command+args with proper quoting preserved.
+			wrappedCmd := "\"$@\"\n" + obfuscateChownSuffix
+			container.Command = []string{"/bin/bash", "-c", wrappedCmd, "--"}
+			allArgs := make([]string, 0, len(command)+len(args))
+			allArgs = append(allArgs, command...)
+			allArgs = append(allArgs, args...)
+			container.Args = allArgs
+		} else {
+			container.Command = command
+			if len(args) > 0 {
+				container.Args = args
+			}
+		}
 	} else {
 		gatherCmd := fmt.Sprintf(gatherCommand, math.Ceil(timeout.Seconds()), commandBinary)
 		if shouldAppendObfuscateChown(obfuscate) {
@@ -359,10 +373,9 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 			"-c",
 			gatherCmd,
 		}
-	}
-
-	if len(args) > 0 {
-		container.Args = args
+		if len(args) > 0 {
+			container.Args = args
+		}
 	}
 
 	// Add time filter environment variables if specified
