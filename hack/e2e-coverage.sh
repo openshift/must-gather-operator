@@ -16,7 +16,7 @@ NAMESPACE="must-gather-operator"
 DEPLOYMENT="must-gather-operator"
 CONTAINER="must-gather-operator"
 GOCOVERDIR_PATH="/tmp/e2e-cover"
-CODECOV_SECRET_PATH="/var/run/secrets/codecov/CODECOV_TOKEN"
+CODECOV_SECRET_PATH="/var/run/secrets/must-gather-operator/ci-secrets/CODECOV_TOKEN"
 POD_LABEL="name=must-gather-operator"
 
 setup() {
