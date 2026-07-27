@@ -1009,8 +1009,13 @@ func Test_getGatherContainer_ChownSuffix(t *testing.T) {
 		t.Fatalf("expected wrapped script to contain chown suffix, got %q", wrappedScript)
 	}
 	expectedArgs := []string{"/custom", "--flag"}
-	if len(containerCustomCmd.Args) != 2 || containerCustomCmd.Args[0] != expectedArgs[0] || containerCustomCmd.Args[1] != expectedArgs[1] {
-		t.Fatalf("expected original command+args as container args, got %v", containerCustomCmd.Args)
+	if len(containerCustomCmd.Args) != len(expectedArgs) {
+		t.Fatalf("expected %d args, got %d: %v", len(expectedArgs), len(containerCustomCmd.Args), containerCustomCmd.Args)
+	}
+	for i, want := range expectedArgs {
+		if containerCustomCmd.Args[i] != want {
+			t.Fatalf("args[%d]: expected %q, got %q", i, want, containerCustomCmd.Args[i])
+		}
 	}
 
 	containerCustomCmdNoObfuscate := getGatherContainer("img", false, 5*time.Second, nil, "", nil, []string{"/custom"}, nil, "", nil)
