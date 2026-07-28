@@ -22,7 +22,6 @@ import (
 	"os"
 
 	mgclean "github.com/openshift/must-gather-clean/pkg/cli"
-	_ "go.uber.org/automaxprocs"
 	"k8s.io/klog/v2"
 )
 

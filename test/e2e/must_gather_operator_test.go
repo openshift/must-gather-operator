@@ -3851,8 +3851,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 								// List cleaned directory and check for report.yaml (obfuscation report)
 								`echo "=== PVC top-level ===" && ls -la /pvc/collections/ 2>/dev/null &&
 echo "=== Cleaned directories ===" && find /pvc/collections -name 'cleaned' -type d 2>/dev/null &&
-echo "=== report.yaml ===" && find /pvc/collections -name 'report.yaml' -type f 2>/dev/null | head -5 &&
-echo "=== Sample obfuscated content ===" && find /pvc/collections -path '*/cleaned/*' -name '*.log' -type f -exec head -5 {} \; 2>/dev/null | head -20`,
+echo "=== obfuscation report ===" && find /pvc/collections -name 'report.yaml' -type f 2>/dev/null | head -5 &&
+echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/cleaned/*' -name '*.log' -type f -exec head -5 {} \; 2>/dev/null | head -20`,
 							},
 							SecurityContext: &corev1.SecurityContext{
 								AllowPrivilegeEscalation: func() *bool { b := false; return &b }(),
@@ -3991,8 +3991,10 @@ echo "=== Sample obfuscated content ===" && find /pvc/collections -path '*/clean
 			}
 
 			ginkgo.By("Verifying upload container has obfuscate_config env var")
+			var foundUploadCM bool
 			for _, c := range job.Spec.Template.Spec.Containers {
 				if c.Name == uploadContainerName {
+					foundUploadCM = true
 					envMap := make(map[string]string)
 					for _, env := range c.Env {
 						envMap[env.Name] = env.Value
@@ -4001,6 +4003,7 @@ echo "=== Sample obfuscated content ===" && find /pvc/collections -path '*/clean
 						"Upload container should have obfuscate_config env for custom ConfigMap")
 				}
 			}
+			Expect(foundUploadCM).To(BeTrue(), "Job should have an upload container")
 
 			ginkgo.By("Waiting for MustGather to complete")
 			Eventually(func() bool {
@@ -4085,8 +4088,12 @@ echo "=== Sample obfuscated content ===" && find /pvc/collections -path '*/clean
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
 			ginkgo.By("Verifying gather container has chown suffix that preserves exit code")
+			var foundGather bool
 			for _, c := range job.Spec.Template.Spec.Containers {
-				if c.Name == gatherContainerName && len(c.Command) >= 3 {
+				if c.Name == gatherContainerName {
+					foundGather = true
+					Expect(len(c.Command)).To(BeNumerically(">=", 3),
+						"Gather command should have at least 3 elements (bash -c <script>)")
 					gatherCmd := c.Command[2]
 					Expect(gatherCmd).To(ContainSubstring("gather_rc=$?"),
 						"chown wrapper should capture gather exit code")
@@ -4096,10 +4103,13 @@ echo "=== Sample obfuscated content ===" && find /pvc/collections -path '*/clean
 						"chown wrapper should restore original exit code")
 				}
 			}
+			Expect(foundGather).To(BeTrue(), "Job should have a gather container")
 
 			ginkgo.By("Verifying upload container environment")
+			var foundUploadTmpl bool
 			for _, c := range job.Spec.Template.Spec.Containers {
 				if c.Name == uploadContainerName {
+					foundUploadTmpl = true
 					envMap := make(map[string]string)
 					for _, env := range c.Env {
 						envMap[env.Name] = env.Value
@@ -4110,6 +4120,7 @@ echo "=== Sample obfuscated content ===" && find /pvc/collections -path '*/clean
 						"Upload container should NOT have obfuscate_config when no custom ConfigMap is set")
 				}
 			}
+			Expect(foundUploadTmpl).To(BeTrue(), "Job should have an upload container")
 
 			ginkgo.By("Verifying ShareProcessNamespace is enabled")
 			Expect(job.Spec.Template.Spec.ShareProcessNamespace).NotTo(BeNil())

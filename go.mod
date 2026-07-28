@@ -14,7 +14,6 @@ require (
 	github.com/prometheus/client_golang v1.22.0
 	github.com/redhat-cop/operator-utils v1.3.7
 	github.com/stretchr/testify v1.10.0
-	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/crypto v0.54.0
 	golang.org/x/net v0.57.0
 	k8s.io/api v0.33.3

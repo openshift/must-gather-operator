@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.4
+    controller-gen.kubebuilder.io/version: v0.18.1-0.20250818134112-b624019bbe8d
   name: mustgathers.operator.openshift.io
 spec:
   group: operator.openshift.io
@@ -183,7 +183,7 @@ spec:
                     type: object
                     x-kubernetes-validations:
                     - message: subPath must not contain '..'
-                      rule: '!has(self.subPath) || !self.subPath.contains(''..'') '
+                      rule: '!has(self.subPath) || !self.subPath.contains(''..'')'
                 type: object
                 x-kubernetes-validations:
                 - message: obfuscationConfigRef.name must not be empty
@@ -314,11 +314,10 @@ spec:
             - serviceAccountName
             type: object
             x-kubernetes-validations:
-            - message: audit cannot be enabled when using a custom image (imageStreamRef)
+            - message: audit mode is only supported with the default must-gather image
               rule: '!(has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.audit)
                 && self.gatherSpec.audit)'
-            - message: audit cannot be enabled when gatherSpec.command is set with
-                the default must-gather image
+            - message: audit mode cannot be combined with custom gather commands
               rule: '!(!has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.command)
                 && size(self.gatherSpec.command) > 0 && has(self.gatherSpec.audit)
                 && self.gatherSpec.audit)'

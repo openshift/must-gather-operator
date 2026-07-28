@@ -25,8 +25,8 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // MustGatherSpec defines the desired state of MustGather
-// +kubebuilder:validation:XValidation:rule="!(has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.audit) && self.gatherSpec.audit)",message="audit cannot be enabled when using a custom image (imageStreamRef)"
-// +kubebuilder:validation:XValidation:rule="!(!has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0 && has(self.gatherSpec.audit) && self.gatherSpec.audit)",message="audit cannot be enabled when gatherSpec.command is set with the default must-gather image"
+// +kubebuilder:validation:XValidation:rule="!(has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.audit) && self.gatherSpec.audit)",message="audit mode is only supported with the default must-gather image"
+// +kubebuilder:validation:XValidation:rule="!(!has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0 && has(self.gatherSpec.audit) && self.gatherSpec.audit)",message="audit mode cannot be combined with custom gather commands"
 // +kubebuilder:validation:XValidation:rule="!(has(self.obfuscate) && has(self.obfuscate.enabled) && self.obfuscate.enabled && !(has(self.uploadTarget) || has(self.obfuscate.source) || has(self.storage)))",message="obfuscate.enabled requires uploadTarget, obfuscate.source, or storage"
 // +kubebuilder:validation:XValidation:rule="!(has(self.obfuscate) && has(self.obfuscate.source) && (!has(self.obfuscate.enabled) || !self.obfuscate.enabled))",message="obfuscate.source requires obfuscate.enabled"
 // +kubebuilder:validation:XValidation:rule="!(has(self.obfuscate) && has(self.obfuscate.source) && !(has(self.uploadTarget) || has(self.storage)))",message="obfuscate.source requires uploadTarget or storage to persist obfuscated output"
@@ -293,7 +293,7 @@ type MustGather struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// +kubebuilder:validation:Required
-	Spec MustGatherSpec `json:"spec"`
+	Spec   MustGatherSpec   `json:"spec"`
 	Status MustGatherStatus `json:"status,omitempty"`
 }
 
