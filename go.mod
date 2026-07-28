@@ -7,13 +7,13 @@ require (
 	github.com/onsi/ginkgo/v2 v2.22.0
 	github.com/onsi/gomega v1.36.1
 	github.com/openshift/api v0.0.0-20240522145529-93d6bda14341
-	github.com/openshift/must-gather-clean v0.0.5
+	github.com/openshift/must-gather-clean v0.0.6-0.20260728103310-9795dc38acc5
 	github.com/openshift/operator-custom-metrics v0.5.0
 	github.com/operator-framework/operator-lib v0.11.0
 	github.com/pkg/sftp v1.13.9
 	github.com/prometheus/client_golang v1.22.0
 	github.com/redhat-cop/operator-utils v1.3.7
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.54.0
 	golang.org/x/net v0.57.0
 	k8s.io/api v0.33.3
@@ -71,7 +71,7 @@ require (
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/shopspring/decimal v1.2.0 // indirect
 	github.com/spf13/cast v1.3.1 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xlab/treeprint v1.2.0 // indirect
 	go.starlark.net v0.0.0-20230525235612-a134d8f9ddca // indirect
