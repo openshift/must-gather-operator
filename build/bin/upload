@@ -12,9 +12,7 @@ set -o errexit
 
 must_gather_output=${must_gather_output:="/must-gather-output"}
 must_gather_upload=${must_gather_upload:="/must-gather-upload"}
-FILENAME_PREFIX=${FILENAME_PREFIX:="must-gather"}
-CURRENT_TIMESTAMP=$(date --utc +%Y%m%d_%H%M%SZ)
-CSP_FILENAME=${FILENAME_PREFIX}-${CURRENT_TIMESTAMP}.tar.gz
+CSP_FILENAME=${FILENAME_PREFIX}.tar.gz
 CSP_FILE="${must_gather_upload}/${CSP_FILENAME}"
 FTP_HOST=${host:-"sftp.access.redhat.com"}
 # Wrap bare IPv6 addresses in brackets for sftp/ssh compatibility

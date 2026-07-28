@@ -878,92 +878,6 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "reconcile_empty_service_account_name_defaults_to_default",
-			setupEnv: func(t *testing.T) {
-				t.Setenv("OPERATOR_IMAGE", "img")
-			},
-			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
-					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
-						// ServiceAccountName is empty, should validate "default" SA exists
-						ServiceAccountName: "",
-					},
-				}
-				// Create "default" service account that should be validated
-				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
-				cv := &configv1.ClusterVersion{
-					ObjectMeta: metav1.ObjectMeta{Name: "version"},
-					Status: configv1.ClusterVersionStatus{
-						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
-					},
-				}
-				return []client.Object{mg, sa, cv}
-			},
-			interceptors: func() interceptClient { return interceptClient{} },
-			expectError:  false,
-			expectResult: reconcile.Result{},
-			postTestChecks: func(t *testing.T, cl client.Client) {
-				// Verify the Job was created successfully, proving the validation passed
-				// When ServiceAccountName is empty, the controller validates "default" SA exists
-				job := &batchv1.Job{}
-				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err != nil {
-					t.Fatalf("expected job to be created when 'default' service account exists: %v", err)
-				}
-				// The job's ServiceAccountName will match the MustGather spec (empty string)
-				// Kubernetes will implicitly use "default" when the field is empty
-				if job.Spec.Template.Spec.ServiceAccountName != "" {
-					t.Fatalf("expected job ServiceAccountName to be empty (matching spec), got: %q", job.Spec.Template.Spec.ServiceAccountName)
-				}
-			},
-		},
-		{
-			name: "reconcile_empty_service_account_name_default_not_found_calls_manage_error",
-			setupEnv: func(t *testing.T) {
-				t.Setenv("OPERATOR_IMAGE", "img")
-			},
-			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
-					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
-						// ServiceAccountName is empty, should try to validate "default" SA
-						ServiceAccountName: "",
-					},
-				}
-				cv := &configv1.ClusterVersion{
-					ObjectMeta: metav1.ObjectMeta{Name: "version"},
-					Status: configv1.ClusterVersionStatus{
-						History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}},
-					},
-				}
-				// Note: Not creating "default" SA to simulate it being deleted
-				return []client.Object{mg, cv}
-			},
-			interceptors: func() interceptClient { return interceptClient{} },
-			expectError:  false,
-			expectResult: reconcile.Result{},
-			postTestChecks: func(t *testing.T, cl client.Client) {
-				// Verify the MustGather status was updated with error condition
-				out := &mustgatherv1alpha1.MustGather{}
-				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
-					t.Fatalf("failed to get mustgather: %v", getErr)
-				}
-				// setValidationFailureStatus sets Status to Failed
-				if out.Status.Status != "Failed" {
-					t.Fatalf("expected status to be Failed, got %s", out.Status.Status)
-				}
-				expectedReason := "Service Account validation failed"
-				if !strings.Contains(out.Status.Reason, expectedReason) {
-					t.Fatalf("expected reason to contain %q, got %q", expectedReason, out.Status.Reason)
-				}
-				// Verify Job was not created
-				job := &batchv1.Job{}
-				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err == nil {
-					t.Fatalf("expected job to not be created when 'default' service account is missing")
-				}
-			},
-		},
-		{
 			name: "reconcile_job_not_found_service_account_get_error_returns_requeue",
 			setupEnv: func(t *testing.T) {
 				t.Setenv("OPERATOR_IMAGE", "img")
@@ -1522,12 +1436,189 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{
+			name: "reconcile_job_created_with_FILENAME_PREFIX_env_var",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: "default",
+						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+							Type: mustgatherv1alpha1.UploadTypeSFTP,
+							SFTP: &mustgatherv1alpha1.SFTPSpec{
+								CaseID:                         "12345678",
+								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "case-management-creds"},
+							},
+						},
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				secret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "case-management-creds", Namespace: "ns"},
+					Data: map[string][]byte{
+						"username": []byte("testuser"),
+						"password": []byte("testpass"),
+					},
+				}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("01234567-89ab-cdef-0123-456789abcdef")},
+					Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}}},
+				}
+				return []client.Object{mg, sa, secret, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err != nil {
+					t.Fatalf("expected job to be created, got error: %v", err)
+				}
+				var uploadContainer *corev1.Container
+				for i := range job.Spec.Template.Spec.Containers {
+					if job.Spec.Template.Spec.Containers[i].Name == "upload" {
+						uploadContainer = &job.Spec.Template.Spec.Containers[i]
+						break
+					}
+				}
+				if uploadContainer == nil {
+					t.Fatal("upload container not found in job")
+				}
+				var filenamePrefixValue string
+				var found bool
+				for _, env := range uploadContainer.Env {
+					if env.Name == "FILENAME_PREFIX" {
+						filenamePrefixValue = env.Value
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Fatal("FILENAME_PREFIX env var not found in upload container")
+				}
+				if !strings.HasPrefix(filenamePrefixValue, "must-gather.local.") {
+					t.Fatalf("expected FILENAME_PREFIX to start with 'must-gather.local.', got %q", filenamePrefixValue)
+				}
+				if !strings.Contains(filenamePrefixValue, "456789abcdef") {
+					t.Fatalf("expected FILENAME_PREFIX to contain cluster ID suffix '456789abcdef', got %q", filenamePrefixValue)
+				}
+			},
+		},
+		{
+			name: "reconcile_existing_job_does_not_regenerate_directory_name",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: "default",
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				existingJob := &batchv1.Job{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns"},
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{
+									{Name: "gather", Image: "img"},
+								},
+								RestartPolicy: corev1.RestartPolicyNever,
+							},
+						},
+					},
+					Status: batchv1.JobStatus{Active: 1},
+				}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}}},
+				}
+				return []client.Object{mg, sa, existingJob, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err != nil {
+					t.Fatalf("expected job to still exist, got error: %v", err)
+				}
+				// The existing job should not have been recreated — upload container should have no FILENAME_PREFIX
+				for _, c := range job.Spec.Template.Spec.Containers {
+					if c.Name == "upload" {
+						for _, env := range c.Env {
+							if env.Name == "FILENAME_PREFIX" {
+								t.Fatal("existing job should not have FILENAME_PREFIX injected on re-reconcile")
+							}
+						}
+					}
+				}
+			},
+		},
+		{
+			name: "reconcile_job_created_with_PVC_uses_generated_subpath",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1alpha1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1alpha1.MustGatherSpec{
+						ServiceAccountName: "default",
+						Storage: &mustgatherv1alpha1.Storage{
+							Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+							PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+								Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "test-pvc"},
+								SubPath: "my-data",
+							},
+						},
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Spec:       configv1.ClusterVersionSpec{ClusterID: configv1.ClusterID("01234567-89ab-cdef-0123-456789abcdef")},
+					Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}}},
+				}
+				return []client.Object{mg, sa, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err != nil {
+					t.Fatalf("expected job to be created, got error: %v", err)
+				}
+				var gatherContainer *corev1.Container
+				for i := range job.Spec.Template.Spec.Containers {
+					if job.Spec.Template.Spec.Containers[i].Name == "gather" {
+						gatherContainer = &job.Spec.Template.Spec.Containers[i]
+						break
+					}
+				}
+				if gatherContainer == nil {
+					t.Fatal("gather container not found in job")
+				}
+				var outputMount *corev1.VolumeMount
+				for i := range gatherContainer.VolumeMounts {
+					if gatherContainer.VolumeMounts[i].Name == "must-gather-output" {
+						outputMount = &gatherContainer.VolumeMounts[i]
+						break
+					}
+				}
+				if outputMount == nil {
+					t.Fatal("output volume mount not found in gather container")
+				}
+				if !strings.HasPrefix(outputMount.SubPath, "my-data/must-gather.local.") {
+					t.Fatalf("expected SubPath to start with 'my-data/must-gather.local.', got %q", outputMount.SubPath)
+				}
+			},
+		},
+		{
 			name: "reconcile_imagestream_tag_not_found_sets_validation_failure",
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1alpha1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
 					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ImageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{Name: "my-is", Tag: "v2"},
+						ServiceAccountName: "default",
+						ImageStreamRef:     &mustgatherv1alpha1.ImageStreamTagRef{Name: "my-is", Tag: "v2"},
 					},
 				}
 				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
@@ -1866,6 +1957,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					Finalizers: []string{mustGatherFinalizer},
 				},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -1905,6 +1997,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					Finalizers: []string{mustGatherFinalizer},
 				},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -1943,6 +2036,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					Finalizers: []string{mustGatherFinalizer},
 				},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -1982,6 +2076,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					Finalizers: []string{mustGatherFinalizer},
 				},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -2021,6 +2116,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					Finalizers: []string{mustGatherFinalizer},
 				},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -2062,6 +2158,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					Finalizers: []string{mustGatherFinalizer},
 				},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -2105,6 +2202,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					Finalizers: []string{mustGatherFinalizer},
 				},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
 					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
 						Type: mustgatherv1alpha1.UploadTypeSFTP,
 						SFTP: &mustgatherv1alpha1.SFTPSpec{
@@ -2130,7 +2228,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			t.Setenv("OPERATOR_IMAGE", "test-image")
 
 			// Create fake client with test objects
-			// Include a ServiceAccount since the controller validates it before SFTP validation
+			// Include a "default" ServiceAccount matching the spec; the controller validates it exists before SFTP validation
 			sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: tt.mustgather.Namespace}}
 			objects := []client.Object{tt.mustgather, tt.secret, sa}
 			cl := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).WithStatusSubresource(&mustgatherv1alpha1.MustGather{}).Build()
