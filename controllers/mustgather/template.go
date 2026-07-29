@@ -13,7 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/openshift/must-gather-operator/api/v1alpha1"
+	mustgatherv1 "github.com/openshift/must-gather-operator/api/v1"
 
 	"github.com/operator-framework/operator-lib/proxy"
 )
@@ -56,8 +56,8 @@ const (
 	knownHostsFile = "/tmp/must-gather-operator/.ssh/known_hosts"
 )
 
-func outputSubPath(storage *v1alpha1.Storage, directoryName string) (string, bool) {
-	if storage == nil || storage.Type != v1alpha1.StorageTypePersistentVolume {
+func outputSubPath(storage *mustgatherv1.Storage, directoryName string) (string, bool) {
+	if storage == nil || storage.Type != mustgatherv1.StorageTypePersistentVolume {
 		return "", false
 	}
 
@@ -75,7 +75,7 @@ type GatherTimeFilter struct {
 	SinceTime *time.Time
 }
 
-func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.MustGather, trustedCAConfigMapName string, directoryName string) *batchv1.Job {
+func getJobTemplate(image string, operatorImage string, mustGather mustgatherv1.MustGather, trustedCAConfigMapName string, directoryName string) *batchv1.Job {
 	job := initializeJobTemplate(mustGather.Name, mustGather.Namespace, mustGather.Spec.ServiceAccountName, mustGather.Spec.Storage, trustedCAConfigMapName)
 
 	var httpProxy, httpsProxy, noProxy string
@@ -128,7 +128,7 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 	)
 
 	// Add the upload container only if the upload target is specified
-	if mustGather.Spec.UploadTarget != nil && mustGather.Spec.UploadTarget.Type == v1alpha1.UploadTypeSFTP {
+	if mustGather.Spec.UploadTarget != nil && mustGather.Spec.UploadTarget.Type == mustgatherv1.UploadTypeSFTP {
 		s := mustGather.Spec.UploadTarget.SFTP
 		if s != nil && s.CaseID != "" && s.CaseManagementAccountSecretRef.Name != "" {
 			job.Spec.Template.Spec.Containers = append(
@@ -153,13 +153,13 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 	return job
 }
 
-func initializeJobTemplate(name string, namespace string, serviceAccountRef string, storage *v1alpha1.Storage, trustedCAConfigMapName string) *batchv1.Job {
+func initializeJobTemplate(name string, namespace string, serviceAccountRef string, storage *mustgatherv1.Storage, trustedCAConfigMapName string) *batchv1.Job {
 	outputVolume := corev1.Volume{
 		Name:         outputVolumeName,
 		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 	}
 
-	if storage != nil && storage.Type == v1alpha1.StorageTypePersistentVolume {
+	if storage != nil && storage.Type == mustgatherv1.StorageTypePersistentVolume {
 		outputVolume.VolumeSource = corev1.VolumeSource{
 			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
 				ClaimName: storage.PersistentVolume.Claim.Name,
@@ -232,7 +232,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 	}
 }
 
-func getGatherContainer(image string, audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string, timeFilter *GatherTimeFilter, command []string, args []string, directoryName string) corev1.Container {
+func getGatherContainer(image string, audit bool, timeout time.Duration, storage *mustgatherv1.Storage, trustedCAConfigMapName string, timeFilter *GatherTimeFilter, command []string, args []string, directoryName string) corev1.Container {
 	var commandBinary string
 	if audit {
 		commandBinary = gatherCommandBinaryAudit
@@ -305,7 +305,7 @@ func getUploadContainer(
 	caseId string,
 	host string,
 	internalUser bool,
-	storage *v1alpha1.Storage,
+	storage *mustgatherv1.Storage,
 	httpProxy string,
 	httpsProxy string,
 	noProxy string,

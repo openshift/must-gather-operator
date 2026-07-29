@@ -56,7 +56,7 @@ spec:
     - name: Source Repository
       url: https://github.com/openshift/must-gather-operator
   version: 4.22.0
-  maturity: tech-preview
+  maturity: stable
   maintainers:
     - email: aos-staff@redhat.com
       name: Red Hat
@@ -264,4 +264,4 @@ spec:
         kind: MustGather
         name: mustgathers.operator.openshift.io
         description: Represents a must-gather diagnostic collection job
-        version: v1alpha1
+        version: v1

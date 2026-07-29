@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
+	mustgatherv1 "github.com/openshift/must-gather-operator/api/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,7 +33,7 @@ func Test_initializeJobTemplate(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		storage     *mustgatherv1alpha1.Storage
+		storage     *mustgatherv1.Storage
 		caConfigMap string
 	}{
 		{
@@ -41,10 +41,10 @@ func Test_initializeJobTemplate(t *testing.T) {
 		},
 		{
 			name: "With PVC",
-			storage: &mustgatherv1alpha1.Storage{
-				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-					Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{
+			storage: &mustgatherv1.Storage{
+				Type: mustgatherv1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+					Claim: mustgatherv1.PersistentVolumeClaimReference{
 						Name: pvcClaimName,
 					},
 					SubPath: pvcSubPath,
@@ -117,7 +117,7 @@ func Test_getGatherContainer(t *testing.T) {
 		audit           bool
 		timeout         time.Duration
 		mustGatherImage string
-		storage         *mustgatherv1alpha1.Storage
+		storage         *mustgatherv1.Storage
 		command         []string
 		args            []string
 		caConfigMap     string
@@ -144,10 +144,10 @@ func Test_getGatherContainer(t *testing.T) {
 		{
 			name:    "with PVC and directory name",
 			timeout: 5 * time.Second,
-			storage: &mustgatherv1alpha1.Storage{
-				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-					Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{
+			storage: &mustgatherv1.Storage{
+				Type: mustgatherv1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+					Claim: mustgatherv1.PersistentVolumeClaimReference{
 						Name: "test-pvc",
 					},
 					SubPath: "test-path",
@@ -158,10 +158,10 @@ func Test_getGatherContainer(t *testing.T) {
 		{
 			name:    "with PVC empty subPath uses directory name only",
 			timeout: 5 * time.Second,
-			storage: &mustgatherv1alpha1.Storage{
-				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "test-pvc"},
+			storage: &mustgatherv1.Storage{
+				Type: mustgatherv1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+					Claim:   mustgatherv1.PersistentVolumeClaimReference{Name: "test-pvc"},
 					SubPath: "",
 				},
 			},
@@ -170,10 +170,10 @@ func Test_getGatherContainer(t *testing.T) {
 		{
 			name:    "with PVC whitespace subPath uses directory name only",
 			timeout: 5 * time.Second,
-			storage: &mustgatherv1alpha1.Storage{
-				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "test-pvc"},
+			storage: &mustgatherv1.Storage{
+				Type: mustgatherv1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+					Claim:   mustgatherv1.PersistentVolumeClaimReference{Name: "test-pvc"},
 					SubPath: "   ",
 				},
 			},
@@ -182,10 +182,10 @@ func Test_getGatherContainer(t *testing.T) {
 		{
 			name:    "with PVC slash-only subPath uses directory name only",
 			timeout: 5 * time.Second,
-			storage: &mustgatherv1alpha1.Storage{
-				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "test-pvc"},
+			storage: &mustgatherv1.Storage{
+				Type: mustgatherv1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+					Claim:   mustgatherv1.PersistentVolumeClaimReference{Name: "test-pvc"},
 					SubPath: "/",
 				},
 			},
@@ -311,7 +311,7 @@ func Test_getUploadContainer(t *testing.T) {
 		caseId           string
 		host             string
 		internalUser     bool
-		storage          *mustgatherv1alpha1.Storage
+		storage          *mustgatherv1.Storage
 		httpProxy        string
 		httpsProxy       string
 		noProxy          string
@@ -379,10 +379,10 @@ func Test_getUploadContainer(t *testing.T) {
 			secretKeyRefName: v1.LocalObjectReference{
 				Name: "testSecretKeyRefName",
 			},
-			storage: &mustgatherv1alpha1.Storage{
-				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-					Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{
+			storage: &mustgatherv1.Storage{
+				Type: mustgatherv1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+					Claim: mustgatherv1.PersistentVolumeClaimReference{
 						Name: "test-pvc",
 					},
 					SubPath: "test-path",
@@ -397,10 +397,10 @@ func Test_getUploadContainer(t *testing.T) {
 			secretKeyRefName: v1.LocalObjectReference{
 				Name: "testSecretKeyRefName",
 			},
-			storage: &mustgatherv1alpha1.Storage{
-				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "test-pvc"},
+			storage: &mustgatherv1.Storage{
+				Type: mustgatherv1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+					Claim:   mustgatherv1.PersistentVolumeClaimReference{Name: "test-pvc"},
 					SubPath: "",
 				},
 			},
@@ -413,10 +413,10 @@ func Test_getUploadContainer(t *testing.T) {
 			secretKeyRefName: v1.LocalObjectReference{
 				Name: "testSecretKeyRefName",
 			},
-			storage: &mustgatherv1alpha1.Storage{
-				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "test-pvc"},
+			storage: &mustgatherv1.Storage{
+				Type: mustgatherv1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+					Claim:   mustgatherv1.PersistentVolumeClaimReference{Name: "test-pvc"},
 					SubPath: "   ",
 				},
 			},
@@ -429,10 +429,10 @@ func Test_getUploadContainer(t *testing.T) {
 			secretKeyRefName: v1.LocalObjectReference{
 				Name: "testSecretKeyRefName",
 			},
-			storage: &mustgatherv1alpha1.Storage{
-				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "test-pvc"},
+			storage: &mustgatherv1.Storage{
+				Type: mustgatherv1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+					Claim:   mustgatherv1.PersistentVolumeClaimReference{Name: "test-pvc"},
 					SubPath: "/",
 				},
 			},
@@ -461,7 +461,7 @@ func Test_getUploadContainer(t *testing.T) {
 				}
 			}
 
-			if tt.storage != nil && tt.storage.Type == mustgatherv1alpha1.StorageTypePersistentVolume {
+			if tt.storage != nil && tt.storage.Type == mustgatherv1.StorageTypePersistentVolume {
 				var outputMount *v1.VolumeMount
 				for i := range container.VolumeMounts {
 					if container.VolumeMounts[i].Name == outputVolumeName {
@@ -526,7 +526,7 @@ func Test_getJobTemplate_GatherSpec_BuildsTimeFilter(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		gatherSpec  *mustgatherv1alpha1.GatherSpec
+		gatherSpec  *mustgatherv1.GatherSpec
 		wantSince   string
 		wantSinceTs string
 	}{
@@ -535,25 +535,25 @@ func Test_getJobTemplate_GatherSpec_BuildsTimeFilter(t *testing.T) {
 		},
 		{
 			name:       "gatherSpec with since builds timeFilter.Since",
-			gatherSpec: &mustgatherv1alpha1.GatherSpec{Since: &metav1.Duration{Duration: 2 * time.Hour}},
+			gatherSpec: &mustgatherv1.GatherSpec{Since: &metav1.Duration{Duration: 2 * time.Hour}},
 			wantSince:  "2h0m0s",
 		},
 		{
 			name:        "gatherSpec with sinceTime builds timeFilter.SinceTime",
-			gatherSpec:  &mustgatherv1alpha1.GatherSpec{SinceTime: &sinceTime},
+			gatherSpec:  &mustgatherv1.GatherSpec{SinceTime: &sinceTime},
 			wantSinceTs: "2026-01-07T10:11:12Z",
 		},
 		{
 			name:       "gatherSpec present but with no since/sinceTime means no time filter env vars",
-			gatherSpec: &mustgatherv1alpha1.GatherSpec{},
+			gatherSpec: &mustgatherv1.GatherSpec{},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mg := mustgatherv1alpha1.MustGather{
+			mg := mustgatherv1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
+				Spec: mustgatherv1.MustGatherSpec{
 					ServiceAccountName: "default",
 					GatherSpec:         tt.gatherSpec,
 				},
@@ -624,17 +624,17 @@ func Test_getJobTemplate_ProxyAuditTimeout(t *testing.T) {
 			t.Setenv("HTTPS_PROXY", tt.httpsProxy)
 			t.Setenv("NO_PROXY", tt.noProxy)
 
-			mg := mustgatherv1alpha1.MustGather{
+			mg := mustgatherv1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
+				Spec: mustgatherv1.MustGatherSpec{
 					ServiceAccountName: "default",
 					MustGatherTimeout:  tt.timeout,
-					GatherSpec: &mustgatherv1alpha1.GatherSpec{
+					GatherSpec: &mustgatherv1.GatherSpec{
 						Audit: tt.audit,
 					},
-					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-						Type: mustgatherv1alpha1.UploadTypeSFTP,
-						SFTP: &mustgatherv1alpha1.SFTPSpec{
+					UploadTarget: &mustgatherv1.UploadTargetSpec{
+						Type: mustgatherv1.UploadTypeSFTP,
+						SFTP: &mustgatherv1.SFTPSpec{
 							CaseID: "1234",
 							Host:   "sftp.example.com",
 							CaseManagementAccountSecretRef: v1.LocalObjectReference{
@@ -694,13 +694,13 @@ func Test_getJobTemplate_FilenamePrefix(t *testing.T) {
 
 	directoryName := "must-gather.local.456789abcdef.20260617T143025Z.042315"
 
-	mg := mustgatherv1alpha1.MustGather{
+	mg := mustgatherv1.MustGather{
 		ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
-		Spec: mustgatherv1alpha1.MustGatherSpec{
+		Spec: mustgatherv1.MustGatherSpec{
 			ServiceAccountName: "default",
-			UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-				Type: mustgatherv1alpha1.UploadTypeSFTP,
-				SFTP: &mustgatherv1alpha1.SFTPSpec{
+			UploadTarget: &mustgatherv1.UploadTargetSpec{
+				Type: mustgatherv1.UploadTypeSFTP,
+				SFTP: &mustgatherv1.SFTPSpec{
 					CaseID: "1234",
 					Host:   "sftp.example.com",
 					CaseManagementAccountSecretRef: v1.LocalObjectReference{
@@ -727,7 +727,7 @@ func Test_getJobTemplate_FilenamePrefix(t *testing.T) {
 func Test_outputSubPath(t *testing.T) {
 	tests := []struct {
 		name          string
-		storage       *mustgatherv1alpha1.Storage
+		storage       *mustgatherv1.Storage
 		directoryName string
 		wantPath      string
 		wantOk        bool
@@ -740,10 +740,10 @@ func Test_outputSubPath(t *testing.T) {
 		},
 		{
 			name: "PVC with subPath and directoryName",
-			storage: &mustgatherv1alpha1.Storage{
-				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "pvc"},
+			storage: &mustgatherv1.Storage{
+				Type: mustgatherv1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+					Claim:   mustgatherv1.PersistentVolumeClaimReference{Name: "pvc"},
 					SubPath: "base-path",
 				},
 			},
@@ -753,10 +753,10 @@ func Test_outputSubPath(t *testing.T) {
 		},
 		{
 			name: "PVC with empty subPath and directoryName",
-			storage: &mustgatherv1alpha1.Storage{
-				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "pvc"},
+			storage: &mustgatherv1.Storage{
+				Type: mustgatherv1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+					Claim:   mustgatherv1.PersistentVolumeClaimReference{Name: "pvc"},
 					SubPath: "",
 				},
 			},
@@ -766,10 +766,10 @@ func Test_outputSubPath(t *testing.T) {
 		},
 		{
 			name: "PVC with whitespace subPath and directoryName",
-			storage: &mustgatherv1alpha1.Storage{
-				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "pvc"},
+			storage: &mustgatherv1.Storage{
+				Type: mustgatherv1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+					Claim:   mustgatherv1.PersistentVolumeClaimReference{Name: "pvc"},
 					SubPath: "  / ",
 				},
 			},

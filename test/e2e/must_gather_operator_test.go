@@ -25,6 +25,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	imagev1 "github.com/openshift/api/image/v1"
+	mustgatherv1 "github.com/openshift/must-gather-operator/api/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -47,8 +48,8 @@ type MustGatherCROptions struct {
 	UploadTarget     *UploadTargetOptions
 	PersistentVolume *PersistentVolumeOptions
 	Timeout          *time.Duration
-	ImageStreamRef   *mustgatherv1alpha1.ImageStreamTagRef
-	GatherSpec       *mustgatherv1alpha1.GatherSpec
+	ImageStreamRef   *mustgatherv1.ImageStreamTagRef
+	GatherSpec       *mustgatherv1.GatherSpec
 }
 
 // UploadTargetOptions configures SFTP upload target
@@ -121,6 +122,7 @@ var (
 
 func init() {
 	testScheme = k8sruntime.NewScheme()
+	utilruntime.Must(mustgatherv1.AddToScheme(testScheme))
 	utilruntime.Must(mustgatherv1alpha1.AddToScheme(testScheme))
 	utilruntime.Must(appsv1.AddToScheme(testScheme))
 	utilruntime.Must(corev1.AddToScheme(testScheme))
@@ -200,7 +202,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 	ginkgo.Context("Non-Admin User Operations", func() {
 		var mustGatherName string
-		var mustGatherCR *mustgatherv1alpha1.MustGather
+		var mustGatherCR *mustgatherv1.MustGather
 
 		ginkgo.BeforeEach(func() {
 			mustGatherName = fmt.Sprintf("non-admin-must-gather-e2e-%d", time.Now().UnixNano())
@@ -216,7 +218,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					err := nonAdminClient.Get(testCtx, client.ObjectKey{
 						Name:      mustGatherName,
 						Namespace: ns.Name,
-					}, &mustgatherv1alpha1.MustGather{})
+					}, &mustgatherv1.MustGather{})
 					return apierrors.IsNotFound(err)
 				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
@@ -226,7 +228,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 		ginkgo.It("can create, get, and list MustGather CRs", func() {
 			ginkgo.By("Creating MustGather CR using impersonation")
-			mustGatherCR = &mustgatherv1alpha1.MustGather{
+			mustGatherCR = &mustgatherv1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
@@ -235,7 +237,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 						"test.user":        nonAdminUser,
 					},
 				},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
+				Spec: mustgatherv1.MustGatherSpec{
 					ServiceAccountName: serviceAccount,
 				},
 			}
@@ -244,7 +246,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			Expect(err).NotTo(HaveOccurred(), "Non-admin user should be able to create MustGather CR")
 
 			ginkgo.By("Verifying MustGather CR was created successfully")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			fetchedMG := &mustgatherv1.MustGather{}
 			err = nonAdminClient.Get(testCtx, client.ObjectKey{
 				Name:      mustGatherName,
 				Namespace: ns.Name,
@@ -257,7 +259,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				nonAdminUser, mustGatherName)
 
 			ginkgo.By("Non-admin user listing MustGather CRs in their namespace")
-			mgList := &mustgatherv1alpha1.MustGatherList{}
+			mgList := &mustgatherv1.MustGatherList{}
 			err = nonAdminClient.List(testCtx, mgList, client.InNamespace(ns.Name))
 			Expect(err).NotTo(HaveOccurred(), "Non-admin should be able to list MustGather CRs")
 			Expect(mgList.Items).NotTo(BeEmpty(),
@@ -362,7 +364,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, false, nil)
 
 			ginkgo.By("checking MustGather CR status")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			fetchedMG := &mustgatherv1.MustGather{}
 			err := nonAdminClient.Get(testCtx, client.ObjectKey{
 				Name:      mustGatherName,
 				Namespace: ns.Name,
@@ -414,7 +416,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				err := nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
-				}, &mustgatherv1alpha1.MustGather{})
+				}, &mustgatherv1.MustGather{})
 				return apierrors.IsNotFound(err)
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
@@ -482,7 +484,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.By("Verifying MustGather CR has timeout set")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			fetchedMG := &mustgatherv1.MustGather{}
 			err := nonAdminClient.Get(testCtx, client.ObjectKey{
 				Name:      mustGatherName,
 				Namespace: ns.Name,
@@ -552,7 +554,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				_ = nonAdminClient.Delete(testCtx, mg10s)
 			}()
 
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			fetchedMG := &mustgatherv1.MustGather{}
 			err := nonAdminClient.Get(testCtx, client.ObjectKey{
 				Name:      mgName10s,
 				Namespace: ns.Name,
@@ -564,7 +566,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.By("Waiting for MustGather CR status to become Completed after 10s timeout")
 			Eventually(func() bool {
-				mg := &mustgatherv1alpha1.MustGather{}
+				mg := &mustgatherv1.MustGather{}
 				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mgName10s,
 					Namespace: ns.Name,
@@ -598,7 +600,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				_ = nonAdminClient.Delete(testCtx, mg10m)
 			}()
 
-			fetchedMG10m := &mustgatherv1alpha1.MustGather{}
+			fetchedMG10m := &mustgatherv1.MustGather{}
 			err := nonAdminClient.Get(testCtx, client.ObjectKey{
 				Name:      mgName10m,
 				Namespace: ns.Name,
@@ -619,7 +621,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				_ = nonAdminClient.Delete(testCtx, mg10h)
 			}()
 
-			fetchedMG10h := &mustgatherv1alpha1.MustGather{}
+			fetchedMG10h := &mustgatherv1.MustGather{}
 			err := nonAdminClient.Get(testCtx, client.ObjectKey{
 				Name:      mgName10h,
 				Namespace: ns.Name,
@@ -633,7 +635,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 	ginkgo.Context("Resource Retention Tests", func() {
 		var mustGatherName string
-		var mustGatherCR *mustgatherv1alpha1.MustGather
+		var mustGatherCR *mustgatherv1.MustGather
 
 		ginkgo.BeforeEach(func() {
 			mustGatherName = fmt.Sprintf("mg-retain-resources-%d", time.Now().UnixNano())
@@ -649,7 +651,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					err := nonAdminClient.Get(testCtx, client.ObjectKey{
 						Name:      mustGatherName,
 						Namespace: ns.Name,
-					}, &mustgatherv1alpha1.MustGather{})
+					}, &mustgatherv1.MustGather{})
 					return apierrors.IsNotFound(err)
 				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
@@ -755,7 +757,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			Expect(job.Status.Failed).To(Equal(int32(0)), "Job should not have any failed pods")
 
 			ginkgo.By("Verifying MustGather CR status is updated")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			fetchedMG := &mustgatherv1.MustGather{}
 			Eventually(func() string {
 				_ = nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
@@ -796,7 +798,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 		ginkgo.It("should clean up Job and Pod when retainResourcesOnCompletion defaults to false", func() {
 			ginkgo.By("Creating MustGather CR without setting retainResourcesOnCompletion (defaults to false)")
-			mg := &mustgatherv1alpha1.MustGather{
+			mg := &mustgatherv1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
@@ -804,7 +806,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 						"test": nonAdminLabel,
 					},
 				},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
+				Spec: mustgatherv1.MustGatherSpec{
 					ServiceAccountName: serviceAccount,
 				},
 			}
@@ -813,7 +815,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			mustGatherCR = mg
 
 			ginkgo.By("Verifying retainResourcesOnCompletion is nil (defaults to false)")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			fetchedMG := &mustgatherv1.MustGather{}
 			err = nonAdminClient.Get(testCtx, client.ObjectKey{
 				Name:      mustGatherName,
 				Namespace: ns.Name,
@@ -834,7 +836,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
 			ginkgo.By("Waiting for MustGather to complete")
-			fetchedMG = &mustgatherv1alpha1.MustGather{}
+			fetchedMG = &mustgatherv1.MustGather{}
 			Eventually(func() bool {
 				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
@@ -877,7 +879,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 	})
 
 	ginkgo.Context("Security and Isolation Tests", func() {
-		var mg *mustgatherv1alpha1.MustGather
+		var mg *mustgatherv1.MustGather
 
 		ginkgo.AfterEach(func() {
 			if mg != nil {
@@ -895,7 +897,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.By("Verifying MustGather status has error condition")
 			Eventually(func() bool {
-				fetchedMG := &mustgatherv1alpha1.MustGather{}
+				fetchedMG := &mustgatherv1.MustGather{}
 				err := adminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
@@ -962,12 +964,12 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}
 
 			ginkgo.By("Creating MustGather with operator SA name in the operator namespace")
-			mgReject := &mustgatherv1alpha1.MustGather{
+			mgReject := &mustgatherv1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      mustGatherName,
 					Namespace: operatorNamespace,
 				},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
+				Spec: mustgatherv1.MustGatherSpec{
 					ServiceAccountName: operatorSAName,
 				},
 			}
@@ -977,7 +979,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.By("Verifying MustGather status reports operator SA rejection")
 			Eventually(func() bool {
-				fetchedMG := &mustgatherv1alpha1.MustGather{}
+				fetchedMG := &mustgatherv1.MustGather{}
 				err := adminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
 					Namespace: operatorNamespace,
@@ -1027,7 +1029,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.By("Verifying MustGather is accepted and Job is created without operator SA rejection")
 			Eventually(func() bool {
-				fetchedMG := &mustgatherv1alpha1.MustGather{}
+				fetchedMG := &mustgatherv1.MustGather{}
 				if err := adminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
@@ -1151,7 +1153,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 	ginkgo.Context("UploadTarget SFTP Configuration Tests", func() {
 		var mustGatherName string
-		var mustGatherCR *mustgatherv1alpha1.MustGather
+		var mustGatherCR *mustgatherv1.MustGather
 
 		ginkgo.BeforeEach(func() {
 			mustGatherName = fmt.Sprintf("mg-upload-target-e2e-test-%d", time.Now().UnixNano())
@@ -1166,7 +1168,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					err := nonAdminClient.Get(testCtx, client.ObjectKey{
 						Name:      mustGatherName,
 						Namespace: ns.Name,
-					}, &mustgatherv1alpha1.MustGather{})
+					}, &mustgatherv1.MustGather{})
 					return apierrors.IsNotFound(err)
 				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
@@ -1210,7 +1212,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.By("Verifying MustGather CR has internalUser set to false")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			fetchedMG := &mustgatherv1.MustGather{}
 			err = nonAdminClient.Get(testCtx, client.ObjectKey{
 				Name:      mustGatherName,
 				Namespace: ns.Name,
@@ -1223,7 +1225,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			job := &batchv1.Job{}
 			Eventually(func(g Gomega) {
 				// First check if MustGather has failed validation
-				mg := &mustgatherv1alpha1.MustGather{}
+				mg := &mustgatherv1.MustGather{}
 				g.Expect(nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
@@ -1411,7 +1413,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.By("Waiting for MustGather status to be updated to Failed")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			fetchedMG := &mustgatherv1.MustGather{}
 			Eventually(func(g Gomega) {
 				err := nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
@@ -1457,7 +1459,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.By("Waiting for MustGather status to be updated to Failed")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			fetchedMG := &mustgatherv1.MustGather{}
 			Eventually(func(g Gomega) {
 				err := nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
@@ -1503,7 +1505,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.By("Waiting for MustGather status to be updated to Failed")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			fetchedMG := &mustgatherv1.MustGather{}
 			Eventually(func(g Gomega) {
 				err := nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
@@ -1537,7 +1539,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 	ginkgo.Context("Proxy Upload Tests", func() {
 		var mustGatherName string
-		var mustGatherCR *mustgatherv1alpha1.MustGather
+		var mustGatherCR *mustgatherv1.MustGather
 		var httpProxy, httpsProxy, noProxy string
 
 		ginkgo.BeforeEach(func() {
@@ -1559,7 +1561,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					err := nonAdminClient.Get(testCtx, client.ObjectKey{
 						Name:      mustGatherName,
 						Namespace: ns.Name,
-					}, &mustgatherv1alpha1.MustGather{})
+					}, &mustgatherv1.MustGather{})
 					return apierrors.IsNotFound(err)
 				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
@@ -1599,7 +1601,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Waiting for Job to be created")
 			job := &batchv1.Job{}
 			Eventually(func(g Gomega) {
-				mg := &mustgatherv1alpha1.MustGather{}
+				mg := &mustgatherv1.MustGather{}
 				g.Expect(nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
@@ -1689,7 +1691,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Waiting for Job to be created")
 			job := &batchv1.Job{}
 			Eventually(func(g Gomega) {
-				mg := &mustgatherv1alpha1.MustGather{}
+				mg := &mustgatherv1.MustGather{}
 				g.Expect(nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
@@ -1823,7 +1825,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				"File with caseID %s should exist on SFTP server (external user path, uploaded through proxy)", caseID)
 
 			ginkgo.By("Verifying MustGather CR status is updated after proxy upload completion")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			fetchedMG := &mustgatherv1.MustGather{}
 			Eventually(func(g Gomega) {
 				err := nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
@@ -1845,7 +1847,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 	ginkgo.Context("Custom Image [apigroup:image.openshift.io] [Skipped:Disconnected]", func() {
 		var mustGatherName string
-		var mustGatherCR *mustgatherv1alpha1.MustGather
+		var mustGatherCR *mustgatherv1.MustGather
 		var imageStreamName string
 		var customImage string
 
@@ -1867,7 +1869,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					err := nonAdminClient.Get(testCtx, client.ObjectKey{
 						Name:      mustGatherName,
 						Namespace: ns.Name,
-					}, &mustgatherv1alpha1.MustGather{})
+					}, &mustgatherv1.MustGather{})
 					return apierrors.IsNotFound(err)
 				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
@@ -1907,7 +1909,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.By("Creating MustGather CR with ImageStreamRef")
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
-				ImageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{
+				ImageStreamRef: &mustgatherv1.ImageStreamTagRef{
 					Name: imageStreamName,
 					Tag:  "latest",
 				},
@@ -1930,7 +1932,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		ginkgo.It("should reject creation when gatherSpec.audit is true with imageStreamRef", func() {
 			ginkgo.By("Creating MustGather CR with custom image and audit enabled (invalid per CRD validation)")
 			retain := false
-			mg := &mustgatherv1alpha1.MustGather{
+			mg := &mustgatherv1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      mustGatherName,
 					Namespace: ns.Name,
@@ -1938,14 +1940,14 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 						"test": nonAdminLabel,
 					},
 				},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
+				Spec: mustgatherv1.MustGatherSpec{
 					ServiceAccountName:          serviceAccount,
 					RetainResourcesOnCompletion: &retain,
-					ImageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{
+					ImageStreamRef: &mustgatherv1.ImageStreamTagRef{
 						Name: imageStreamName,
 						Tag:  "latest",
 					},
-					GatherSpec: &mustgatherv1alpha1.GatherSpec{
+					GatherSpec: &mustgatherv1.GatherSpec{
 						Audit: true,
 					},
 				},
@@ -1960,14 +1962,14 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		ginkgo.It("should fail if the referenced ImageStream does not exist", func() {
 			ginkgo.By("Creating MustGather CR with a non-existent ImageStreamRef")
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
-				ImageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{
+				ImageStreamRef: &mustgatherv1.ImageStreamTagRef{
 					Name: "non-existent-imagestream",
 					Tag:  "latest",
 				},
 			})
 
 			ginkgo.By("Verifying MustGather CR status is updated to Failed")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			fetchedMG := &mustgatherv1.MustGather{}
 			Eventually(func() string {
 				err := nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
@@ -1986,14 +1988,14 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.By("Creating MustGather CR with a non-existent ImageStreamTag")
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
-				ImageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{
+				ImageStreamRef: &mustgatherv1.ImageStreamTagRef{
 					Name: imageStreamName,
 					Tag:  "non-existent-tag",
 				},
 			})
 
 			ginkgo.By("Verifying MustGather CR status is updated to Failed")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			fetchedMG := &mustgatherv1.MustGather{}
 			Eventually(func() string {
 				err := nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
@@ -2015,11 +2017,11 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			command := []string{"/bin/bash"}
 			args := []string{"-c", "echo 'Custom command executed'"}
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
-				ImageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{
+				ImageStreamRef: &mustgatherv1.ImageStreamTagRef{
 					Name: imageStreamName,
 					Tag:  "latest",
 				},
-				GatherSpec: &mustgatherv1alpha1.GatherSpec{
+				GatherSpec: &mustgatherv1.GatherSpec{
 					Command: command,
 					Args:    args,
 				},
@@ -2044,7 +2046,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 	ginkgo.Context("PersistentVolume Storage Configuration Tests", func() {
 		var mustGatherName string
-		var mustGatherCR *mustgatherv1alpha1.MustGather
+		var mustGatherCR *mustgatherv1.MustGather
 
 		ginkgo.BeforeEach(func() {
 			mustGatherName = fmt.Sprintf("pv-storage-test-%d", time.Now().UnixNano())
@@ -2072,7 +2074,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					err := nonAdminClient.Get(testCtx, client.ObjectKey{
 						Name:      mustGatherName,
 						Namespace: ns.Name,
-					}, &mustgatherv1alpha1.MustGather{})
+					}, &mustgatherv1.MustGather{})
 					return apierrors.IsNotFound(err)
 				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
@@ -2103,7 +2105,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.By("Verifying MustGather CR has subPath set")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			fetchedMG := &mustgatherv1.MustGather{}
 			err := nonAdminClient.Get(testCtx, client.ObjectKey{
 				Name:      mustGatherName,
 				Namespace: ns.Name,
@@ -2149,14 +2151,14 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.By("Verifying MustGather CR was created with Storage config")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			fetchedMG := &mustgatherv1.MustGather{}
 			err := nonAdminClient.Get(testCtx, client.ObjectKey{
 				Name:      mustGatherName,
 				Namespace: ns.Name,
 			}, fetchedMG)
 			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for PV storage verification")
 			Expect(fetchedMG.Spec.Storage).NotTo(BeNil(), "Storage should be set")
-			Expect(fetchedMG.Spec.Storage.Type).To(Equal(mustgatherv1alpha1.StorageTypePersistentVolume),
+			Expect(fetchedMG.Spec.Storage.Type).To(Equal(mustgatherv1.StorageTypePersistentVolume),
 				"Storage type should be PersistentVolume")
 			Expect(fetchedMG.Spec.Storage.PersistentVolume.Claim.Name).To(Equal(mustGatherPVCName),
 				"PVC name should match the configured value")
@@ -2321,7 +2323,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Cleaning up first MustGather CR")
 			_ = nonAdminClient.Delete(testCtx, mg1)
 			Eventually(func() bool {
-				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name1, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name1, Namespace: ns.Name}, &mustgatherv1.MustGather{})
 				return apierrors.IsNotFound(err)
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
@@ -2448,7 +2450,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 	ginkgo.Context("Proxy Configuration Tests", func() {
 		var mustGatherName string
-		var mustGatherCR *mustgatherv1alpha1.MustGather
+		var mustGatherCR *mustgatherv1.MustGather
 
 		ginkgo.BeforeEach(func() {
 			mustGatherName = fmt.Sprintf("mg-proxy-verify-%d", time.Now().UnixNano())
@@ -2463,7 +2465,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					err := nonAdminClient.Get(testCtx, client.ObjectKey{
 						Name:      mustGatherName,
 						Namespace: ns.Name,
-					}, &mustgatherv1alpha1.MustGather{})
+					}, &mustgatherv1.MustGather{})
 					return apierrors.IsNotFound(err)
 				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
@@ -2596,7 +2598,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 	ginkgo.Context("No-Upload Mode Tests", func() {
 		var mustGatherName string
-		var mustGatherCR *mustgatherv1alpha1.MustGather
+		var mustGatherCR *mustgatherv1.MustGather
 
 		ginkgo.BeforeEach(func() {
 			mustGatherName = fmt.Sprintf("mg-no-upload-%d", time.Now().UnixNano())
@@ -2611,7 +2613,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					err := nonAdminClient.Get(testCtx, client.ObjectKey{
 						Name:      mustGatherName,
 						Namespace: ns.Name,
-					}, &mustgatherv1alpha1.MustGather{})
+					}, &mustgatherv1.MustGather{})
 					return apierrors.IsNotFound(err)
 				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
@@ -2624,7 +2626,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, nil)
 
 			ginkgo.By("Verifying MustGather CR has no uploadTarget set")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			fetchedMG := &mustgatherv1.MustGather{}
 			err := nonAdminClient.Get(testCtx, client.ObjectKey{
 				Name:      mustGatherName,
 				Namespace: ns.Name,
@@ -2695,7 +2697,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 	ginkgo.Context("Audit Log Collection Tests", func() {
 		var mustGatherName string
-		var mustGatherCR *mustgatherv1alpha1.MustGather
+		var mustGatherCR *mustgatherv1.MustGather
 
 		ginkgo.BeforeEach(func() {
 			mustGatherName = fmt.Sprintf("mg-audit-test-%d", time.Now().UnixNano())
@@ -2710,7 +2712,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					err := nonAdminClient.Get(testCtx, client.ObjectKey{
 						Name:      mustGatherName,
 						Namespace: ns.Name,
-					}, &mustgatherv1alpha1.MustGather{})
+					}, &mustgatherv1.MustGather{})
 					return apierrors.IsNotFound(err)
 				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
@@ -2721,7 +2723,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		ginkgo.It("should use audit gather command when audit is enabled", func() {
 			ginkgo.By("Creating MustGather CR with audit enabled")
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
-				GatherSpec: &mustgatherv1alpha1.GatherSpec{
+				GatherSpec: &mustgatherv1.GatherSpec{
 					Audit: true,
 				},
 			})
@@ -2757,7 +2759,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, nil)
 
 			ginkgo.By("Verifying MustGather CR has no GatherSpec (audit defaults to false)")
-			fetchedMG := &mustgatherv1alpha1.MustGather{}
+			fetchedMG := &mustgatherv1.MustGather{}
 			err := nonAdminClient.Get(testCtx, client.ObjectKey{
 				Name:      mustGatherName,
 				Namespace: ns.Name,
@@ -2798,7 +2800,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			var pvcName string
 			var auditPVC *corev1.PersistentVolumeClaim
 			var auditMustGatherName string
-			var auditMustGatherCR *mustgatherv1alpha1.MustGather
+			var auditMustGatherCR *mustgatherv1.MustGather
 			var auditClusterRoleBinding *rbacv1.ClusterRoleBinding
 
 			ginkgo.BeforeAll(func() {
@@ -2838,7 +2840,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 						err := nonAdminClient.Get(testCtx, client.ObjectKey{
 							Name:      auditMustGatherName,
 							Namespace: ns.Name,
-						}, &mustgatherv1alpha1.MustGather{})
+						}, &mustgatherv1.MustGather{})
 						return apierrors.IsNotFound(err)
 					}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 				}
@@ -2880,7 +2882,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.It("should create and complete audit gather Job with PVC", func() {
 				subPath := fmt.Sprintf("audit-test-%d", time.Now().UnixNano())
 				auditMustGatherCR = createMustGatherCR(auditMustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
-					GatherSpec: &mustgatherv1alpha1.GatherSpec{
+					GatherSpec: &mustgatherv1.GatherSpec{
 						Audit: true,
 					},
 					PersistentVolume: &PersistentVolumeOptions{
@@ -3012,7 +3014,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 	ginkgo.Context("Must-Gather Log Content Verification Tests", func() {
 		var mustGatherName string
-		var mustGatherCR *mustgatherv1alpha1.MustGather
+		var mustGatherCR *mustgatherv1.MustGather
 
 		ginkgo.BeforeEach(func() {
 			mustGatherName = fmt.Sprintf("mg-log-content-%d", time.Now().UnixNano())
@@ -3027,7 +3029,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					err := nonAdminClient.Get(testCtx, client.ObjectKey{
 						Name:      mustGatherName,
 						Namespace: ns.Name,
-					}, &mustgatherv1alpha1.MustGather{})
+					}, &mustgatherv1.MustGather{})
 					return apierrors.IsNotFound(err)
 				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
@@ -3252,7 +3254,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			Expect(copied.Labels).To(Equal(source.Labels))
 
 			ginkgo.By("Verifying MustGather owns the copied ConfigMap")
-			mgFetched := &mustgatherv1alpha1.MustGather{}
+			mgFetched := &mustgatherv1.MustGather{}
 			Expect(adminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, mgFetched)).To(Succeed())
 			Expect(configMapHasOwnerReference(copied, mgFetched.UID)).To(BeTrue(),
 				"Copied ConfigMap should reference this MustGather instance")
@@ -3282,7 +3284,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Deleting MustGather and expecting trusted CA ConfigMap cleanup")
 			Expect(nonAdminClient.Delete(testCtx, mg)).To(Succeed())
 			Eventually(func() bool {
-				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, &mustgatherv1.MustGather{})
 				return apierrors.IsNotFound(err)
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
@@ -3309,8 +3311,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				_ = nonAdminClient.Delete(testCtx, mg1)
 				_ = nonAdminClient.Delete(testCtx, mg2)
 				Eventually(func() bool {
-					err1 := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name1, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
-					err2 := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+					err1 := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name1, Namespace: ns.Name}, &mustgatherv1.MustGather{})
+					err2 := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, &mustgatherv1.MustGather{})
 					return apierrors.IsNotFound(err1) && apierrors.IsNotFound(err2)
 				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 			}()
@@ -3323,8 +3325,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			waitForJobInNamespace(name1)
 			waitForJobInNamespace(name2)
 
-			mg1Full := &mustgatherv1alpha1.MustGather{}
-			mg2Full := &mustgatherv1alpha1.MustGather{}
+			mg1Full := &mustgatherv1.MustGather{}
+			mg2Full := &mustgatherv1.MustGather{}
 			Expect(adminClient.Get(testCtx, client.ObjectKey{Name: name1, Namespace: ns.Name}, mg1Full)).To(Succeed())
 			Expect(adminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, mg2Full)).To(Succeed())
 
@@ -3340,7 +3342,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Deleting first MustGather leaves ConfigMap for the second owner")
 			Expect(nonAdminClient.Delete(testCtx, mg1)).To(Succeed())
 			Eventually(func() bool {
-				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name1, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name1, Namespace: ns.Name}, &mustgatherv1.MustGather{})
 				return apierrors.IsNotFound(err)
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
@@ -3355,7 +3357,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Deleting second MustGather removes the ConfigMap")
 			Expect(nonAdminClient.Delete(testCtx, mg2)).To(Succeed())
 			Eventually(func() bool {
-				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, &mustgatherv1.MustGather{})
 				return apierrors.IsNotFound(err)
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
@@ -3368,7 +3370,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 	ginkgo.Context("Directory Naming Convention Tests", func() {
 		var mustGatherName string
-		var mustGatherCR *mustgatherv1alpha1.MustGather
+		var mustGatherCR *mustgatherv1.MustGather
 
 		ginkgo.BeforeEach(func() {
 			mustGatherName = fmt.Sprintf("dirtest-e2e-%d", time.Now().UnixNano())
@@ -3398,7 +3400,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			if mustGatherCR != nil {
 				_ = nonAdminClient.Delete(testCtx, mustGatherCR)
 				Eventually(func() bool {
-					err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+					err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, &mustgatherv1.MustGather{})
 					return apierrors.IsNotFound(err)
 				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 				mustGatherCR = nil
@@ -3524,7 +3526,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Cleaning up MustGather CR before PVC")
 			_ = nonAdminClient.Delete(testCtx, mustGatherCR)
 			Eventually(func() bool {
-				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}, &mustgatherv1.MustGather{})
 				return apierrors.IsNotFound(err)
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 			mustGatherCR = nil
@@ -3590,7 +3592,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Cleaning up second MustGather CR")
 			_ = nonAdminClient.Delete(testCtx, mg2)
 			Eventually(func() bool {
-				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, &mustgatherv1alpha1.MustGather{})
+				err := nonAdminClient.Get(testCtx, client.ObjectKey{Name: name2, Namespace: ns.Name}, &mustgatherv1.MustGather{})
 				return apierrors.IsNotFound(err)
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
@@ -3601,6 +3603,66 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				"Different MustGather CRs should generate unique FILENAME_PREFIX values")
 
 			ginkgo.GinkgoWriter.Printf("Prefix1: %s\nPrefix2: %s\n", prefix1, prefix2)
+		})
+	})
+
+	ginkgo.Context("API Version Dual-Serve Tests", func() {
+		var mustGatherName string
+
+		ginkgo.AfterEach(func() {
+			if mustGatherName != "" {
+				mg := &mustgatherv1.MustGather{}
+				key := client.ObjectKey{Name: mustGatherName, Namespace: ns.Name}
+				if err := adminClient.Get(testCtx, key, mg); err == nil {
+					_ = adminClient.Delete(testCtx, mg)
+					Eventually(func() bool {
+						return apierrors.IsNotFound(adminClient.Get(testCtx, key, &mustgatherv1.MustGather{}))
+					}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
+				}
+				mustGatherName = ""
+			}
+		})
+
+		ginkgo.It("should reconcile a CR created with v1alpha1 apiVersion", func() {
+			mustGatherName = fmt.Sprintf("mg-v1alpha1-compat-%d", time.Now().UnixNano())
+
+			ginkgo.By("Creating a MustGather CR using v1alpha1 API version")
+			mgAlpha := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+					Labels: map[string]string{
+						"test": nonAdminLabel,
+					},
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: serviceAccount,
+				},
+			}
+			err := nonAdminClient.Create(testCtx, mgAlpha)
+			Expect(err).NotTo(HaveOccurred(), "Should be able to create a MustGather CR via v1alpha1")
+
+			ginkgo.By("Verifying the CR is visible when listing via v1")
+			mgV1 := &mustgatherv1.MustGather{}
+			err = adminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, mgV1)
+			Expect(err).NotTo(HaveOccurred(), "CR created via v1alpha1 should be readable via v1")
+			Expect(mgV1.Spec.ServiceAccountName).To(Equal(serviceAccount))
+
+			ginkgo.By("Verifying the operator reconciles the v1alpha1-created CR (Job is created)")
+			job := &batchv1.Job{}
+			Eventually(func() error {
+				return adminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+				"Operator should create a Job for a CR submitted via v1alpha1")
+
+			Expect(job.Spec.Template.Spec.Containers).NotTo(BeEmpty(),
+				"Job should have at least one container")
 		})
 	})
 })
@@ -3704,8 +3766,8 @@ func containerHasTrustedCAMount(c corev1.Container) bool {
 }
 
 // createMustGatherCR builds and creates a MustGather custom resource with the given parameters.
-func createMustGatherCR(name, namespace, serviceAccountName string, retainResources bool, opts *MustGatherCROptions) *mustgatherv1alpha1.MustGather {
-	mg := &mustgatherv1alpha1.MustGather{
+func createMustGatherCR(name, namespace, serviceAccountName string, retainResources bool, opts *MustGatherCROptions) *mustgatherv1.MustGather {
+	mg := &mustgatherv1.MustGather{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
@@ -3713,7 +3775,7 @@ func createMustGatherCR(name, namespace, serviceAccountName string, retainResour
 				"test": nonAdminLabel,
 			},
 		},
-		Spec: mustgatherv1alpha1.MustGatherSpec{
+		Spec: mustgatherv1.MustGatherSpec{
 			ServiceAccountName:          serviceAccountName,
 			RetainResourcesOnCompletion: &retainResources,
 		},
@@ -3721,9 +3783,9 @@ func createMustGatherCR(name, namespace, serviceAccountName string, retainResour
 
 	if opts != nil {
 		if opts.UploadTarget != nil {
-			mg.Spec.UploadTarget = &mustgatherv1alpha1.UploadTargetSpec{
-				Type: mustgatherv1alpha1.UploadTypeSFTP,
-				SFTP: &mustgatherv1alpha1.SFTPSpec{
+			mg.Spec.UploadTarget = &mustgatherv1.UploadTargetSpec{
+				Type: mustgatherv1.UploadTypeSFTP,
+				SFTP: &mustgatherv1.SFTPSpec{
 					CaseID: opts.UploadTarget.CaseID,
 					CaseManagementAccountSecretRef: corev1.LocalObjectReference{
 						Name: opts.UploadTarget.SecretName,
@@ -3735,10 +3797,10 @@ func createMustGatherCR(name, namespace, serviceAccountName string, retainResour
 		}
 
 		if opts.PersistentVolume != nil {
-			mg.Spec.Storage = &mustgatherv1alpha1.Storage{
-				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-					Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{
+			mg.Spec.Storage = &mustgatherv1.Storage{
+				Type: mustgatherv1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+					Claim: mustgatherv1.PersistentVolumeClaimReference{
 						Name: opts.PersistentVolume.PVCName,
 					},
 					SubPath: opts.PersistentVolume.SubPath,

@@ -44,6 +44,7 @@ import (
 
 	v1 "github.com/openshift/api/config/v1"
 	imagev1 "github.com/openshift/api/image/v1"
+	managedv1 "github.com/openshift/must-gather-operator/api/v1"
 	managedv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 	"github.com/openshift/must-gather-operator/controllers/mustgather"
 	"github.com/openshift/must-gather-operator/pkg/k8sutil"
@@ -84,6 +85,7 @@ func init() {
 	utilruntime.Must(v1.AddToScheme(scheme))
 	utilruntime.Must(imagev1.AddToScheme(scheme))
 	utilruntime.Must(managedv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(managedv1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
