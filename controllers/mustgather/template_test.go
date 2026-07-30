@@ -911,6 +911,62 @@ func Test_getJobTemplate_ObfuscateSourceSkipsGather(t *testing.T) {
 	}
 }
 
+func Test_getJobTemplate_ObfuscateSourceWithStorage(t *testing.T) {
+	t.Setenv(DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
+
+	mg := mustgatherv1alpha1.MustGather{
+		ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
+		Spec: mustgatherv1alpha1.MustGatherSpec{
+			ServiceAccountName: "default",
+			Storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "output-pvc"},
+					SubPath: "results",
+				},
+			},
+			Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
+				Enabled: ToPtr(true),
+				Source: &mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "existing-pvc"},
+					SubPath: "bundles/run-1",
+				},
+			},
+		},
+	}
+
+	job := getJobTemplate("img", "operator-image", mg, "", "dir-name")
+
+	var uploadVol *v1.Volume
+	for i := range job.Spec.Template.Spec.Volumes {
+		if job.Spec.Template.Spec.Volumes[i].Name == uploadVolumeName {
+			uploadVol = &job.Spec.Template.Spec.Volumes[i]
+			break
+		}
+	}
+	if uploadVol == nil || uploadVol.PersistentVolumeClaim == nil {
+		t.Fatalf("upload volume must be backed by storage PVC when source+storage are both set")
+	}
+	if uploadVol.PersistentVolumeClaim.ClaimName != "output-pvc" {
+		t.Fatalf("upload volume PVC claim = %q, want %q", uploadVol.PersistentVolumeClaim.ClaimName, "output-pvc")
+	}
+
+	upload := findUploadContainerInJob(t, job)
+	var uploadMount *v1.VolumeMount
+	for i := range upload.VolumeMounts {
+		if upload.VolumeMounts[i].Name == uploadVolumeName {
+			uploadMount = &upload.VolumeMounts[i]
+			break
+		}
+	}
+	if uploadMount == nil {
+		t.Fatalf("upload container must mount the upload volume")
+	}
+	if uploadMount.SubPath != "results/dir-name" {
+		t.Fatalf("upload mount SubPath = %q, want %q", uploadMount.SubPath, "results/dir-name")
+	}
+}
+
 func Test_obfuscateHelpers(t *testing.T) {
 	t.Run("isObfuscateEnabled", func(t *testing.T) {
 		if isObfuscateEnabled(nil) {

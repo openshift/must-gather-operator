@@ -4203,6 +4203,19 @@ echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/clean
 			}
 			Expect(foundSourceMount).To(BeTrue(),
 				"Output volume should use the source PVC in obfuscate-source mode")
+
+			ginkgo.By("Verifying upload volume is backed by storage PVC (not emptyDir)")
+			var foundUploadVol bool
+			for _, v := range job.Spec.Template.Spec.Volumes {
+				if v.Name == uploadVolumeName {
+					Expect(v.PersistentVolumeClaim).NotTo(BeNil(),
+						"Upload volume must be backed by storage PVC so cleaned output persists")
+					Expect(v.PersistentVolumeClaim.ClaimName).To(Equal(outputPVCName),
+						"Upload volume PVC should be the storage PVC")
+					foundUploadVol = true
+				}
+			}
+			Expect(foundUploadVol).To(BeTrue(), "Job should have an upload volume")
 		})
 	})
 })

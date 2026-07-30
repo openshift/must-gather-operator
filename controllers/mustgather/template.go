@@ -220,7 +220,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 		Name:         uploadVolumeName,
 		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 	}
-	if isObfuscateEnabled(obfuscate) && !hasObfuscateSource(obfuscate) &&
+	if isObfuscateEnabled(obfuscate) &&
 		storage != nil && storage.Type == v1alpha1.StorageTypePersistentVolume {
 		uploadVolume.VolumeSource = corev1.VolumeSource{
 			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
@@ -426,7 +426,7 @@ func getUploadContainer(
 		MountPath: volumeUploadMountPath,
 		Name:      uploadVolumeName,
 	}
-	if isObfuscateEnabled(obfuscate) && !hasObfuscateSource(obfuscate) &&
+	if isObfuscateEnabled(obfuscate) &&
 		storage != nil && storage.Type == v1alpha1.StorageTypePersistentVolume {
 		base := strings.TrimSpace(storage.PersistentVolume.SubPath)
 		base = strings.Trim(base, "/")
