@@ -3907,14 +3907,14 @@ echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/clean
 	})
 
 	ginkgo.Context("Obfuscation ConfigMap lifecycle", func() {
-		ginkgo.It("should copy obfuscation ConfigMap to CR namespace and clean up on deletion", func() {
+		ginkgo.It("should use obfuscation ConfigMap from CR namespace and set env var", func() {
 			configMapName := fmt.Sprintf("obf-cfg-%d", time.Now().UnixNano()%100000)
 
-			ginkgo.By("Creating obfuscation ConfigMap in operator namespace")
+			ginkgo.By("Creating obfuscation ConfigMap in CR namespace")
 			obfConfigMap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      configMapName,
-					Namespace: operatorNamespace,
+					Namespace: ns.Name,
 				},
 				Data: map[string]string{
 					"config.yaml": `config:
@@ -3927,7 +3927,7 @@ echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/clean
 				},
 			}
 			err := adminClient.Create(testCtx, obfConfigMap)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create obfuscation ConfigMap in operator namespace")
+			Expect(err).NotTo(HaveOccurred(), "Failed to create obfuscation ConfigMap in CR namespace")
 			defer func() { _ = adminClient.Delete(testCtx, obfConfigMap) }()
 
 			pvcName := fmt.Sprintf("obf-cm-pvc-%d", time.Now().UnixNano()%100000)
@@ -3965,30 +3965,11 @@ echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/clean
 				},
 			})
 
-			ginkgo.By("Waiting for Job to be created (confirms ConfigMap was copied)")
+			ginkgo.By("Waiting for Job to be created (confirms ConfigMap was found in CR namespace)")
 			job := &batchv1.Job{}
 			Eventually(func() error {
 				return adminClient.Get(testCtx, client.ObjectKey{Name: mgName, Namespace: ns.Name}, job)
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
-
-			if ns.Name != operatorNamespace {
-				ginkgo.By("Verifying ConfigMap was copied to CR namespace")
-				copiedCM := &corev1.ConfigMap{}
-				err = adminClient.Get(testCtx, client.ObjectKey{
-					Name:      configMapName,
-					Namespace: ns.Name,
-				}, copiedCM)
-				Expect(err).NotTo(HaveOccurred(),
-					"Obfuscation ConfigMap should be copied to the CR namespace")
-				Expect(copiedCM.Data).To(HaveKey("config.yaml"),
-					"Copied ConfigMap should contain config.yaml key")
-
-				mg := &mustgatherv1alpha1.MustGather{}
-				err = nonAdminClient.Get(testCtx, client.ObjectKey{Name: mgName, Namespace: ns.Name}, mg)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(configMapHasOwnerReference(copiedCM, mg.UID)).To(BeTrue(),
-					"Copied ConfigMap should have MustGather CR as owner")
-			}
 
 			ginkgo.By("Verifying upload container has obfuscate_config env var")
 			var foundUploadCM bool
@@ -4017,7 +3998,7 @@ echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/clean
 			}).WithTimeout(15*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
 				"MustGather with custom config should complete")
 
-			ginkgo.By("Deleting MustGather CR and verifying ConfigMap cleanup")
+			ginkgo.By("Deleting MustGather CR")
 			err = nonAdminClient.Delete(testCtx, mustGatherCR)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -4027,15 +4008,13 @@ echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/clean
 					&mustgatherv1alpha1.MustGather{}))
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
-			if ns.Name != operatorNamespace {
-				ginkgo.By("Verifying copied ConfigMap was cleaned up")
-				Eventually(func() bool {
-					return apierrors.IsNotFound(adminClient.Get(testCtx,
-						client.ObjectKey{Name: configMapName, Namespace: ns.Name},
-						&corev1.ConfigMap{}))
-				}).WithTimeout(1*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
-					"Copied ConfigMap should be deleted after MustGather cleanup")
-			}
+			ginkgo.By("Verifying user-managed ConfigMap is NOT deleted by the operator")
+			cm := &corev1.ConfigMap{}
+			err = adminClient.Get(testCtx, client.ObjectKey{
+				Name: configMapName, Namespace: ns.Name,
+			}, cm)
+			Expect(err).NotTo(HaveOccurred(),
+				"User-managed ConfigMap should still exist after MustGather deletion")
 		})
 	})
 
