@@ -94,6 +94,7 @@ const (
 	gatherContainerName = "gather"
 	uploadContainerName = "upload"
 	outputVolumeName    = "must-gather-output"
+	uploadVolumeName    = "must-gather-upload"
 	jobNameLabelKey     = "job-name"
 
 	// UploadTarget test constants
