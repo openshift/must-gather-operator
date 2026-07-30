@@ -128,8 +128,8 @@ spec:
                     type: boolean
                   obfuscationConfigRef:
                     description: |-
-                      obfuscationConfigRef references a ConfigMap in the operator namespace
-                      containing a must-gather-clean configuration file.
+                      obfuscationConfigRef references a ConfigMap in the same namespace as
+                      the MustGather CR containing a must-gather-clean configuration file.
                       The ConfigMap must have a key named "config.yaml" whose value is a
                       valid must-gather-clean obfuscation config.
                       If omitted, the operator uses the built-in default config which
@@ -152,12 +152,10 @@ spec:
                       for obfuscation without running a new gather.
                       When set, the operator skips the gather step and runs obfuscation
                       directly on the referenced PVC contents.
+                      The PVC must be in the same namespace as the MustGather CR.
                     properties:
                       claim:
-                        description: |-
-                          claim references the PersistentVolumeClaim containing the existing
-                          must-gather bundle to obfuscate.
-                          The PVC must be in the operator namespace.
+                        description: claim defines the PersistentVolumeClaim to use.
                         properties:
                           name:
                             description: |-
@@ -174,9 +172,8 @@ spec:
                         - name
                         type: object
                       subPath:
-                        description: |-
-                          subPath is the path within the PVC where the must-gather bundle
-                          is located. If omitted, the root of the PVC is used.
+                        description: subPath defines the path to a sub directory within
+                          the PersistentVolume to use.
                         type: string
                     required:
                     - claim
@@ -236,6 +233,9 @@ spec:
                     required:
                     - claim
                     type: object
+                    x-kubernetes-validations:
+                    - message: subPath must not contain '..'
+                      rule: '!has(self.subPath) || !self.subPath.contains(''..'')'
                   type:
                     description: |-
                       type defines the type of storage to use.

@@ -442,11 +442,11 @@ func Test_getUploadContainer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testFailed := false
-			sftp := &uploadSFTPParams{
-				caseID:       tt.caseId,
-				host:         tt.host,
-				internalUser: tt.internalUser,
-				secretRef:    tt.secretKeyRefName,
+			sftp := &mustgatherv1alpha1.SFTPSpec{
+				CaseID:                         tt.caseId,
+				Host:                           tt.host,
+				InternalUser:                   tt.internalUser,
+				CaseManagementAccountSecretRef: tt.secretKeyRefName,
 			}
 			container := getUploadContainer(tt.operatorImage, tt.storage, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.mountCAConfigMap, sftp, nil, tt.directoryName)
 
@@ -848,10 +848,10 @@ func Test_getJobTemplate_ObfuscateSourceSkipsGather(t *testing.T) {
 			ServiceAccountName: "default",
 			Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
 				Enabled: ToPtr(true),
-				Source: &mustgatherv1alpha1.ObfuscateSourceConfig{
-					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "existing-pvc"},
-					SubPath: "bundles/run-1",
-				},
+			Source: &mustgatherv1alpha1.PersistentVolumeConfig{
+				Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "existing-pvc"},
+				SubPath: "bundles/run-1",
+			},
 			},
 		},
 	}
@@ -931,7 +931,7 @@ func Test_obfuscateHelpers(t *testing.T) {
 		if shouldAppendObfuscateChown(nil) {
 			t.Fatal("expected false for nil")
 		}
-		if shouldAppendObfuscateChown(&mustgatherv1alpha1.ObfuscateConfig{Enabled: ToPtr(true), Source: &mustgatherv1alpha1.ObfuscateSourceConfig{Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "pvc"}}}) {
+		if shouldAppendObfuscateChown(&mustgatherv1alpha1.ObfuscateConfig{Enabled: ToPtr(true), Source: &mustgatherv1alpha1.PersistentVolumeConfig{Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "pvc"}}}) {
 			t.Fatal("expected false when source is set (no gather container)")
 		}
 		if !shouldAppendObfuscateChown(&mustgatherv1alpha1.ObfuscateConfig{Enabled: ToPtr(true)}) {
@@ -974,7 +974,7 @@ func Test_obfuscateHelpers(t *testing.T) {
 			t.Fatal("expected false for nil")
 		}
 		src := &mustgatherv1alpha1.ObfuscateConfig{
-			Source: &mustgatherv1alpha1.ObfuscateSourceConfig{
+			Source: &mustgatherv1alpha1.PersistentVolumeConfig{
 				Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "pvc"},
 			},
 		}

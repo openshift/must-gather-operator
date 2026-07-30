@@ -204,6 +204,7 @@ type Storage struct {
 }
 
 // PersistentVolumeConfig defines the configuration for a PersistentVolume.
+// +kubebuilder:validation:XValidation:rule="!has(self.subPath) || !self.subPath.contains('..')",message="subPath must not contain '..'"
 type PersistentVolumeConfig struct {
 	// claim defines the PersistentVolumeClaim to use.
 	// +required
@@ -233,8 +234,8 @@ type ObfuscateConfig struct {
 	// +optional
 	Enabled *bool `json:"enabled,omitempty"`
 
-	// obfuscationConfigRef references a ConfigMap in the operator namespace
-	// containing a must-gather-clean configuration file.
+	// obfuscationConfigRef references a ConfigMap in the same namespace as
+	// the MustGather CR containing a must-gather-clean configuration file.
 	// The ConfigMap must have a key named "config.yaml" whose value is a
 	// valid must-gather-clean obfuscation config.
 	// If omitted, the operator uses the built-in default config which
@@ -246,24 +247,9 @@ type ObfuscateConfig struct {
 	// for obfuscation without running a new gather.
 	// When set, the operator skips the gather step and runs obfuscation
 	// directly on the referenced PVC contents.
+	// The PVC must be in the same namespace as the MustGather CR.
 	// +optional
-	Source *ObfuscateSourceConfig `json:"source,omitempty"`
-}
-
-// ObfuscateSourceConfig defines the source of an existing must-gather bundle
-// to obfuscate without running a new gather.
-// +kubebuilder:validation:XValidation:rule="!has(self.subPath) || !self.subPath.contains('..')",message="subPath must not contain '..'"
-type ObfuscateSourceConfig struct {
-	// claim references the PersistentVolumeClaim containing the existing
-	// must-gather bundle to obfuscate.
-	// The PVC must be in the operator namespace.
-	// +required
-	Claim PersistentVolumeClaimReference `json:"claim"`
-
-	// subPath is the path within the PVC where the must-gather bundle
-	// is located. If omitted, the root of the PVC is used.
-	// +optional
-	SubPath string `json:"subPath,omitempty"`
+	Source *PersistentVolumeConfig `json:"source,omitempty"`
 }
 
 // MustGatherStatus defines the observed state of MustGather

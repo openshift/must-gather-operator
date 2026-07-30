@@ -84,34 +84,23 @@ func shouldAppendObfuscateChown(obfuscate *v1alpha1.ObfuscateConfig) bool {
 	return isObfuscateEnabled(obfuscate) && obfuscate.Source == nil
 }
 
-type uploadSFTPParams struct {
-	caseID       string
-	host         string
-	internalUser bool
-	secretRef    corev1.LocalObjectReference
-}
-
-func sftpUploadParams(mustGather v1alpha1.MustGather) *uploadSFTPParams {
+func hasSFTPUpload(mustGather v1alpha1.MustGather) bool {
 	if mustGather.Spec.UploadTarget == nil || mustGather.Spec.UploadTarget.Type != v1alpha1.UploadTypeSFTP {
-		return nil
+		return false
 	}
 	s := mustGather.Spec.UploadTarget.SFTP
-	if s == nil || s.CaseID == "" || s.CaseManagementAccountSecretRef.Name == "" {
+	return s != nil && s.CaseID != "" && s.CaseManagementAccountSecretRef.Name != ""
+}
+
+func sftpSpec(mustGather v1alpha1.MustGather) *v1alpha1.SFTPSpec {
+	if !hasSFTPUpload(mustGather) {
 		return nil
 	}
-	return &uploadSFTPParams{
-		caseID:       s.CaseID,
-		host:         s.Host,
-		internalUser: s.InternalUser,
-		secretRef:    s.CaseManagementAccountSecretRef,
-	}
+	return mustGather.Spec.UploadTarget.SFTP
 }
 
 func shouldAddUploadContainer(mustGather v1alpha1.MustGather) bool {
-	if isObfuscateEnabled(mustGather.Spec.Obfuscate) {
-		return true
-	}
-	return sftpUploadParams(mustGather) != nil
+	return isObfuscateEnabled(mustGather.Spec.Obfuscate) || hasSFTPUpload(mustGather)
 }
 
 func obfuscateConfigMapName(obfuscate *v1alpha1.ObfuscateConfig) string {
@@ -196,7 +185,7 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 				httpsProxy,
 				noProxy,
 				trustedCAConfigMapName != "",
-				sftpUploadParams(mustGather),
+				sftpSpec(mustGather),
 				mustGather.Spec.Obfuscate,
 				directoryName,
 			),
@@ -404,7 +393,7 @@ func getUploadContainer(
 	httpsProxy string,
 	noProxy string,
 	shouldMountTrustedCAConfigMap bool,
-	sftp *uploadSFTPParams,
+	sftp *v1alpha1.SFTPSpec,
 	obfuscate *v1alpha1.ObfuscateConfig,
 	directoryName string,
 ) corev1.Container {
@@ -480,7 +469,7 @@ func getUploadContainer(
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						Key:                  uploadEnvUsername,
-						LocalObjectReference: sftp.secretRef,
+						LocalObjectReference: sftp.CaseManagementAccountSecretRef,
 					},
 				},
 			},
@@ -489,21 +478,21 @@ func getUploadContainer(
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						Key:                  uploadEnvPassword,
-						LocalObjectReference: sftp.secretRef,
+						LocalObjectReference: sftp.CaseManagementAccountSecretRef,
 					},
 				},
 			},
 			corev1.EnvVar{
 				Name:  uploadEnvCaseId,
-				Value: sftp.caseID,
+				Value: sftp.CaseID,
 			},
 			corev1.EnvVar{
 				Name:  uploadEnvHost,
-				Value: sftp.host,
+				Value: sftp.Host,
 			},
 			corev1.EnvVar{
 				Name:  uploadEnvInternalUser,
-				Value: strconv.FormatBool(sftp.internalUser),
+				Value: strconv.FormatBool(sftp.InternalUser),
 			},
 		)
 	}

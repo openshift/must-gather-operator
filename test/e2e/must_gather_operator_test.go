@@ -3654,7 +3654,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 						},
 					},
 					Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
-						Source: &mustgatherv1alpha1.ObfuscateSourceConfig{
+						Source: &mustgatherv1alpha1.PersistentVolumeConfig{
 							Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
 						},
 					},
@@ -3675,7 +3675,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					ServiceAccountName: serviceAccount,
 					Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
 						Enabled: func() *bool { b := true; return &b }(),
-						Source: &mustgatherv1alpha1.ObfuscateSourceConfig{
+						Source: &mustgatherv1alpha1.PersistentVolumeConfig{
 							Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
 						},
 					},
@@ -3703,7 +3703,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					},
 					Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
 						Enabled: func() *bool { b := true; return &b }(),
-						Source: &mustgatherv1alpha1.ObfuscateSourceConfig{
+						Source: &mustgatherv1alpha1.PersistentVolumeConfig{
 							Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
 						},
 					},
@@ -4171,7 +4171,7 @@ echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/clean
 					},
 					Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
 						Enabled: func() *bool { b := true; return &b }(),
-						Source: &mustgatherv1alpha1.ObfuscateSourceConfig{
+						Source: &mustgatherv1alpha1.PersistentVolumeConfig{
 							Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: sourcePVCName},
 						},
 					},
@@ -4392,7 +4392,7 @@ func createMustGatherCR(name, namespace, serviceAccountName string, retainResour
 				}
 			}
 			if opts.Obfuscate.Source != nil {
-				mg.Spec.Obfuscate.Source = &mustgatherv1alpha1.ObfuscateSourceConfig{
+				mg.Spec.Obfuscate.Source = &mustgatherv1alpha1.PersistentVolumeConfig{
 					Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{
 						Name: opts.Obfuscate.Source.ClaimName,
 					},
