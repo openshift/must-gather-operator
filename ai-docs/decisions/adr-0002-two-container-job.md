@@ -10,10 +10,10 @@ The operator needs to (1) collect cluster diagnostics using a must-gather image 
 
 ## Decision
 
-Use a single Kubernetes Job with two containers sharing a process namespace:
+Use a single Kubernetes Job with a gather container and a conditional upload container sharing a process namespace:
 
-1. **Gather container**: Runs the must-gather image (default or custom via ImageStream) with cluster read access
-2. **Upload container**: Runs the operator image, polls for gather completion via `pgrep`, then compresses and uploads
+1. **Gather container** (always present): Runs the must-gather image (default or custom via ImageStream) with cluster read access
+2. **Upload container** (added only when `uploadTarget` is configured): Runs the operator image, polls for gather completion via `pgrep`, then compresses and uploads
 
 `ShareProcessNamespace: true` enables cross-container process visibility.
 
@@ -28,13 +28,14 @@ Use a single Kubernetes Job with two containers sharing a process namespace:
 
 ### Positive
 - Custom must-gather images work without bundling upload logic
-- Upload container failure doesn't require re-running the gather
 - Shared volume (`/must-gather`) passes data without external storage
+- When no upload target is configured, the Job runs only the gather container
 
 ### Negative
 - `pgrep` polling is fragile — depends on process naming conventions in the gather image
 - `ShareProcessNamespace` exposes all processes between containers (security trade-off)
 - Upload container must handle the case where gather times out (exit 124/137 mapped to exit 0)
+- With `restartPolicy: Never` and `backoffLimit: 3`, an upload container failure causes the Job to create a new Pod that reruns the gather container (there is no retry logic that skips gathering)
 
 ## References
 

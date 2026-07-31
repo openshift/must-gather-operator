@@ -7,7 +7,7 @@
 
 ## Purpose
 
-Declares a must-gather diagnostic collection job. The operator creates a Kubernetes Job with two containers (gather + upload), collects cluster diagnostics, and optionally uploads the compressed archive to Red Hat SFTP for case management.
+Declares a must-gather diagnostic collection job. The operator creates a Kubernetes Job with a gather container and, when `uploadTarget` is configured, an upload container. It collects cluster diagnostics and optionally uploads the compressed archive to Red Hat SFTP for case management.
 
 **Key Principle**: Spec is **immutable once set** (enforced via CEL: `!has(oldSelf.spec) || self.spec == oldSelf.spec`). To change parameters, delete and recreate the CR.
 
@@ -135,7 +135,7 @@ No admission webhooks — validation is CEL rules on the CRD plus controller-sid
 
 ## Lifecycle
 
-1. **Creation**: Controller creates a Job with gather + upload containers; credentials are accessed directly via SecretKeyRef from the CR namespace (no secret replication)
+1. **Creation**: Controller creates a Job with a gather container (always) and an upload container (only when `uploadTarget` is configured); credentials are accessed directly via SecretKeyRef from the CR namespace (no secret replication)
 2. **Running**: Job executes gather → upload pipeline; controller monitors via Job status
 3. **Completion**: Status updated, `completed=true`; cleanup runs immediately (Jobs, Pods, trusted CA ConfigMaps) unless `retainResourcesOnCompletion=true`
 4. **Deletion**: Finalizer cleans up Job, Pods, and trusted CA ConfigMap ownerReferences
