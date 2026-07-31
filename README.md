@@ -30,13 +30,14 @@ metadata:
   name: example-mustgather-full
 spec:
   serviceAccountName: must-gather-admin
+  gatherSpec:
+    audit: true
   uploadTarget:
     type: SFTP
     sftp:
       caseID: '02527285'
       caseManagementAccountSecretRef:
         name: case-management-creds
-  audit: true
 ```
 
 ## Upgrading from Tech Preview
@@ -54,10 +55,11 @@ Existing `v1alpha1` MustGather CRs continue to work — the CRD serves both vers
 
 > **Note:** This operator may still be unsupported. For development, consider using the `stable` channel as described above. For support, consult the appropriate Red Hat documentation and the [OpenShift Operator Life Cycles](https://access.redhat.com/support/policy/updates/openshift_operators) policy.
 
-## Garbage collection
+## Resource Cleanup
 
-MustGather instances are cleaned up by the Must Gather operator about 6 hours after completion, regardless of whether they were successful.
-This is a way to prevent the accumulation of unwanted MustGather resources and their corresponding job resources.
+When a MustGather Job succeeds or fails, the controller runs cleanup in the same reconciliation pass: it deletes owned Pods and Jobs, and removes the CR's ownerReference from any configured trusted CA ConfigMap (deleting the ConfigMap only if no other owners remain). This behavior applies when `retainResourcesOnCompletion` is unset or `false`.
+
+On CR deletion, the finalizer performs this same cleanup only when retention is disabled. Setting `retainResourcesOnCompletion: true` skips explicit cleanup while the `MustGather` CR exists; deleting the CR can still trigger Kubernetes garbage collection of owned resources.
 
 ## Tech Stack
 
@@ -147,7 +149,7 @@ Here are the instructions to install the latest release creating the manifest di
 
 ```shell
 git clone git@github.com:openshift/must-gather-operator.git; cd must-gather-operator
-oc apply -f deploy/crds/operator.openshift.io_mustgathers_crd.yaml
+oc apply -f deploy/crds/operator.openshift.io_mustgathers.yaml
 oc new-project must-gather-operator
 oc -n must-gather-operator apply -f deploy
 ```
@@ -178,7 +180,7 @@ go mod download
 Using the [operator-sdk](https://github.com/operator-framework/operator-sdk), run the operator locally:
 
 ```shell
-oc apply -f deploy/crds/operator.openshift.io_mustgathers_crd.yaml
+oc apply -f deploy/crds/operator.openshift.io_mustgathers.yaml
 oc new-project must-gather-operator
 export DEFAULT_MUST_GATHER_IMAGE='quay.io/openshift/origin-must-gather:latest'
 OPERATOR_NAME=must-gather-operator operator-sdk run --verbose --local --namespace ''
@@ -187,15 +189,12 @@ OPERATOR_NAME=must-gather-operator operator-sdk run --verbose --local --namespac
 ## Further Documentation
 
 - [AGENTS.md](AGENTS.md) -- Component overview, architecture, reconciliation flow, and AI agent guidance
-- [ai-docs/](ai-docs/) -- Domain model, architectural decisions (ADRs), development and testing guides
+- [harness-evals/harness-docs/](harness-evals/harness-docs/) -- Domain model, architectural decisions (ADRs), development and testing guides
 
 ### Development Guidelines
 
-The `docs/` directory contains guidelines for contributors:
-
-- [API Contracts](docs/api-contracts-guidelines.md)
-- [Error Handling](docs/error-handling-guidelines.md)
-- [Integration](docs/integration-guidelines.md)
-- [Performance](docs/performance-guidelines.md)
-- [Security](docs/security-guidelines.md)
-- [Testing](docs/testing-guidelines.md)
+- [Development Guide](harness-evals/harness-docs/MGO_DEVELOPMENT.md) — Build, common tasks, env vars, common mistakes
+- [Testing Guide](harness-evals/harness-docs/MGO_TESTING.md) — Unit tests (fake client + interceptClient), E2E (Ginkgo)
+- [Architecture](harness-evals/harness-docs/architecture/components.md) — Repo layout, reconciliation flow, Job template
+- [Domain Model](harness-evals/harness-docs/domain/mustgather.md) — MustGather CRD fields, validation, lifecycle
+- [Decision Records](harness-evals/harness-docs/decisions/) — ADRs for immutable spec, two-container Job, extensible upload

@@ -1,10 +1,22 @@
 # Platform Ecosystem References
 
-Links to generic OpenShift/Kubernetes patterns in the Platform ecosystem hub. The must-gather-operator inherits these platform-wide patterns and practices.
+Links to local design documentation and external OpenShift/Kubernetes patterns. The must-gather-operator inherits platform-wide patterns and practices.
+
+## Local Design Documentation
+
+These directories exist in this repository and contain the authoritative component documentation:
+
+| Directory | Purpose |
+|---|---|
+| [ai-docs/domain/](../domain/mustgather.md) | MustGather CRD: fields, validation, lifecycle |
+| [ai-docs/architecture/](../architecture/components.md) | Repo layout, reconciliation flow, Job template, upload |
+| [ai-docs/decisions/](../decisions/) | Architecture Decision Records (ADR-0001 through ADR-0003) |
+
+Supplemental references: [CLAUDE.md](../../CLAUDE.md), [README.md](../../README.md).
 
 ## Operator Patterns
 
-**Location**: [openshift/enhancements/ai-docs/platform/operator-patterns/](https://github.com/openshift/enhancements/tree/master/ai-docs/)
+**Location**: [openshift/enhancements/ai-docs/platform/operator-patterns/](https://github.com/openshift/enhancements/tree/master/ai-docs/platform/operator-patterns/) *(planned — directory not yet published)*
 
 - **Controller Runtime**: Reconciliation loops, event handling, client patterns
 - **Status Conditions**: Available, Progressing, Degraded condition semantics
@@ -19,7 +31,7 @@ Links to generic OpenShift/Kubernetes patterns in the Platform ecosystem hub. Th
 
 ## Testing Practices
 
-**Location**: [openshift/enhancements/ai-docs/practices/testing/](https://github.com/openshift/enhancements/tree/master/ai-docs/)
+**Location**: [openshift/enhancements/ai-docs/practices/testing/](https://github.com/openshift/enhancements/tree/master/ai-docs/practices/testing/) *(planned — directory not yet published)*
 
 - **Test Pyramid**: Unit > Integration > E2E
 - **E2E Framework**: OpenShift E2E test patterns
@@ -31,7 +43,7 @@ Links to generic OpenShift/Kubernetes patterns in the Platform ecosystem hub. Th
 
 ## Security Practices
 
-**Location**: [openshift/enhancements/ai-docs/practices/security/](https://github.com/openshift/enhancements/tree/master/ai-docs/)
+**Location**: [openshift/enhancements/ai-docs/practices/security/](https://github.com/openshift/enhancements/tree/master/ai-docs/practices/security/) *(planned — directory not yet published)*
 
 - **RBAC Guidelines**: Role and ClusterRole design
 
@@ -43,7 +55,7 @@ Links to generic OpenShift/Kubernetes patterns in the Platform ecosystem hub. Th
 
 ## Reliability Practices
 
-**Location**: [openshift/enhancements/ai-docs/practices/reliability/](https://github.com/openshift/enhancements/tree/master/ai-docs/)
+**Location**: [openshift/enhancements/ai-docs/practices/reliability/](https://github.com/openshift/enhancements/tree/master/ai-docs/practices/reliability/) *(planned — directory not yet published)*
 
 - **Observability**: Metrics, logging patterns
 
@@ -53,7 +65,7 @@ Links to generic OpenShift/Kubernetes patterns in the Platform ecosystem hub. Th
 
 ## Kubernetes Fundamentals
 
-**Location**: [openshift/enhancements/ai-docs/domain/kubernetes/](https://github.com/openshift/enhancements/tree/master/ai-docs/)
+**Location**: [openshift/enhancements/ai-docs/domain/kubernetes/](https://github.com/openshift/enhancements/tree/master/ai-docs/domain/kubernetes/)
 
 - **Jobs**: Batch job lifecycle, backoff limits
 - **CRDs**: CustomResourceDefinition patterns, CEL validation
@@ -64,7 +76,7 @@ Links to generic OpenShift/Kubernetes patterns in the Platform ecosystem hub. Th
 
 ## OpenShift Fundamentals
 
-**Location**: [openshift/enhancements/ai-docs/domain/openshift/](https://github.com/openshift/enhancements/tree/master/ai-docs/)
+**Location**: [openshift/enhancements/ai-docs/domain/openshift/](https://github.com/openshift/enhancements/tree/master/ai-docs/domain/openshift/)
 
 - **ImageStreams**: Image management and tagging
 - **Cluster Proxy**: Proxy configuration propagation
@@ -75,12 +87,12 @@ Links to generic OpenShift/Kubernetes patterns in the Platform ecosystem hub. Th
 
 ## Cross-Repository ADRs
 
-**Location**: [openshift/enhancements/ai-docs/decisions/](https://github.com/openshift/enhancements/tree/master/ai-docs/)
+**Location**: [openshift/enhancements/ai-docs/decisions/](https://github.com/openshift/enhancements/tree/master/ai-docs/decisions/) *(planned — directory not yet published)*
 
 Component-specific ADRs are in [ai-docs/decisions/](../decisions/).
 
 ---
 
-**Note**: Platform documentation links point to the openshift/enhancements ecosystem hub (planned/in-progress). Component-specific patterns are in this repository's `ai-docs/` directory.
+**Note**: External links labeled *(planned)* point to directories in the openshift/enhancements ecosystem hub that are not yet published. Component-specific documentation lives in this repository's [ai-docs/domain/](../domain/mustgather.md), [ai-docs/architecture/](../architecture/components.md), and [ai-docs/decisions/](../decisions/) directories.
 
-**Last Updated**: 2026-07-28
+**Last Updated**: 2026-07-31

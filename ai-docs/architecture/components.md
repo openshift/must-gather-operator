@@ -112,7 +112,7 @@ Skipped entirely when `retainResourcesOnCompletion: true`.
 
 ## Job Template (`template.go`)
 
-### Two-Container Architecture
+### Job Container Architecture
 
 ```text
 Job (backoffLimit: 3, restartPolicy: Never)

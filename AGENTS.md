@@ -3,13 +3,13 @@
 **Component**: Must-Gather Operator (MGO)
 **Repository**: openshift/must-gather-operator
 
-> **AI agents**: Read `domain/` first for API types, then `architecture/` for implementation patterns. Check `decisions/` before making architectural changes.
+> **AI agents**: Read `ai-docs/domain/` first for API types, then `ai-docs/architecture/` for implementation patterns. Check `ai-docs/decisions/` before making architectural changes.
 
 > **Platform Patterns**: See [openshift/enhancements/ai-docs/](https://github.com/openshift/enhancements/tree/master/ai-docs/) for operator patterns, testing, security, and cross-repo ADRs.
 
 ## What is Must-Gather Operator?
 
-Automates diagnostic collection on OpenShift clusters. Creates a Kubernetes Job with gather + upload containers, collects must-gather output, and optionally uploads compressed archives to Red Hat SFTP for case management.
+Automates diagnostic collection on OpenShift clusters. Creates a Kubernetes Job with a gather container and, when an upload target is configured, an upload container. Collects must-gather output and optionally uploads compressed archives to Red Hat SFTP for case management.
 
 **Key Principle**: One CR = one gather operation. Spec is **immutable** after creation (CEL-enforced).
 
@@ -19,7 +19,7 @@ Automates diagnostic collection on OpenShift clusters. Creates a Kubernetes Job 
 |---|---|---|
 | MustGather CRD | `api/v1alpha1/mustgather_types.go` | CR spec: SA, image, gather params, upload target, storage, timeout |
 | Controller | `controllers/mustgather/mustgather_controller.go` | Single reconciler: Job lifecycle, cleanup, SFTP validation |
-| Job Template | `controllers/mustgather/template.go` | Two-container Job builder (gather + upload), volumes, affinity |
+| Job Template | `controllers/mustgather/template.go` | Job builder (gather container + conditional upload container), volumes, affinity |
 | Upload Script | `build/bin/upload` | Shell: compress + SFTP upload with proxy support |
 | Predicates | `controllers/mustgather/predicates.go` | Event filters: generation/finalizer changes, Job status |
 | Metrics | `pkg/localmetrics/localmetrics.go` | `must_gather_operator_must_gather_total`, `must_gather_operator_must_gather_errors` |
@@ -48,7 +48,7 @@ ai-docs/
 └── MGO_TESTING.md                 # Unit (fake client + interceptClient), E2E (Ginkgo)
 ```
 
-**AI Agent Path**: `domain/` → `architecture/` → `decisions/` → `MGO_DEVELOPMENT.md`
+**AI Agent Path**: `ai-docs/domain/` → `ai-docs/architecture/` → `ai-docs/decisions/` → `ai-docs/MGO_DEVELOPMENT.md`
 
 ## Quick Reference
 
@@ -70,16 +70,16 @@ ai-docs/
                               │
               ┌───────────────┼───────────────┐
               │               │               │
-       [domain/]       [architecture/]   [decisions/]
-     MustGather CRD    Reconcile flow    ADR history
-       fields,CEL      Job template       (3 ADRs)
+  [ai-docs/domain/]  [ai-docs/architecture/] [ai-docs/decisions/]
+     MustGather CRD    Reconcile flow          ADR history
+       fields,CEL      Job template             (3 ADRs)
               │               │               │
               └───────────────┼───────────────┘
                               │
-                    [MGO_DEVELOPMENT.md]
-                    [MGO_TESTING.md]
+                 [ai-docs/MGO_DEVELOPMENT.md]
+                 [ai-docs/MGO_TESTING.md]
                               │
-                   [references/ecosystem]
+              [ai-docs/references/ecosystem]
                    Links to Platform
 ```
 

@@ -78,7 +78,15 @@ tests := []struct {
     caConfigMap string
 }{
     {name: "Without PVC"},
-    {name: "With PVC", storage: &mustgatherv1alpha1.Storage{...}},
+    {name: "With PVC", storage: &mustgatherv1alpha1.Storage{
+        Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+        PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+            Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{
+                Name: pvcClaimName,
+            },
+            SubPath: pvcSubPath,
+        },
+    }},
     {name: "With CA config map", caConfigMap: "trusted-ca-cert-001"},
 }
 ```
@@ -112,8 +120,8 @@ Each test verifies: volume mounts, env vars, container commands, affinity rules,
 # Full E2E suite (1h timeout, serial execution)
 make test-e2e
 
-# Specific test
-go test -timeout 1h -count 1 -v -p 1 -tags e2e ./test/e2e -ginkgo.v -run "test description"
+# Specific test by Ginkgo description
+go test -timeout 1h -count 1 -v -p 1 -tags e2e ./test/e2e -ginkgo.v -ginkgo.focus="test description"
 ```
 
 **Important**: E2E tests use `-p 1` (serial execution) — they share cluster state and cannot run in parallel.

@@ -45,7 +45,7 @@ make coverage
 To run the operator locally:
 
 1. Install dependencies: `go mod download`
-2. Apply the CRD: `oc apply -f deploy/crds/operator.openshift.io_mustgathers_crd.yaml`
+2. Apply the CRD: `oc apply -f deploy/crds/operator.openshift.io_mustgathers.yaml`
 3. Create the namespace: `oc new-project must-gather-operator`
 4. Set the environment variable: `export DEFAULT_MUST_GATHER_IMAGE='quay.io/openshift/origin-must-gather:latest'`
 5. Run with operator-sdk: `OPERATOR_NAME=must-gather-operator operator-sdk run --verbose --local --namespace ''`
@@ -73,9 +73,10 @@ oc apply -f ./test/must-gather.yaml
 
 **Controller** (`controllers/mustgather/mustgather_controller.go`):
 - Main reconciliation loop that manages MustGather lifecycle
-- Creates Kubernetes Jobs with two containers: gather and upload
-- Handles finalizers for proper cleanup of secrets, jobs, and pods
-- Automatic garbage collection ~6 hours after completion
+- Creates Kubernetes Jobs with a gather container and a conditional upload container (added only when uploadTarget is configured)
+- Handles finalizers for proper cleanup of jobs, pods, and trusted CA ConfigMaps
+- Cleanup runs in the same reconciliation after Job success or failure when `retainResourcesOnCompletion` is unset or false
+- On CR deletion, the finalizer performs this cleanup only when retention is disabled
 - Uses predicates to filter events (only reconciles on generation or finalizer changes)
 
 **Job Template** (`controllers/mustgather/template.go`):
