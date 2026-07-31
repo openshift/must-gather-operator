@@ -21,7 +21,7 @@ spec:
 This request will collect the standard must-gather info and upload it to case `#02527285` using the credentials found in the `caseManagementCreds` secret.
 
 ## Collecting Audit logs
-The field `audit` is **false** by default unless explicetely set to **true**.
+The field `audit` is **false** by default unless explicitly set to **true**.
 This will generate the default collection of audit logs as per [the collection script: gather_audit_logs](https://github.com/openshift/must-gather/blob/master/collection-scripts/gather_audit_logs)
 ```yaml
 apiVersion: operator.openshift.io/v1
@@ -58,6 +58,84 @@ Existing `v1alpha1` MustGather CRs continue to work — the CRD serves both vers
 
 MustGather instances are cleaned up by the Must Gather operator about 6 hours after completion, regardless of whether they were successful.
 This is a way to prevent the accumulation of unwanted MustGather resources and their corresponding job resources.
+
+## Tech Stack
+
+| Component | Version / Detail |
+|---|---|
+| Language | Go 1.25.7 |
+| Framework | [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime) v0.21.0 |
+| Kubernetes client | client-go v0.33.3 |
+| Testing | [Ginkgo](https://github.com/onsi/ginkgo) v2 / [Gomega](https://github.com/onsi/gomega) v1.36 |
+| Metrics | [Prometheus client_golang](https://github.com/prometheus/client_golang) v1.22, [operator-custom-metrics](https://github.com/openshift/operator-custom-metrics) |
+| SFTP | [pkg/sftp](https://github.com/pkg/sftp) v1.13 |
+| Build system | Makefile with [openshift-eng boilerplate](boilerplate/) |
+| FIPS | Enabled by default (BoringCrypto) |
+
+## Project Structure
+
+```text
+must-gather-operator/
+├── api/v1alpha1/          # MustGather CRD types and generated code
+├── controllers/mustgather/ # Reconciler, Job template, predicates
+├── build/bin/             # Upload shell script (compress + SFTP)
+├── config/                # Operator constants, metadata, templates
+├── deploy/                # Deployment manifests and CRD YAML
+│   └── crds/              # CRD definition
+├── pkg/
+│   ├── k8sutil/           # Namespace detection utility
+│   ├── localmetrics/      # Prometheus metrics definitions
+│   └── mustgatherutil/    # Must-gather helper utilities
+├── test/
+│   ├── e2e/               # End-to-end tests (Ginkgo, -tags e2e)
+│   └── library/           # Test helper library
+├── bundle/                # OLM bundle manifests
+├── hack/                  # Release and OLM registry tooling
+├── examples/              # Example CRs and supporting resources
+├── scripts/               # Build scripts
+├── boilerplate/           # openshift-eng boilerplate convention system
+├── main.go                # Operator entrypoint
+└── Makefile               # Build targets (delegates to boilerplate)
+```
+
+## Building and Testing
+
+This project uses the openshift-eng boilerplate Makefile system.
+
+```shell
+# Build, run tests, and lint (default target)
+make
+
+# Run unit tests only
+make go-test
+
+# Build the operator binary
+make go-build
+
+# Run end-to-end tests (requires a running cluster)
+make test-e2e
+
+# Generate deepcopy, OpenAPI, and CRD code
+make generate
+
+# Generate CRD and RBAC manifests
+make manifests
+
+# Run linting
+make lint
+
+# Build container image
+make docker-build
+
+# Push container image
+make docker-push
+
+# Build and push in one step
+make build-push
+
+# Update boilerplate
+make boilerplate-update
+```
 
 ## Deploying the Operator
 
@@ -105,3 +183,19 @@ oc new-project must-gather-operator
 export DEFAULT_MUST_GATHER_IMAGE='quay.io/openshift/origin-must-gather:latest'
 OPERATOR_NAME=must-gather-operator operator-sdk run --verbose --local --namespace ''
 ```
+
+## Further Documentation
+
+- [AGENTS.md](AGENTS.md) -- Component overview, architecture, reconciliation flow, and AI agent guidance
+- [ai-docs/](ai-docs/) -- Domain model, architectural decisions (ADRs), development and testing guides
+
+### Development Guidelines
+
+The `docs/` directory contains guidelines for contributors:
+
+- [API Contracts](docs/api-contracts-guidelines.md)
+- [Error Handling](docs/error-handling-guidelines.md)
+- [Integration](docs/integration-guidelines.md)
+- [Performance](docs/performance-guidelines.md)
+- [Security](docs/security-guidelines.md)
+- [Testing](docs/testing-guidelines.md)
