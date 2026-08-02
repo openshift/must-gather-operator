@@ -175,7 +175,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		}
 	}
 
-	if cmName := obfuscateConfigMapRefName(instance); cmName != "" {
+	if cmName := getObfuscateConfigMapRefName(instance.Spec.Obfuscate); cmName != "" {
 		cm := &corev1.ConfigMap{}
 		if err := r.GetClient().Get(ctx, types.NamespacedName{
 			Name: cmName, Namespace: instance.Namespace,
@@ -683,12 +683,5 @@ func (r *MustGatherReconciler) cleanupTrustedCAConfigMap(ctx context.Context, re
 	reqLogger.V(4).Info("removed ownerReference from trustedCA ConfigMap",
 		"configMapName", r.TrustedCAConfigMap, "remainingNumOwners", len(updatedOwnerRefs))
 	return nil
-}
-
-func obfuscateConfigMapRefName(instance *mustgatherv1alpha1.MustGather) string {
-	if instance.Spec.Obfuscate == nil || instance.Spec.Obfuscate.ObfuscationConfigRef == nil {
-		return ""
-	}
-	return instance.Spec.Obfuscate.ObfuscationConfigRef.Name
 }
 

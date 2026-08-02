@@ -1013,14 +1013,14 @@ func Test_obfuscateHelpers(t *testing.T) {
 		}
 	})
 
-	t.Run("obfuscateConfigMapName", func(t *testing.T) {
-		if obfuscateConfigMapName(nil) != "" {
+	t.Run("getObfuscateConfigMapRefName", func(t *testing.T) {
+		if getObfuscateConfigMapRefName(nil) != "" {
 			t.Fatal("expected empty for nil")
 		}
 		ref := &mustgatherv1alpha1.ObfuscateConfig{
 			ObfuscationConfigRef: &v1.LocalObjectReference{Name: "my-config"},
 		}
-		if obfuscateConfigMapName(ref) != "my-config" {
+		if getObfuscateConfigMapRefName(ref) != "my-config" {
 			t.Fatal("expected my-config")
 		}
 	})

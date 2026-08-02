@@ -92,7 +92,7 @@ func hasSFTPUpload(mustGather v1alpha1.MustGather) bool {
 	return s != nil && s.CaseID != "" && s.CaseManagementAccountSecretRef.Name != ""
 }
 
-func sftpSpec(mustGather v1alpha1.MustGather) *v1alpha1.SFTPSpec {
+func getSftpSpec(mustGather v1alpha1.MustGather) *v1alpha1.SFTPSpec {
 	if !hasSFTPUpload(mustGather) {
 		return nil
 	}
@@ -103,7 +103,7 @@ func shouldAddUploadContainer(mustGather v1alpha1.MustGather) bool {
 	return isObfuscateEnabled(mustGather.Spec.Obfuscate) || hasSFTPUpload(mustGather)
 }
 
-func obfuscateConfigMapName(obfuscate *v1alpha1.ObfuscateConfig) string {
+func getObfuscateConfigMapRefName(obfuscate *v1alpha1.ObfuscateConfig) string {
 	if obfuscate != nil && obfuscate.ObfuscationConfigRef != nil {
 		return obfuscate.ObfuscationConfigRef.Name
 	}
@@ -185,7 +185,7 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 				httpsProxy,
 				noProxy,
 				trustedCAConfigMapName != "",
-				sftpSpec(mustGather),
+				getSftpSpec(mustGather),
 				mustGather.Spec.Obfuscate,
 				directoryName,
 			),
@@ -245,13 +245,13 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 		})
 	}
 
-	if obfuscateConfigMapName(obfuscate) != "" {
+	if getObfuscateConfigMapRefName(obfuscate) != "" {
 		volumes = append(volumes, corev1.Volume{
 			Name: obfuscateConfigVolumeName,
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: obfuscateConfigMapName(obfuscate),
+						Name: getObfuscateConfigMapRefName(obfuscate),
 					},
 				},
 			},
@@ -443,7 +443,7 @@ func getUploadContainer(
 		})
 	}
 
-	if obfuscateConfigMapName(obfuscate) != "" {
+	if getObfuscateConfigMapRefName(obfuscate) != "" {
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name:      obfuscateConfigVolumeName,
 			MountPath: obfuscateConfigMountPath,
@@ -503,7 +503,7 @@ func getUploadContainer(
 			Value: "true",
 		})
 	}
-	if obfuscateConfigMapName(obfuscate) != "" {
+	if getObfuscateConfigMapRefName(obfuscate) != "" {
 		env = append(env, corev1.EnvVar{
 			Name:  obfuscateEnvConfig,
 			Value: obfuscateConfigMountPath,
