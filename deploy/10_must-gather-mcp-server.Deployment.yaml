@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: must-gather-mcp
+  namespace: must-gather-operator
+  labels:
+    app: must-gather-mcp
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: must-gather-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: must-gather-mcp
+  template:
+    metadata:
+      labels:
+        app: must-gather-mcp
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - preference:
+                matchExpressions:
+                  - key: node-role.kubernetes.io/infra
+                    operator: Exists
+              weight: 1
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/infra
+          operator: Exists
+      serviceAccountName: must-gather-operator
+      containers:
+        - name: mcp-server
+          image: quay.io/openshift/origin-kubernetes-mcp-server:latest
+          args:
+            - "--port"
+            - "8080"
+            - "--toolsets"
+            - "openshift/mustgather"
+            - "--cluster-provider"
+            - "disabled"
+            - "--stateless"
+          ports:
+            - containerPort: 8080
+              name: mcp
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            limits:
+              memory: "512Mi"
+              cpu: "200m"
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+          volumeMounts:
+            - name: must-gather-data
+              mountPath: /data
+              readOnly: true
+      volumes:
+        - name: must-gather-data
+          persistentVolumeClaim:
+            claimName: must-gather-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: must-gather-mcp
+  namespace: must-gather-operator
+  labels:
+    app: must-gather-mcp
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: must-gather-operator
+spec:
+  selector:
+    app: must-gather-mcp
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: mcp

@@ -29,7 +29,7 @@ rules:
       - services/finalizers
     verbs:
       - "*"
-  # replicasets/deployments
+  # replicasets/deployments (MCP server lifecycle management)
   - apiGroups:
       - "apps"
     resources:
@@ -38,6 +38,10 @@ rules:
     verbs:
       - "get"
       - "list"
+      - "watch"
+      - "create"
+      - "update"
+      - "patch"
   # metrics
   - apiGroups:
       - monitoring.coreos.com

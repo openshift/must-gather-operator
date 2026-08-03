@@ -322,6 +322,21 @@ func (r *MustGatherReconciler) handleJobCompletion(ctx context.Context, reqLogge
 	// Proposal creation is best-effort: failures are logged but do not
 	// block MustGather completion or resource cleanup.
 	if status == "Completed" {
+		if err := r.ensureMCPServer(ctx, instance); err != nil {
+			if goerror.Is(err, errMCPServerBusy) {
+				// Another MustGather's analysis is still reading from the
+				// shared MCP server's PVC. Defer everything below (proposal
+				// creation AND resource cleanup) and retry later — deleting
+				// the Job/Pod now would make resolveMustGatherDataPath fail
+				// on retry, and creating the Proposal now would race the
+				// PVC swap that hasn't happened yet.
+				reqLogger.Info("shared MCP server busy — deferring proposal creation and cleanup",
+					"mustgather", instance.Name)
+				return reconcile.Result{RequeueAfter: mcpServerBusyRequeueInterval}, nil
+			}
+			reqLogger.Error(err, "failed to ensure MCP server — continuing with proposal creation",
+				"mustgather", instance.Name)
+		}
 		if err := r.createIntelliAideProposal(ctx, instance); err != nil {
 			reqLogger.Error(err, "failed to create IntelliAide proposal — continuing with cleanup",
 				"mustgather", instance.Name)

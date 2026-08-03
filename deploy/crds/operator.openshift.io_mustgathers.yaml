@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.20.0
+    controller-gen.kubebuilder.io/version: v0.17.0
   name: mustgathers.operator.openshift.io
 spec:
   group: operator.openshift.io
@@ -39,6 +39,14 @@ spec:
           spec:
             description: MustGatherSpec defines the desired state of MustGather
             properties:
+              agenticDebuggingEnabled:
+                default: false
+                description: |-
+                  AgenticDebuggingEnabled, when true, automatically creates a Lightspeed
+                  Proposal CR for agentic root-cause analysis after a successful
+                  must-gather collection. Requires storage to be configured (PVC) so the
+                  shared MCP server can serve the collected data to the analysis agent.
+                type: boolean
               gatherSpec:
                 description: |-
                   GatherSpec allows overriding the command and/or arguments for the must-gather container
@@ -100,14 +108,6 @@ spec:
                 - name
                 - tag
                 type: object
-              agenticDebuggingEnabled:
-                default: false
-                description: |-
-                  AgenticDebuggingEnabled, when true, automatically creates a Lightspeed
-                  Proposal CR for agentic root-cause analysis after a successful
-                  must-gather collection. Requires spec.storage to be set so the
-                  collected data persists in a PVC for the agent to read.
-                type: boolean
               mustGatherTimeout:
                 description: |-
                   A time limit for gather command to complete a floating point number with a suffix:
@@ -244,9 +244,10 @@ spec:
               rule: '!(!has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.command)
                 && size(self.gatherSpec.command) > 0 && has(self.gatherSpec.audit)
                 && self.gatherSpec.audit)'
-            - message: spec.storage is required when agenticDebuggingEnabled is true
-              rule: '!has(self.agenticDebuggingEnabled) || !self.agenticDebuggingEnabled
-                || has(self.storage)'
+            - message: storage is required when agenticDebuggingEnabled is true (MCP
+                server needs PVC-backed data)
+              rule: '!(has(self.agenticDebuggingEnabled) && self.agenticDebuggingEnabled
+                && !has(self.storage))'
           status:
             description: MustGatherStatus defines the observed state of MustGather
             properties:

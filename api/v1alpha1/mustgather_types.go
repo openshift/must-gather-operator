@@ -27,7 +27,7 @@ import (
 // MustGatherSpec defines the desired state of MustGather
 // +kubebuilder:validation:XValidation:rule="!(has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.audit) && self.gatherSpec.audit)",message="audit cannot be enabled when using a custom image (imageStreamRef)"
 // +kubebuilder:validation:XValidation:rule="!(!has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0 && has(self.gatherSpec.audit) && self.gatherSpec.audit)",message="audit cannot be enabled when gatherSpec.command is set with the default must-gather image"
-// +kubebuilder:validation:XValidation:rule="!has(self.agenticDebuggingEnabled) || !self.agenticDebuggingEnabled || has(self.storage)",message="spec.storage is required when agenticDebuggingEnabled is true"
+// +kubebuilder:validation:XValidation:rule="!(has(self.agenticDebuggingEnabled) && self.agenticDebuggingEnabled && !has(self.storage))",message="storage is required when agenticDebuggingEnabled is true (MCP server needs PVC-backed data)"
 type MustGatherSpec struct {
 	// the service account to use to run the must gather job pod, defaults to default
 	// +kubebuilder:validation:Optional
@@ -71,8 +71,8 @@ type MustGatherSpec struct {
 
 	// AgenticDebuggingEnabled, when true, automatically creates a Lightspeed
 	// Proposal CR for agentic root-cause analysis after a successful
-	// must-gather collection. Requires spec.storage to be set so the
-	// collected data persists in a PVC for the agent to read.
+	// must-gather collection. Requires storage to be configured (PVC) so the
+	// shared MCP server can serve the collected data to the analysis agent.
 	// +kubebuilder:default:=false
 	// +optional
 	AgenticDebuggingEnabled *bool `json:"agenticDebuggingEnabled,omitempty"`
