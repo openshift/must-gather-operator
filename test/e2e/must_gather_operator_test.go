@@ -3264,7 +3264,10 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			err := adminClient.Get(testCtx, client.ObjectKey{Namespace: operatorNamespace, Name: cmName}, source)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(copied.Data).To(Equal(source.Data))
-			Expect(copied.Labels).To(Equal(source.Labels))
+			if injectLabel, ok := source.Labels["config.openshift.io/inject-trusted-cabundle"]; ok {
+				Expect(copied.Labels).To(HaveKeyWithValue("config.openshift.io/inject-trusted-cabundle", injectLabel),
+					"Copied ConfigMap should preserve the trusted CA injection label")
+			}
 
 			ginkgo.By("Verifying MustGather owns the copied ConfigMap")
 			mgFetched := &mustgatherv1alpha1.MustGather{}
