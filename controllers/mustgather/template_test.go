@@ -792,7 +792,7 @@ func Test_getJobTemplate_GatherObfuscatePVC(t *testing.T) {
 				t.Fatalf("expected %s=true, got %q", obfuscateEnvEnabled, uploadEnv[obfuscateEnvEnabled])
 			}
 
-			// Upload volume should be backed by PVC
+			// Upload volume should stay emptyDir (PVC is mounted via the output volume)
 			var uploadVol *v1.Volume
 			for i := range job.Spec.Template.Spec.Volumes {
 				if job.Spec.Template.Spec.Volumes[i].Name == uploadVolumeName {
@@ -803,24 +803,23 @@ func Test_getJobTemplate_GatherObfuscatePVC(t *testing.T) {
 			if uploadVol == nil {
 				t.Fatalf("expected upload volume %q", uploadVolumeName)
 			}
-			if uploadVol.PersistentVolumeClaim == nil {
-				t.Fatalf("expected upload volume to be backed by PVC, got emptyDir")
-			}
-			if uploadVol.PersistentVolumeClaim.ClaimName != tt.storage.PersistentVolume.Claim.Name {
-				t.Fatalf("expected upload volume PVC claim %q, got %q",
-					tt.storage.PersistentVolume.Claim.Name, uploadVol.PersistentVolumeClaim.ClaimName)
+			if uploadVol.EmptyDir == nil {
+				t.Fatalf("expected upload volume to be emptyDir (PVC reuse is via mount, not volume)")
 			}
 
-			// Upload mount should have SubPath = {subPath}/{directoryName}/cleaned
+			// Upload mount should reference the output volume (PVC-backed) with correct SubPath
 			var uploadMount *v1.VolumeMount
 			for i := range upload.VolumeMounts {
-				if upload.VolumeMounts[i].Name == uploadVolumeName {
+				if upload.VolumeMounts[i].MountPath == volumeUploadMountPath {
 					uploadMount = &upload.VolumeMounts[i]
 					break
 				}
 			}
 			if uploadMount == nil {
-				t.Fatalf("expected upload volume mount %q", uploadVolumeName)
+				t.Fatalf("expected upload mount at %q", volumeUploadMountPath)
+			}
+			if uploadMount.Name != outputVolumeName {
+				t.Fatalf("expected upload mount to reference %q (PVC-backed), got %q", outputVolumeName, uploadMount.Name)
 			}
 			base := strings.Trim(strings.TrimSpace(tt.subPath), "/")
 			wantSubPath := path.Join(base, directoryName)
@@ -868,7 +867,7 @@ func Test_getJobTemplate_ObfuscateSourceSkipsGather(t *testing.T) {
 	// Upload container must be present
 	upload := findUploadContainerInJob(t, job)
 
-	// Output volume should be the source PVC (read-only)
+	// Output volume should be the source PVC (read-write for cleaned output)
 	var outputVol *v1.Volume
 	for i := range job.Spec.Template.Spec.Volumes {
 		if job.Spec.Template.Spec.Volumes[i].Name == outputVolumeName {
@@ -882,14 +881,14 @@ func Test_getJobTemplate_ObfuscateSourceSkipsGather(t *testing.T) {
 	if outputVol.PersistentVolumeClaim.ClaimName != "existing-pvc" {
 		t.Fatalf("expected output volume PVC claim %q, got %q", "existing-pvc", outputVol.PersistentVolumeClaim.ClaimName)
 	}
-	if !outputVol.PersistentVolumeClaim.ReadOnly {
-		t.Fatalf("expected source PVC to be mounted read-only")
+	if outputVol.PersistentVolumeClaim.ReadOnly {
+		t.Fatalf("expected source PVC to be mounted read-write (cleaned output written back)")
 	}
 
-	// Output mount should have SubPath from source and be read-only
+	// Output mount should have SubPath from source
 	var outputMount *v1.VolumeMount
 	for i := range upload.VolumeMounts {
-		if upload.VolumeMounts[i].Name == outputVolumeName {
+		if upload.VolumeMounts[i].Name == outputVolumeName && upload.VolumeMounts[i].MountPath == volumeMountPath {
 			outputMount = &upload.VolumeMounts[i]
 			break
 		}
@@ -897,11 +896,26 @@ func Test_getJobTemplate_ObfuscateSourceSkipsGather(t *testing.T) {
 	if outputMount == nil {
 		t.Fatalf("expected output volume mount")
 	}
-	if !outputMount.ReadOnly {
-		t.Fatalf("expected output mount to be read-only")
-	}
 	if outputMount.SubPath != "bundles/run-1" {
 		t.Fatalf("expected output mount SubPath %q, got %q", "bundles/run-1", outputMount.SubPath)
+	}
+
+	// Upload mount should reuse the output volume (same source PVC)
+	var uploadMount *v1.VolumeMount
+	for i := range upload.VolumeMounts {
+		if upload.VolumeMounts[i].MountPath == volumeUploadMountPath {
+			uploadMount = &upload.VolumeMounts[i]
+			break
+		}
+	}
+	if uploadMount == nil {
+		t.Fatalf("expected upload mount at %q", volumeUploadMountPath)
+	}
+	if uploadMount.Name != outputVolumeName {
+		t.Fatalf("expected upload mount to reference %q (same source PVC), got %q", outputVolumeName, uploadMount.Name)
+	}
+	if uploadMount.SubPath != "bundles/run-1" {
+		t.Fatalf("expected upload mount SubPath %q (same as source), got %q", "bundles/run-1", uploadMount.SubPath)
 	}
 
 	// Upload command should be direct (no gather polling)
@@ -911,20 +925,14 @@ func Test_getJobTemplate_ObfuscateSourceSkipsGather(t *testing.T) {
 	}
 }
 
-func Test_getJobTemplate_ObfuscateSourceWithStorage(t *testing.T) {
+func Test_getJobTemplate_ObfuscateSourceNoStorage(t *testing.T) {
 	t.Setenv(DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
 
+	// Source-only mode: no storage needed, cleaned output goes back to source PVC.
 	mg := mustgatherv1alpha1.MustGather{
 		ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
 		Spec: mustgatherv1alpha1.MustGatherSpec{
 			ServiceAccountName: "default",
-			Storage: &mustgatherv1alpha1.Storage{
-				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "output-pvc"},
-					SubPath: "results",
-				},
-			},
 			Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
 				Enabled: ToPtr(true),
 				Source: &mustgatherv1alpha1.PersistentVolumeConfig{
@@ -937,6 +945,8 @@ func Test_getJobTemplate_ObfuscateSourceWithStorage(t *testing.T) {
 
 	job := getJobTemplate("img", "operator-image", mg, "", "dir-name")
 
+	// Upload volume should be emptyDir (not PVC-backed) since source PVC is
+	// accessed via the output volume.
 	var uploadVol *v1.Volume
 	for i := range job.Spec.Template.Spec.Volumes {
 		if job.Spec.Template.Spec.Volumes[i].Name == uploadVolumeName {
@@ -944,26 +954,28 @@ func Test_getJobTemplate_ObfuscateSourceWithStorage(t *testing.T) {
 			break
 		}
 	}
-	if uploadVol == nil || uploadVol.PersistentVolumeClaim == nil {
-		t.Fatalf("upload volume must be backed by storage PVC when source+storage are both set")
-	}
-	if uploadVol.PersistentVolumeClaim.ClaimName != "output-pvc" {
-		t.Fatalf("upload volume PVC claim = %q, want %q", uploadVol.PersistentVolumeClaim.ClaimName, "output-pvc")
+	if uploadVol == nil || uploadVol.EmptyDir == nil {
+		t.Fatalf("upload volume should be emptyDir when source mode reuses the output volume")
 	}
 
 	upload := findUploadContainerInJob(t, job)
+
+	// Upload mount should reuse the output volume (same source PVC)
 	var uploadMount *v1.VolumeMount
 	for i := range upload.VolumeMounts {
-		if upload.VolumeMounts[i].Name == uploadVolumeName {
+		if upload.VolumeMounts[i].MountPath == volumeUploadMountPath {
 			uploadMount = &upload.VolumeMounts[i]
 			break
 		}
 	}
 	if uploadMount == nil {
-		t.Fatalf("upload container must mount the upload volume")
+		t.Fatalf("upload container must mount at %q", volumeUploadMountPath)
 	}
-	if uploadMount.SubPath != "results/dir-name" {
-		t.Fatalf("upload mount SubPath = %q, want %q", uploadMount.SubPath, "results/dir-name")
+	if uploadMount.Name != outputVolumeName {
+		t.Fatalf("upload mount should reference %q (source PVC), got %q", outputVolumeName, uploadMount.Name)
+	}
+	if uploadMount.SubPath != "bundles/run-1" {
+		t.Fatalf("upload mount SubPath = %q, want %q (same as source subPath)", uploadMount.SubPath, "bundles/run-1")
 	}
 }
 

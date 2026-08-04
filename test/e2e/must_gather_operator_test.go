@@ -3669,11 +3669,13 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			Expect(err.Error()).To(ContainSubstring("obfuscate.source requires obfuscate.enabled"))
 		})
 
-		ginkgo.It("should reject obfuscate.source without storage or uploadTarget", func() {
+		ginkgo.It("should accept obfuscate.source without storage or uploadTarget", func() {
+			mgName := fmt.Sprintf("obf-val-src-only-%d", time.Now().UnixNano())
 			mg := &mustgatherv1alpha1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      fmt.Sprintf("obf-val-src-no-persist-%d", time.Now().UnixNano()),
+					Name:      mgName,
 					Namespace: ns.Name,
+					Labels:    map[string]string{"test": nonAdminLabel},
 				},
 				Spec: mustgatherv1alpha1.MustGatherSpec{
 					ServiceAccountName: serviceAccount,
@@ -3686,8 +3688,9 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				},
 			}
 			err := nonAdminClient.Create(testCtx, mg)
-			Expect(err).To(HaveOccurred(), "API should reject obfuscate.source without persistence")
-			Expect(err.Error()).To(ContainSubstring("obfuscate.source requires uploadTarget or storage"))
+			Expect(err).NotTo(HaveOccurred(),
+				"API should accept obfuscate.source without storage (cleaned output goes back to source PVC)")
+			defer func() { _ = nonAdminClient.Delete(testCtx, mg) }()
 		})
 
 		ginkgo.It("should reject obfuscate.source combined with imageStreamRef", func() {
@@ -4113,28 +4116,25 @@ echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/clean
 
 		ginkgo.It("should skip gather container when obfuscate.source is set", func() {
 			sourcePVCName := fmt.Sprintf("obf-src-pvc-%d", time.Now().UnixNano()%100000)
-			outputPVCName := fmt.Sprintf("obf-out-pvc-%d", time.Now().UnixNano()%100000)
 
-			for _, pvcName := range []string{sourcePVCName, outputPVCName} {
-				pvc := &corev1.PersistentVolumeClaim{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      pvcName,
-						Namespace: ns.Name,
-						Labels:    map[string]string{"test": nonAdminLabel},
-					},
-					Spec: corev1.PersistentVolumeClaimSpec{
-						AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-						Resources: corev1.VolumeResourceRequirements{
-							Requests: corev1.ResourceList{
-								corev1.ResourceStorage: resource.MustParse("1Gi"),
-							},
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      sourcePVCName,
+					Namespace: ns.Name,
+					Labels:    map[string]string{"test": nonAdminLabel},
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+					Resources: corev1.VolumeResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceStorage: resource.MustParse("1Gi"),
 						},
 					},
-				}
-				err := nonAdminClient.Create(testCtx, pvc)
-				Expect(err).NotTo(HaveOccurred())
-				defer func(p *corev1.PersistentVolumeClaim) { _ = nonAdminClient.Delete(testCtx, p) }(pvc)
+				},
 			}
+			err := nonAdminClient.Create(testCtx, pvc)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = nonAdminClient.Delete(testCtx, pvc) }()
 
 			mgName := fmt.Sprintf("obf-source-%d", time.Now().UnixNano()%100000)
 			mg := &mustgatherv1alpha1.MustGather{
@@ -4146,12 +4146,6 @@ echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/clean
 				Spec: mustgatherv1alpha1.MustGatherSpec{
 					ServiceAccountName:          serviceAccount,
 					RetainResourcesOnCompletion: func() *bool { b := true; return &b }(),
-					Storage: &mustgatherv1alpha1.Storage{
-						Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-						PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-							Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: outputPVCName},
-						},
-					},
 					Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
 						Enabled: func() *bool { b := true; return &b }(),
 						Source: &mustgatherv1alpha1.PersistentVolumeConfig{
@@ -4160,8 +4154,8 @@ echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/clean
 					},
 				},
 			}
-			err := nonAdminClient.Create(testCtx, mg)
-			Expect(err).NotTo(HaveOccurred(), "Creating obfuscate-source MustGather CR should succeed")
+			err = nonAdminClient.Create(testCtx, mg)
+			Expect(err).NotTo(HaveOccurred(), "Creating obfuscate-source MustGather CR should succeed (no storage needed)")
 			defer func() {
 				_ = nonAdminClient.Delete(testCtx, mg)
 				Eventually(func() bool {
@@ -4197,25 +4191,25 @@ echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/clean
 			}
 			Expect(foundUpload).To(BeTrue(), "Upload container should be present in obfuscate-source mode")
 
-			ginkgo.By("Verifying source PVC is mounted on output volume")
-			var foundSourceMount bool
+			ginkgo.By("Verifying source PVC is mounted read-write on output volume")
+			var foundSourceVol bool
 			for _, v := range job.Spec.Template.Spec.Volumes {
 				if v.Name == outputVolumeName && v.PersistentVolumeClaim != nil {
 					Expect(v.PersistentVolumeClaim.ClaimName).To(Equal(sourcePVCName))
-					foundSourceMount = true
+					Expect(v.PersistentVolumeClaim.ReadOnly).To(BeFalse(),
+						"Source PVC should be mounted read-write (cleaned output goes back to it)")
+					foundSourceVol = true
 				}
 			}
-			Expect(foundSourceMount).To(BeTrue(),
+			Expect(foundSourceVol).To(BeTrue(),
 				"Output volume should use the source PVC in obfuscate-source mode")
 
-			ginkgo.By("Verifying upload volume is backed by storage PVC (not emptyDir)")
+			ginkgo.By("Verifying upload volume is emptyDir (single PVC via output volume)")
 			var foundUploadVol bool
 			for _, v := range job.Spec.Template.Spec.Volumes {
 				if v.Name == uploadVolumeName {
-					Expect(v.PersistentVolumeClaim).NotTo(BeNil(),
-						"Upload volume must be backed by storage PVC so cleaned output persists")
-					Expect(v.PersistentVolumeClaim.ClaimName).To(Equal(outputPVCName),
-						"Upload volume PVC should be the storage PVC")
+					Expect(v.EmptyDir).NotTo(BeNil(),
+						"Upload volume should be emptyDir when source PVC reuse is via mount")
 					foundUploadVol = true
 				}
 			}
