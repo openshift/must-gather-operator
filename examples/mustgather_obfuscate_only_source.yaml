@@ -1,12 +1,18 @@
-# Mode: Obfuscate Only (existing bundle on PVC, no gather)
-# The cleaned output (cleaned/ directory) is written back to the same source PVC.
-# No separate storage PVC is needed.
+# Mode: Obfuscate + Upload (existing bundle on PVC, no gather)
+# The source PVC is mounted read-only. Obfuscated output goes to a temporary
+# volume and is uploaded via SFTP. Requires uploadTarget.
 apiVersion: operator.openshift.io/v1alpha1
 kind: MustGather
 metadata:
   name: obfuscate-existing-bundle
 spec:
   serviceAccountName: must-gather-admin
+  uploadTarget:
+    type: SFTP
+    sftp:
+      caseID: "01234567"
+      caseManagementAccountSecretRef:
+        name: case-management-creds
   obfuscate:
     enabled: true
     obfuscationConfigRef:

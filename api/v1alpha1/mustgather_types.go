@@ -29,6 +29,7 @@ import (
 // +kubebuilder:validation:XValidation:rule="!(!has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0 && has(self.gatherSpec.audit) && self.gatherSpec.audit)",message="audit mode cannot be combined with custom gather commands"
 // +kubebuilder:validation:XValidation:rule="!(has(self.obfuscate) && has(self.obfuscate.enabled) && self.obfuscate.enabled && !(has(self.uploadTarget) || has(self.obfuscate.source) || has(self.storage)))",message="obfuscate.enabled requires uploadTarget, obfuscate.source, or storage"
 // +kubebuilder:validation:XValidation:rule="!(has(self.obfuscate) && has(self.obfuscate.source) && (!has(self.obfuscate.enabled) || !self.obfuscate.enabled))",message="obfuscate.source requires obfuscate.enabled"
+// +kubebuilder:validation:XValidation:rule="!(has(self.obfuscate) && has(self.obfuscate.source) && !has(self.uploadTarget))",message="obfuscate.source requires uploadTarget (obfuscated output is uploaded, not persisted on PVC)"
 // +kubebuilder:validation:XValidation:rule="!(has(self.obfuscate) && has(self.obfuscate.source) && (has(self.imageStreamRef) || (has(self.gatherSpec) && (has(self.gatherSpec.command) || has(self.gatherSpec.audit) && self.gatherSpec.audit))))",message="obfuscate.source cannot be combined with imageStreamRef or gatherSpec.command/audit (gather is skipped)"
 type MustGatherSpec struct {
 	// ServiceAccountName is the name of the ServiceAccount to use for running the must-gather Job.
@@ -80,8 +81,7 @@ type MustGatherSpec struct {
 	// Supported operational modes:
 	//   - Gather + Obfuscate + Upload: enabled with uploadTarget (full pipeline)
 	//   - Gather + Obfuscate + PVC: enabled with storage (cleaned output persisted, no upload)
-	//   - Obfuscate Only: enabled with source (cleaned output written back to source PVC)
-	//   - Obfuscate + Upload: enabled with source and uploadTarget (redact and upload)
+	//   - Obfuscate + Upload: enabled with source and uploadTarget (redact existing bundle and upload)
 	// +optional
 	Obfuscate *ObfuscateConfig `json:"obfuscate,omitempty"`
 }
@@ -245,9 +245,9 @@ type ObfuscateConfig struct {
 	// source references an existing must-gather bundle on a PVC
 	// for obfuscation without running a new gather.
 	// When set, the operator skips the gather step and runs obfuscation
-	// directly on the referenced PVC contents. The obfuscated output
-	// (cleaned/ directory) is written back to the same source PVC.
-	// If uploadTarget is also specified, the cleaned output is uploaded via SFTP.
+	// directly on the referenced PVC contents (mounted read-only).
+	// The obfuscated output is written to a temporary volume and uploaded
+	// via SFTP. Requires uploadTarget to be set.
 	// The PVC must be in the same namespace as the MustGather CR.
 	// +optional
 	Source *PersistentVolumeConfig `json:"source,omitempty"`

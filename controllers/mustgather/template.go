@@ -202,11 +202,10 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 	}
 
 	if hasObfuscateSource(obfuscate) {
-		// Source PVC is mounted read-write: the obfuscation output (cleaned/)
-		// is written back to the same PVC alongside the original bundle.
 		outputVolume.VolumeSource = corev1.VolumeSource{
 			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
 				ClaimName: obfuscate.Source.Claim.Name,
+				ReadOnly:  true,
 			},
 		}
 	} else if storage != nil && storage.Type == v1alpha1.StorageTypePersistentVolume {
@@ -404,6 +403,7 @@ func getUploadContainer(
 		Name:      outputVolumeName,
 	}
 	if hasObfuscateSource(obfuscate) {
+		outputMount.ReadOnly = true
 		if subPath := strings.Trim(obfuscate.Source.SubPath, "/"); subPath != "" {
 			outputMount.SubPath = subPath
 		}
@@ -418,24 +418,18 @@ func getUploadContainer(
 		MountPath: volumeUploadMountPath,
 		Name:      uploadVolumeName,
 	}
-	if isObfuscateEnabled(obfuscate) {
-		if hasObfuscateSource(obfuscate) {
-			// Source mode: obfuscation output (cleaned/) goes back to the
-			// same source PVC. Reuse the output volume to avoid a second
-			// PVC Volume entry.
-			uploadMount.Name = outputVolumeName
-			if subPath := strings.Trim(obfuscate.Source.SubPath, "/"); subPath != "" {
-				uploadMount.SubPath = subPath
-			}
-		} else if storage != nil && storage.Type == v1alpha1.StorageTypePersistentVolume {
-			// Gather mode with PVC: reuse the output volume (already PVC-backed)
-			// for the upload mount instead of creating a duplicate PVC Volume,
-			// which causes CSI multi-attach failures.
-			uploadMount.Name = outputVolumeName
-			base := strings.TrimSpace(storage.PersistentVolume.SubPath)
-			base = strings.Trim(base, "/")
-			uploadMount.SubPath = path.Join(base, directoryName)
-		}
+	// Source mode: upload mount stays on emptyDir. Obfuscation reads from
+	// the source PVC (read-only) and writes cleaned output to emptyDir.
+	// The upload script then tars and uploads from emptyDir.
+	if isObfuscateEnabled(obfuscate) && !hasObfuscateSource(obfuscate) &&
+		storage != nil && storage.Type == v1alpha1.StorageTypePersistentVolume {
+		// Gather mode with PVC: reuse the output volume (already PVC-backed)
+		// for the upload mount instead of creating a duplicate PVC Volume,
+		// which causes CSI multi-attach failures.
+		uploadMount.Name = outputVolumeName
+		base := strings.TrimSpace(storage.PersistentVolume.SubPath)
+		base = strings.Trim(base, "/")
+		uploadMount.SubPath = path.Join(base, directoryName)
 	}
 
 	volumeMounts := []corev1.VolumeMount{outputMount, uploadMount}

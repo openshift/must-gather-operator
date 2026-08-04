@@ -116,8 +116,7 @@ spec:
                   Supported operational modes:
                     - Gather + Obfuscate + Upload: enabled with uploadTarget (full pipeline)
                     - Gather + Obfuscate + PVC: enabled with storage (cleaned output persisted, no upload)
-                    - Obfuscate Only: enabled with source (cleaned output written back to source PVC)
-                    - Obfuscate + Upload: enabled with source and uploadTarget (redact and upload)
+                    - Obfuscate + Upload: enabled with source and uploadTarget (redact existing bundle and upload)
                 properties:
                   enabled:
                     default: false
@@ -151,9 +150,9 @@ spec:
                       source references an existing must-gather bundle on a PVC
                       for obfuscation without running a new gather.
                       When set, the operator skips the gather step and runs obfuscation
-                      directly on the referenced PVC contents. The obfuscated output
-                      (cleaned/ directory) is written back to the same source PVC.
-                      If uploadTarget is also specified, the cleaned output is uploaded via SFTP.
+                      directly on the referenced PVC contents (mounted read-only).
+                      The obfuscated output is written to a temporary volume and uploaded
+                      via SFTP. Requires uploadTarget to be set.
                       The PVC must be in the same namespace as the MustGather CR.
                     properties:
                       claim:
@@ -330,6 +329,9 @@ spec:
             - message: obfuscate.source requires obfuscate.enabled
               rule: '!(has(self.obfuscate) && has(self.obfuscate.source) && (!has(self.obfuscate.enabled)
                 || !self.obfuscate.enabled))'
+            - message: obfuscate.source requires uploadTarget (obfuscated output is
+                uploaded, not persisted on PVC)
+              rule: '!(has(self.obfuscate) && has(self.obfuscate.source) && !has(self.uploadTarget))'
             - message: obfuscate.source cannot be combined with imageStreamRef or
                 gatherSpec.command/audit (gather is skipped)
               rule: '!(has(self.obfuscate) && has(self.obfuscate.source) && (has(self.imageStreamRef)
