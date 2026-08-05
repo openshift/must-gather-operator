@@ -41,7 +41,7 @@ spec:
 
 ## Upgrading from Tech Preview
 
-Starting with release 4.22, the must-gather-operator is Generally Available (GA). The OLM channel has changed from `tech-preview` to `stable` and the API version has been promoted from `operator.openshift.io/v1alpha1` to `operator.openshift.io/v1`.
+Starting with release 5.0, the must-gather-operator is Generally Available (GA). The OLM channel has changed from `tech-preview` to `stable` and the API version has been promoted from `operator.openshift.io/v1alpha1` to `operator.openshift.io/v1`.
 
 If you previously installed the operator via the `tech-preview` channel, update your Subscription to use the `stable` channel:
 
