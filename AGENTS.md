@@ -3,7 +3,7 @@
 **Component**: Must-Gather Operator (MGO)
 **Repository**: openshift/must-gather-operator
 
-> **AI agents**: Read `ai-docs/domain/` first for API types, then `ai-docs/architecture/` for implementation patterns. Check `ai-docs/decisions/` before making architectural changes.
+> **AI agents**: Read `harness-evals/harness-docs/domain/` first for API types, then `harness-evals/harness-docs/architecture/` for implementation patterns. Check `harness-evals/harness-docs/decisions/` before making architectural changes.
 
 > **Platform Patterns**: See [openshift/enhancements/ai-docs/](https://github.com/openshift/enhancements/tree/master/ai-docs/) for operator patterns, testing, security, and cross-repo ADRs.
 
@@ -33,7 +33,7 @@ Automates diagnostic collection on OpenShift clusters. Creates a Kubernetes Job 
 ## Documentation Structure
 
 ```text
-ai-docs/
+harness-evals/harness-docs/
 ├── domain/mustgather.md           # MustGather CRD: fields, validation, lifecycle
 ├── architecture/components.md     # Repo layout, reconciliation flow, Job template, upload
 ├── decisions/
@@ -48,7 +48,7 @@ ai-docs/
 └── MGO_TESTING.md                 # Unit (fake client + interceptClient), E2E (Ginkgo)
 ```
 
-**AI Agent Path**: `ai-docs/domain/` → `ai-docs/architecture/` → `ai-docs/decisions/` → `ai-docs/MGO_DEVELOPMENT.md`
+**AI Agent Path**: `harness-evals/harness-docs/domain/` → `harness-evals/harness-docs/architecture/` → `harness-evals/harness-docs/decisions/` → `harness-evals/harness-docs/MGO_DEVELOPMENT.md`
 
 ## Quick Reference
 
@@ -70,16 +70,16 @@ ai-docs/
                               │
               ┌───────────────┼───────────────┐
               │               │               │
-  [ai-docs/domain/]  [ai-docs/architecture/] [ai-docs/decisions/]
-     MustGather CRD    Reconcile flow          ADR history
-       fields,CEL      Job template             (3 ADRs)
-              │               │               │
-              └───────────────┼───────────────┘
-                              │
-                 [ai-docs/MGO_DEVELOPMENT.md]
-                 [ai-docs/MGO_TESTING.md]
-                              │
-              [ai-docs/references/ecosystem]
+  [harness-docs/domain/]  [harness-docs/architecture/] [harness-docs/decisions/]
+     MustGather CRD         Reconcile flow               ADR history
+       fields,CEL           Job template                  (3 ADRs)
+              │                    │                    │
+              └────────────────────┼────────────────────┘
+                                   │
+                 [harness-docs/MGO_DEVELOPMENT.md]
+                 [harness-docs/MGO_TESTING.md]
+                                   │
+              [harness-docs/references/ecosystem]
                    Links to Platform
 ```
 
