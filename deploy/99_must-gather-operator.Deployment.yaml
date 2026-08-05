@@ -58,3 +58,9 @@ spec:
                   fieldPath: spec.serviceAccountName
             - name: WATCH_NAMESPACE
               value: ""
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
