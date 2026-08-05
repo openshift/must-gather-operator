@@ -65,8 +65,27 @@ if [ -n "${http_proxy}" ] || [ -n "${https_proxy}" ]; then
 fi
 
 
+if [ "${obfuscate}" = "true" ]; then
+  echo "Running obfuscation on $must_gather_output ..."
+  mkdir -p "${must_gather_upload}/cleaned"
+  config_args=()
+  if [ -n "${obfuscate_config}" ]; then
+    config_args=(--config "$obfuscate_config")
+  fi
+  /usr/local/bin/must-gather-operator obfuscate \
+    --input "$must_gather_output" \
+    --output "${must_gather_upload}/cleaned" \
+    "${config_args[@]}" -v=3
+  echo "Obfuscation complete."
+  must_gather_output="${must_gather_upload}/cleaned"
+fi
+
 if [ -z "${caseid}" ] || [ -z "${username}" ] || [ -z "${password}" ];
 then
+  if [ "${obfuscate}" = "true" ] && [ -z "${caseid}" ] && [ -z "${username}" ] && [ -z "${password}" ]; then
+    echo "Obfuscation complete; SFTP credentials not provided — skipping upload."
+    exit 0
+  fi
   echo "Error: Required Parameters have not been provided. Exiting..."
   exit 1
 fi
@@ -101,6 +120,7 @@ fi
 if [ $? -eq 0 ];
 then
   echo "Successfully uploaded '${CSP_FILENAME}' to Red Hat SFTP Server for case ${caseid}!"
+  rm -f "$CSP_FILE" 2>/dev/null || true
 else
   echo "Error: Upload to Red Hat Customer SFTP Server failed."
   exit 1

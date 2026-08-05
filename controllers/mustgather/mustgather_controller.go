@@ -175,6 +175,16 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		}
 	}
 
+	if cmName := getObfuscateConfigMapRefName(instance.Spec.Obfuscate); cmName != "" {
+		cm := &corev1.ConfigMap{}
+		if err := r.GetClient().Get(ctx, types.NamespacedName{
+			Name: cmName, Namespace: instance.Namespace,
+		}, cm); err != nil {
+			reqLogger.Error(err, "obfuscation ConfigMap not found", "configMapName", cmName, "namespace", instance.Namespace)
+			return r.ManageError(ctx, instance, fmt.Errorf("obfuscation ConfigMap %q not found in namespace %q: %w", cmName, instance.Namespace, err))
+		}
+	}
+
 	existingJob := &batchv1.Job{}
 	err = r.GetClient().Get(ctx, types.NamespacedName{
 		Name:      instance.Name,
@@ -674,3 +684,4 @@ func (r *MustGatherReconciler) cleanupTrustedCAConfigMap(ctx context.Context, re
 		"configMapName", r.TrustedCAConfigMap, "remainingNumOwners", len(updatedOwnerRefs))
 	return nil
 }
+

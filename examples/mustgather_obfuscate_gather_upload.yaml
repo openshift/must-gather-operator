@@ -1,0 +1,16 @@
+# Mode 1: Gather + Obfuscate + Upload (built-in default obfuscation config)
+apiVersion: operator.openshift.io/v1alpha1
+kind: MustGather
+metadata:
+  name: obfuscated-gather
+spec:
+  serviceAccountName: must-gather-admin
+  obfuscate:
+    enabled: true
+  uploadTarget:
+    type: SFTP
+    sftp:
+      caseID: '02527285'
+      caseManagementAccountSecretRef:
+        name: case-management-creds
+      internalUser: true
