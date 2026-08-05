@@ -8,11 +8,11 @@ These directories exist in this repository and contain the authoritative compone
 
 | Directory | Purpose |
 |---|---|
-| [ai-docs/domain/](../domain/mustgather.md) | MustGather CRD: fields, validation, lifecycle |
-| [ai-docs/architecture/](../architecture/components.md) | Repo layout, reconciliation flow, Job template, upload |
-| [ai-docs/decisions/](../decisions/) | Architecture Decision Records (ADR-0001 through ADR-0003) |
+| [harness-docs/domain/](../domain/mustgather.md) | MustGather CRD: fields, validation, lifecycle |
+| [harness-docs/architecture/](../architecture/components.md) | Repo layout, reconciliation flow, Job template, upload |
+| [harness-docs/decisions/](../decisions/) | Architecture Decision Records (ADR-0001 through ADR-0003) |
 
-Supplemental references: [CLAUDE.md](../../CLAUDE.md), [README.md](../../README.md).
+Supplemental references: [CLAUDE.md](../../../CLAUDE.md), [README.md](../../../README.md).
 
 ## Operator Patterns
 
@@ -89,10 +89,10 @@ Supplemental references: [CLAUDE.md](../../CLAUDE.md), [README.md](../../README.
 
 **Location**: [openshift/enhancements/ai-docs/decisions/](https://github.com/openshift/enhancements/tree/master/ai-docs/decisions/) *(planned — directory not yet published)*
 
-Component-specific ADRs are in [ai-docs/decisions/](../decisions/).
+Component-specific ADRs are in [harness-docs/decisions/](../decisions/).
 
 ---
 
-**Note**: External links labeled *(planned)* point to directories in the openshift/enhancements ecosystem hub that are not yet published. Component-specific documentation lives in this repository's [ai-docs/domain/](../domain/mustgather.md), [ai-docs/architecture/](../architecture/components.md), and [ai-docs/decisions/](../decisions/) directories.
+**Note**: External links labeled *(planned)* point to directories in the openshift/enhancements ecosystem hub that are not yet published. Component-specific documentation lives in this repository's [harness-docs/domain/](../domain/mustgather.md), [harness-docs/architecture/](../architecture/components.md), and [harness-docs/decisions/](../decisions/) directories.
 
 **Last Updated**: 2026-07-31
