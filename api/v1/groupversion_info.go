@@ -14,7 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1 contains API Schema definitions for the operator v1 API group
+// Package v1 contains API Schema definitions for the operator v1 API group.
+//
+// This package is the GA-promoted copy of api/v1alpha1 (MG-331). The schema
+// is intentionally identical so that Kubernetes performs identity conversion
+// between versions without a conversion webhook. v1 is marked as the storage
+// version; v1alpha1 remains served for backward compatibility but is no
+// longer the storage version.
+//
 // +kubebuilder:object:generate=true
 // +groupName=operator.openshift.io
 package v1

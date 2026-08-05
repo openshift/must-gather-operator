@@ -226,6 +226,7 @@ func (m *MustGather) SetConditions(conditions []metav1.Condition) {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:deprecatedversion:warning="operator.openshift.io/v1alpha1 MustGather is deprecated; use operator.openshift.io/v1 MustGather"
 
 // MustGather is the Schema for the mustgathers API
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec) || self.spec == oldSelf.spec",message="spec values are immutable once set"

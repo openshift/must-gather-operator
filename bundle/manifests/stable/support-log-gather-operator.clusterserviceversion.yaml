@@ -265,3 +265,9 @@ spec:
         name: mustgathers.operator.openshift.io
         description: Represents a must-gather diagnostic collection job
         version: v1
+      - displayName: Must Gather (deprecated)
+        group: operator.openshift.io
+        kind: MustGather
+        name: mustgathers.operator.openshift.io
+        description: Deprecated v1alpha1 version; use operator.openshift.io/v1 instead
+        version: v1alpha1

@@ -320,7 +320,10 @@ spec:
     storage: true
     subresources:
       status: {}
-  - name: v1alpha1
+  - deprecated: true
+    deprecationWarning: operator.openshift.io/v1alpha1 MustGather is deprecated; use
+      operator.openshift.io/v1 MustGather
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: MustGather is the Schema for the mustgathers API
