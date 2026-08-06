@@ -47,7 +47,7 @@ There is exactly **one controller** (`MustGatherReconciler`) managing the full l
 
 ### Registration (`main.go:175-186`)
 
-```
+```text
 Scheme: clientgoscheme + config/v1 + image/v1 + operator.openshift.io/v1alpha1
 Manager: leader election via operator-lib + controller-runtime flag
 Metrics: built-in metrics DISABLED (BindAddress: "0"), custom OSD metrics on :8080
@@ -305,7 +305,7 @@ Request-scoped logger: `reqLogger := log.WithValues("Request.Namespace", ..., "R
 
 ### Credential Handling
 
-Credentials reach the upload container exclusively through `SecretKeyRef` env vars — never volume-mounted files. Secret must contain exactly `username` and `password` keys, both validated non-empty before Job creation.
+Credentials reach the upload container exclusively through `SecretKeyRef` env vars — never volume-mounted files. Secret must contain non-empty `username` and `password` keys, both validated non-empty before Job creation.
 
 ### RBAC Conventions
 

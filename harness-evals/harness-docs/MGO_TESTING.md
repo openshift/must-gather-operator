@@ -59,6 +59,7 @@ type interceptClient struct {
     onDelete func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error
     onUpdate func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error
     onCreate func(ctx context.Context, obj client.Object, opts ...client.CreateOption) error
+    status   client.StatusWriter
 }
 ```
 

@@ -4,7 +4,6 @@
 **Repository**: openshift/must-gather-operator
 
 > **AI agents**: Read `harness-evals/harness-docs/domain/` first for API types, then `harness-evals/harness-docs/architecture/` for implementation patterns. Check `harness-evals/harness-docs/decisions/` before making architectural changes.
-
 > **Platform Patterns**: See [openshift/enhancements/ai-docs/](https://github.com/openshift/enhancements/tree/master/ai-docs/) for operator patterns, testing, security, and cross-repo ADRs.
 
 ## What is Must-Gather Operator?
@@ -48,7 +47,7 @@ harness-evals/harness-docs/
 └── MGO_TESTING.md                 # Unit (fake client + interceptClient), E2E (Ginkgo)
 ```
 
-**AI Agent Path**: `harness-evals/harness-docs/domain/` → `harness-evals/harness-docs/architecture/` → `harness-evals/harness-docs/decisions/` → `harness-evals/harness-docs/MGO_DEVELOPMENT.md`
+**AI Agent Path**: `harness-evals/harness-docs/domain/` → `harness-evals/harness-docs/architecture/` → `harness-evals/harness-docs/decisions/` → `harness-evals/harness-docs/MGO_DEVELOPMENT.md` or `harness-evals/harness-docs/MGO_TESTING.md` (as relevant)
 
 ## Quick Reference
 
