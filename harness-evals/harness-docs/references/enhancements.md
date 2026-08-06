@@ -23,8 +23,11 @@ All proposals live under `enhancements/support-log-gather/` unless noted.
 
 ## Local Design Documents
 
-No dedicated design directories exist in this repo. Architecture context is in:
+Repository design documentation is organized as:
 
+- `harness-docs/domain/` — MustGather CRD: fields, validation, lifecycle
+- `harness-docs/architecture/` — Repo layout, reconciliation flow, Job template, upload
+- `harness-docs/decisions/` — Architecture Decision Records (ADR-0001 through ADR-0003)
 - `CLAUDE.md` — AI-oriented architecture reference
 - `README.md` — Operator purpose, CR format, deployment instructions
 

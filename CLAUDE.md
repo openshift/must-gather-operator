@@ -80,9 +80,9 @@ oc apply -f ./test/must-gather.yaml
 - Uses predicates to filter events (only reconciles on generation or finalizer changes)
 
 **Job Template** (`controllers/mustgather/template.go`):
-- Generates Job specs with two containers:
+- Generates Job specs with a gather container (always) and a conditional upload container (added only when `uploadTarget` is configured):
   1. **Gather container**: Runs must-gather collection (with or without audit logs)
-  2. **Upload container**: Waits for gather to complete, then compresses and uploads to Red Hat SFTP
+  2. **Upload container** (conditional): Waits for gather to complete, then compresses and uploads to Red Hat SFTP
 - Configures shared volumes, proxy settings, timeouts, and node affinity for infra nodes
 - Uses `ShareProcessNamespace` to allow upload container to detect when gather completes
 
@@ -97,21 +97,20 @@ oc apply -f ./test/must-gather.yaml
 1. Fetch MustGather instance
 2. Initialize defaults (ServiceAccountRef from cluster)
 3. Handle deletion via finalizer:
-   - Delete secret from operator namespace
-   - Delete job and associated pods
+   - Clean up Job, Pods, and trusted CA ConfigMap ownerReferences (unless `retainResourcesOnCompletion`)
    - Remove finalizer
 4. Create Job if it doesn't exist:
-   - Copy case management credentials secret to operator namespace
-   - Create Job with gather and upload containers
+   - Validate ServiceAccount, SFTP credentials (in-place via SecretKeyRef), and SFTP connectivity
+   - Create Job with gather container and conditional upload container
    - Increment Prometheus metrics
 5. Monitor Job status:
-   - Requeue for deletion when Job succeeds or fails
+   - On success or failure: update status, run cleanup in same reconciliation (unless `retainResourcesOnCompletion`)
    - Update MustGather status based on Job completion
 
 ### Key Design Decisions
 
 - **Operator runs in a single namespace** (default: `must-gather-operator`) but watches MustGather CRs cluster-wide
-- **Secret replication**: Copies user-provided case management secrets from CR namespace to operator namespace for job access
+- **No secret replication**: Secrets are referenced directly via SecretKeyRef from the CR namespace; only trusted CA ConfigMaps are replicated to the CR namespace
 - **Two-container approach**: Separate containers for gathering and uploading allows gather to run with cluster permissions while upload runs with limited permissions
 - **Process namespace sharing**: Enables upload container to detect gather completion via `pgrep`
 - **Infra node affinity**: Jobs prefer infra nodes (with tolerations) to avoid impacting application workloads

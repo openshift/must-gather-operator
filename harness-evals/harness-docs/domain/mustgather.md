@@ -113,7 +113,7 @@ Status subresource enabled via `+kubebuilder:subresource:status`. `Completed` is
 |------|--------|----------|
 | `ReconcileSuccess` | `LastReconcileCycleSucceded` | Reconcile completes without error |
 | `ReconcileError` | `LastReconcileCycleFailed` | Reconcile fails |
-| `ReconcileError` | `ValidationFailed` | SFTP credential validation fails |
+| `ReconcileError` | `ValidationFailed` | Validation fails: missing/invalid ServiceAccount, SFTP credential fields, SFTP connectivity, or ImageStream resolution |
 
 ## CEL Validation Rules
 
@@ -202,7 +202,7 @@ These set status to `Failed`, `Completed=true`, emit `ReconcileError` with `Vali
 
 ## Finalizer Convention
 
-Finalizer name: `finalizer.mustgathers.operator.openshift.io` (pattern: `finalizer.<plural>.<group>`). Cleanup verifies ownership via `OwnerReferences` before deletion. The controller only reconciles on generation or finalizer changes, so spec-only updates after immutability rejection do not trigger reconciliation loops.
+Finalizer name: `finalizer.mustgathers.operator.openshift.io` (pattern: `finalizer.<plural>.<group>`). Cleanup verifies ownership via `OwnerReferences` before deletion. The MustGather primary resource only reconciles on generation or finalizer changes (Job status and named ConfigMap events also trigger reconciliation via separate watches), so spec-only updates after immutability rejection do not trigger reconciliation loops.
 
 ## RBAC Markers
 

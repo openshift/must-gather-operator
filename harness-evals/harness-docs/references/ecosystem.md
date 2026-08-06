@@ -16,7 +16,7 @@ Supplemental references: [CLAUDE.md](../../../CLAUDE.md), [README.md](../../../R
 
 ## Operator Patterns
 
-**Location**: [openshift/enhancements/ai-docs/platform/operator-patterns/](https://github.com/openshift/enhancements/tree/master/ai-docs/platform/operator-patterns/) *(planned — directory not yet published)*
+**Location**: [openshift/enhancements/ai-docs/platform/operator-patterns/](https://github.com/openshift/enhancements/tree/master/ai-docs/platform/operator-patterns/)
 
 - **Controller Runtime**: Reconciliation loops, event handling, client patterns
 - **Status Conditions**: Available, Progressing, Degraded condition semantics
