@@ -3840,11 +3840,12 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 							Image: operatorImage,
 							Command: []string{
 								"/bin/sh", "-c",
-								// List cleaned directory and check for report.yaml (obfuscation report)
-								`echo "=== PVC top-level ===" && ls -la /pvc/collections/ 2>/dev/null &&
+							// List cleaned directory and check for report.yaml and obfuscation.log
+							`echo "=== PVC top-level ===" && ls -la /pvc/collections/ 2>/dev/null &&
 echo "=== Cleaned directories ===" && find /pvc/collections -name 'cleaned' -type d 2>/dev/null &&
 echo "=== obfuscation report ===" && find /pvc/collections -name 'report.yaml' -type f 2>/dev/null | head -5 &&
-echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/cleaned/*' -name '*.log' -type f -exec head -5 {} \; 2>/dev/null | head -20`,
+echo "=== obfuscation log ===" && find /pvc/collections -name 'obfuscation.log' -type f 2>/dev/null | head -5 &&
+echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/cleaned/*' -name '*.log' -not -name 'obfuscation.log' -type f -exec head -5 {} \; 2>/dev/null | head -20`,
 							},
 							SecurityContext: &corev1.SecurityContext{
 								AllowPrivilegeEscalation: func() *bool { b := false; return &b }(),
@@ -3895,6 +3896,8 @@ echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/clean
 				"PVC should contain a 'cleaned' directory from obfuscation")
 			Expect(logs).To(ContainSubstring("report.yaml"),
 				"PVC should contain report.yaml (obfuscation report)")
+			Expect(logs).To(ContainSubstring("obfuscation.log"),
+				"PVC should contain obfuscation.log (obfuscation logs)")
 		})
 	})
 
