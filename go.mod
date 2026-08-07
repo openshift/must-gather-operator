@@ -1,6 +1,6 @@
 module github.com/openshift/must-gather-operator
 
-go 1.25.7
+go 1.26
 
 require (
 	github.com/go-logr/logr v1.4.2
