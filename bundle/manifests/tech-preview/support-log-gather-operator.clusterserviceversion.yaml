@@ -256,13 +256,7 @@ spec:
                       requests:
                         cpu: 100m
                         memory: 256Mi
-                    volumeMounts:
-                      - mountPath: /tmp
-                        name: tmp
                 serviceAccountName: must-gather-operator
-                volumes:
-                  - name: tmp
-                    emptyDir: {}
   customresourcedefinitions:
     owned:
       - displayName: Must Gather
