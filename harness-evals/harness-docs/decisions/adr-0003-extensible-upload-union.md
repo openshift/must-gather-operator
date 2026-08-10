@@ -13,13 +13,25 @@ The original community operator had flat top-level fields for SFTP upload (`case
 Refactor upload configuration into a discriminated union under `spec.uploadTarget`:
 
 ```go
+// UploadTargetSpec defines the desired state of UploadTargetSpec
+// +kubebuilder:validation:XValidation:rule="has(self.type) && self.type == 'SFTP' ? has(self.sftp) : !has(self.sftp)",message="sftp upload target config is required when upload type is SFTP, and forbidden otherwise"
+// +union
 type UploadTargetSpec struct {
-    Type UploadType `json:"type"` // +unionDiscriminator, Enum=SFTP
-    SFTP *SFTPSpec  `json:"sftp,omitempty"` // +unionMember
+	// type defines the method used for uploading to a specific target.
+	// +unionDiscriminator
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=SFTP
+	// +required
+	Type UploadType `json:"type"`
+
+	// SFTP details for the upload.
+	// +unionMember
+	// +optional
+	SFTP *SFTPSpec `json:"sftp,omitempty"`
 }
 ```
 
-CEL validation enforces that `sftp` is required when `type=SFTP` and forbidden otherwise.
+The XValidation CEL rule enforces that `sftp` is required when `type=SFTP` and forbidden otherwise.
 
 ## Rationale
 
