@@ -203,7 +203,7 @@ Each layer wraps errors with `classifySFTPError` before returning. When a layer 
 
 ### HTTP Proxy Support
 
-**Go side** (`validation.go`): `httpproxy.FromEnvironment()` reads proxy env vars on every call (no caching). `proxyDialContext` establishes HTTP CONNECT tunnel with `Proxy-Authorization: Basic` header. Default ports: HTTP=3128, HTTPS=3129.
+**Go side** (`validation.go`): `httpproxy.FromEnvironment()` reads proxy env vars on every call (no caching). `proxyDialContext` establishes HTTP CONNECT tunnel with `Proxy-Authorization: Basic` header over raw TCP. Default ports: HTTP=3128, HTTPS=3129. **Limitation**: The `https` proxy URL scheme only changes the default port; the CONNECT request and credentials are sent over an unencrypted TCP connection regardless of scheme. The subsequent SSH handshake encrypts the SFTP session itself.
 
 **Shell side** (`build/bin/upload`): HTTP proxy via `nc --proxy`, HTTPS proxy via `socat` TLS tunnel through `https-proxy-connect-util`.
 
@@ -211,7 +211,7 @@ Proxy env vars flow: operator process → `proxy.ReadProxyVarsFromEnv()` → upl
 
 ### Security
 
-`InsecureIgnoreHostKey` used intentionally (matches upload script's `StrictHostKeyChecking=no`). SSH directory at `/tmp/must-gather-operator/.ssh/` with restrictive permissions (700/600). Password passed via `SSHPASS` env var and `sshpass -e` — never on the command line.
+`InsecureIgnoreHostKey` used intentionally (matches upload script's `StrictHostKeyChecking=no`). This is a known, accepted trade-off documented in the codebase (`#nosec G106`). The operator connects exclusively to Red Hat's managed SFTP endpoint (`sftp.access.redhat.com`); host-key verification is disabled because the server's key may rotate without notice. Compensating controls: credentials are validated before Job creation, transfer occurs over SSH (encrypted in transit), and the connection target is immutable via CEL-enforced spec. Remediation plan: restore host-key verification if Red Hat publishes a stable host key or key-distribution mechanism. SSH directory at `/tmp/must-gather-operator/.ssh/` with restrictive permissions (700/600). Password passed via `SSHPASS` env var and `sshpass -e` — never on the command line.
 
 ## FIPS Mode
 
@@ -329,7 +329,7 @@ Operator copies CA ConfigMap from its namespace to CR namespace with ownerRefere
 
 ### CRD Immutability as Security
 
-Spec immutability via CEL prevents credential rotation or target changes after CR creation, ensuring validated credentials match what actually runs.
+Spec immutability via CEL prevents changes to the Secret reference name (`caseManagementAccountSecretRef.Name`) and upload target after CR creation. However, CEL freezes only the reference — the referenced Secret's data may be updated between validation and Job execution or a Job retry. The controller validates credentials before creating the Job, but `SecretKeyRef` resolves at Pod scheduling time.
 
 ## Performance Considerations
 

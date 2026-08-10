@@ -60,14 +60,25 @@ type GatherSpec struct {
 ### UploadTargetSpec (discriminated union)
 
 ```go
+// UploadTargetSpec defines the desired state of UploadTargetSpec
+// +kubebuilder:validation:XValidation:rule="has(self.type) && self.type == 'SFTP' ? has(self.sftp) : !has(self.sftp)",message="sftp upload target config is required when upload type is SFTP, and forbidden otherwise"
 // +union
 type UploadTargetSpec struct {
-    Type UploadType `json:"type"` // +unionDiscriminator, +kubebuilder:validation:Enum=SFTP
-    SFTP *SFTPSpec  `json:"sftp,omitempty"` // +unionMember, +optional
+	// type defines the method used for uploading to a specific target.
+	// +unionDiscriminator
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=SFTP
+	// +required
+	Type UploadType `json:"type"`
+
+	// SFTP details for the upload.
+	// +unionMember
+	// +optional
+	SFTP *SFTPSpec `json:"sftp,omitempty"`
 }
 ```
 
-Uses `// +union` on struct, `// +unionDiscriminator` on `Type`, `// +unionMember` on variants. CEL enforces discriminator-to-member: `has(self.type) && self.type == 'SFTP' ? has(self.sftp) : !has(self.sftp)`.
+Uses `// +union` on struct, `// +unionDiscriminator` on `Type`, `// +unionMember` on variants. The XValidation CEL rule enforces discriminator-to-member consistency. `+kubebuilder:validation:Required` and `+required` ensure the discriminator field is always present.
 
 **Adding a new upload type**: Add `UploadType` const, `+unionMember` pointer field, extend `Enum` list, update CEL rule.
 

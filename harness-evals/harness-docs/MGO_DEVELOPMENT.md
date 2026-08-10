@@ -9,6 +9,7 @@ This guide covers **must-gather-operator-specific** development practices.
 ### Prerequisites
 
 - Go 1.25.7 (see `go.mod`)
+- [operator-sdk](https://github.com/operator-framework/operator-sdk) (for local development)
 - Access to OpenShift cluster with `KUBECONFIG` set
 - Container build tool (Podman or Docker)
 - `DEFAULT_MUST_GATHER_IMAGE` and `OPERATOR_IMAGE` env vars set

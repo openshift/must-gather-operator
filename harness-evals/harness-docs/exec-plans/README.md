@@ -1,6 +1,6 @@
 # Execution Plans
 
-> **Exec-Plans Guidance**: See [Platform AI-Docs](https://github.com/openshift/enhancements/tree/master/ai-docs/) for template and workflow.
+> **Exec-Plans Guidance**: See [Platform AI-Docs Index](https://github.com/openshift/enhancements/tree/master/ai-docs/) for general patterns. No dedicated exec-plan guide is published yet.
 
 ## Component-Specific Exec-Plans
 
@@ -17,4 +17,4 @@ exec-plans/
 
 Create an exec-plan in `active/` for each new feature. Move to `completed/` when merged.
 
-See [Platform AI-Docs](https://github.com/openshift/enhancements/tree/master/ai-docs/) for the exec-plan template and completion workflow.
+See [Platform AI-Docs Index](https://github.com/openshift/enhancements/tree/master/ai-docs/) for general patterns. A dedicated exec-plan template is planned but not yet published.

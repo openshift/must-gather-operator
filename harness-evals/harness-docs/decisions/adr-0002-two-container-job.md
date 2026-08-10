@@ -19,7 +19,7 @@ Use a single Kubernetes Job with a gather container and a conditional upload con
 
 ## Rationale
 
-- **Separation of concerns**: Gather runs with the user's ServiceAccount (cluster read); upload runs with limited credentials (SFTP only)
+- **Separation of concerns**: Both containers share a single Pod-level ServiceAccount (the user's SA with cluster read access) and `ShareProcessNamespace: true`. Gather uses this SA for cluster diagnostics; upload uses only SFTP credentials (injected via `SecretKeyRef` env vars). The separation is at the image and command level, not at the privilege level — the upload container can see gather processes and has access to the SA token
 - **Image flexibility**: Gather image is user-selectable; upload logic is baked into the operator image
 - **No init container**: Both containers start simultaneously. Upload polls for gather completion via `pgrep` (5 consecutive checks, 30s apart). This avoids init container limitations with shared volumes
 - **Single Job**: Simpler lifecycle tracking than chaining separate Jobs
