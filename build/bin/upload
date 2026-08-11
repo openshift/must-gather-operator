@@ -74,7 +74,7 @@ if [ "${obfuscate}" = "true" ]; then
   fi
   OBFUSCATION_LOG="${must_gather_upload}/obfuscation.log"
   obfuscate_rc=0
-  (/usr/local/bin/must-gather-operator obfuscate \
+  (set +e; /usr/local/bin/must-gather-operator obfuscate \
     --input "$must_gather_output" \
     --output "${must_gather_upload}/cleaned" \
     "${config_args[@]}" -v=3 2>&1; echo $? > "${must_gather_upload}/.obfuscate_rc") | tee "${OBFUSCATION_LOG}"
