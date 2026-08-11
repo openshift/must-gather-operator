@@ -20,6 +20,7 @@ RUN microdnf install -y tar gzip openssh-clients wget shadow-utils procps sshpas
 ARG SRC_DIR=/go/src/github.com/openshift/must-gather-operator
 COPY --from=builder $SRC_DIR/must-gather-operator /usr/local/bin/must-gather-operator
 COPY --from=builder $SRC_DIR/build/bin /usr/local/bin
+COPY --from=builder /go/src/github.com/openshift/must-gather-operator/build/obfuscate-config.yaml /etc/must-gather-clean/default-config.yaml
 
 # 65534 is the 'nobody' user/group - a standard unprivileged user for containers
 RUN mkdir -p /tmp/e2e-cover && chown 65534:65534 /tmp/e2e-cover && chmod 700 /tmp/e2e-cover
