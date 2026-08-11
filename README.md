@@ -52,6 +52,8 @@ oc patch subscription support-log-gather-operator -n must-gather-operator \
 
 Existing `v1alpha1` MustGather CRs continue to work — the CRD serves both versions — but `v1alpha1` is deprecated and will be removed in a future release. New CRs should use `operator.openshift.io/v1`.
 
+> **Note:** This operator may still be unsupported. For development, consider using the `stable` channel as described above. For support, consult the appropriate Red Hat documentation and the [OpenShift Operator Life Cycles](https://access.redhat.com/support/policy/updates/openshift_operators) policy.
+
 ## Garbage collection
 
 MustGather instances are cleaned up by the Must Gather operator about 6 hours after completion, regardless of whether they were successful.
