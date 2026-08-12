@@ -19,6 +19,46 @@ GOCOVERDIR_PATH="/tmp/e2e-cover"
 CODECOV_SECRET_PATH="/var/run/secrets/must-gather-operator/ci-secrets/CODECOV_TOKEN"
 POD_LABEL="name=must-gather-operator"
 
+# JSON Patch helper: append to an array if it exists, otherwise create it.
+# Using ".../field/-" fails when the parent array is absent.
+coverage_volume_ops() {
+	local volume_mounts_path="$1"
+	local volumes_path="$2"
+	local has_volume_mounts="$3"
+	local has_volumes="$4"
+
+	local volume_mounts_op volumes_op
+	if [[ -n "${has_volume_mounts}" ]]; then
+		volume_mounts_op="{\"op\": \"add\", \"path\": \"${volume_mounts_path}/-\", \"value\": {\"name\": \"coverage-data\", \"mountPath\": \"${GOCOVERDIR_PATH}\"}}"
+	else
+		volume_mounts_op="{\"op\": \"add\", \"path\": \"${volume_mounts_path}\", \"value\": [{\"name\": \"coverage-data\", \"mountPath\": \"${GOCOVERDIR_PATH}\"}]}"
+	fi
+	if [[ -n "${has_volumes}" ]]; then
+		volumes_op="{\"op\": \"add\", \"path\": \"${volumes_path}/-\", \"value\": {\"name\": \"coverage-data\", \"emptyDir\": {}}}"
+	else
+		volumes_op="{\"op\": \"add\", \"path\": \"${volumes_path}\", \"value\": [{\"name\": \"coverage-data\", \"emptyDir\": {}}]}"
+	fi
+
+	printf '%s\n%s\n' "${volume_mounts_op}" "${volumes_op}"
+}
+
+# Find env var index by name in a CSV container env list (empty if absent).
+csv_env_index() {
+	local csv="$1"
+	local env_name="$2"
+	local i=0
+	local name
+	while IFS= read -r name; do
+		if [[ "${name}" == "${env_name}" ]]; then
+			echo "${i}"
+			return 0
+		fi
+		i=$((i + 1))
+	done < <(oc get csv "${csv}" -n "${NAMESPACE}" \
+		-o jsonpath='{range .spec.install.spec.deployments[0].spec.template.spec.containers[0].env[*]}{.name}{"\n"}{end}' 2>/dev/null)
+	return 1
+}
+
 setup() {
 	echo "--- E2E Coverage Setup ---"
 
@@ -35,13 +75,58 @@ setup() {
 	if [[ -n "${csv}" ]]; then
 		echo "Found CSV: ${csv} -- patching via CSV"
 		# Assumes deployments/0 and containers/0 are the must-gather-operator.
-		oc patch csv "${csv}" -n "${NAMESPACE}" --type=json -p "[
-			{\"op\": \"replace\", \"path\": \"/spec/install/spec/deployments/0/spec/template/spec/containers/0/image\", \"value\": \"${COVERAGE_IMAGE}\"},
-			{\"op\": \"add\", \"path\": \"/spec/install/spec/deployments/0/spec/template/spec/containers/0/env/-\", \"value\": {\"name\": \"GOCOVERDIR\", \"value\": \"${GOCOVERDIR_PATH}\"}},
-			{\"op\": \"add\", \"path\": \"/spec/install/spec/deployments/0/spec/template/spec/containers/0/env/-\", \"value\": {\"name\": \"OPERATOR_IMAGE\", \"value\": \"${COVERAGE_IMAGE}\"}},
-			{\"op\": \"add\", \"path\": \"/spec/install/spec/deployments/0/spec/template/spec/containers/0/volumeMounts/-\", \"value\": {\"name\": \"coverage-data\", \"mountPath\": \"${GOCOVERDIR_PATH}\"}},
-			{\"op\": \"add\", \"path\": \"/spec/install/spec/deployments/0/spec/template/spec/volumes/-\", \"value\": {\"name\": \"coverage-data\", \"emptyDir\": {}}}
-		]"
+		# Inject coverage-data emptyDir at GOCOVERDIR so data survives container
+		# restart. Create volumeMounts/volumes arrays when absent (JSON Patch
+		# ".../-" is invalid if the parent array does not exist).
+		local pod_spec_path="/spec/install/spec/deployments/0/spec/template/spec"
+		local container_path="${pod_spec_path}/containers/0"
+
+		local has_volume_mounts has_volumes has_coverage_vol
+		has_volume_mounts=$(oc get csv "${csv}" -n "${NAMESPACE}" \
+			-o jsonpath="{.spec.install.spec.deployments[0].spec.template.spec.containers[0].volumeMounts}" 2>/dev/null || true)
+		has_volumes=$(oc get csv "${csv}" -n "${NAMESPACE}" \
+			-o jsonpath="{.spec.install.spec.deployments[0].spec.template.spec.volumes}" 2>/dev/null || true)
+		has_coverage_vol=$(oc get csv "${csv}" -n "${NAMESPACE}" \
+			-o jsonpath='{.spec.install.spec.deployments[0].spec.template.spec.volumes[?(@.name=="coverage-data")].name}' 2>/dev/null || true)
+
+		local operator_image_idx=""
+		operator_image_idx=$(csv_env_index "${csv}" "OPERATOR_IMAGE" || true)
+
+		local operator_image_op
+		if [[ -n "${operator_image_idx}" ]]; then
+			operator_image_op="{\"op\": \"replace\", \"path\": \"${container_path}/env/${operator_image_idx}/value\", \"value\": \"${COVERAGE_IMAGE}\"}"
+		else
+			operator_image_op="{\"op\": \"add\", \"path\": \"${container_path}/env/-\", \"value\": {\"name\": \"OPERATOR_IMAGE\", \"value\": \"${COVERAGE_IMAGE}\"}}"
+		fi
+
+		local has_gocoverdir
+		has_gocoverdir=$(oc get csv "${csv}" -n "${NAMESPACE}" \
+			-o jsonpath='{.spec.install.spec.deployments[0].spec.template.spec.containers[0].env[?(@.name=="GOCOVERDIR")].name}' 2>/dev/null || true)
+
+		local -a patch_ops=(
+			"{\"op\": \"replace\", \"path\": \"${container_path}/image\", \"value\": \"${COVERAGE_IMAGE}\"}"
+			"${operator_image_op}"
+		)
+		if [[ -z "${has_gocoverdir}" ]]; then
+			patch_ops+=("{\"op\": \"add\", \"path\": \"${container_path}/env/-\", \"value\": {\"name\": \"GOCOVERDIR\", \"value\": \"${GOCOVERDIR_PATH}\"}}")
+		else
+			echo "GOCOVERDIR env var already present in CSV"
+		fi
+
+		if [[ -z "${has_coverage_vol}" ]]; then
+			local volume_mounts_op volumes_op
+			{
+				read -r volume_mounts_op
+				read -r volumes_op
+			} < <(coverage_volume_ops "${container_path}/volumeMounts" "${pod_spec_path}/volumes" "${has_volume_mounts}" "${has_volumes}")
+			patch_ops+=("${volume_mounts_op}" "${volumes_op}")
+		else
+			echo "Volume 'coverage-data' already present in CSV -- skipping volume patch"
+		fi
+
+		local patch_json
+		patch_json=$(printf '%s\n' "${patch_ops[@]}" | paste -sd ',' -)
+		oc patch csv "${csv}" -n "${NAMESPACE}" --type=json -p "[${patch_json}]"
 	else
 		echo "No CSV found -- patching deployment directly"
 		oc set image "deployment/${DEPLOYMENT}" -n "${NAMESPACE}" \
@@ -49,13 +134,24 @@ setup() {
 		oc set env "deployment/${DEPLOYMENT}" -n "${NAMESPACE}" \
 			-c "${CONTAINER}" GOCOVERDIR="${GOCOVERDIR_PATH}" OPERATOR_IMAGE="${COVERAGE_IMAGE}"
 
-		local has_vol
+		local has_vol has_volume_mounts has_volumes
 		has_vol=$(oc get "deployment/${DEPLOYMENT}" -n "${NAMESPACE}" \
-			-o jsonpath='{.spec.template.spec.volumes[?(@.name=="coverage-data")].name}' 2>/dev/null)
+			-o jsonpath='{.spec.template.spec.volumes[?(@.name=="coverage-data")].name}' 2>/dev/null || true)
 		if [[ -z "${has_vol}" ]]; then
+			has_volume_mounts=$(oc get "deployment/${DEPLOYMENT}" -n "${NAMESPACE}" \
+				-o jsonpath='{.spec.template.spec.containers[0].volumeMounts}' 2>/dev/null || true)
+			has_volumes=$(oc get "deployment/${DEPLOYMENT}" -n "${NAMESPACE}" \
+				-o jsonpath='{.spec.template.spec.volumes}' 2>/dev/null || true)
+
+			local volume_mounts_op volumes_op
+			{
+				read -r volume_mounts_op
+				read -r volumes_op
+			} < <(coverage_volume_ops "/spec/template/spec/containers/0/volumeMounts" "/spec/template/spec/volumes" "${has_volume_mounts}" "${has_volumes}")
+
 			oc patch "deployment/${DEPLOYMENT}" -n "${NAMESPACE}" --type=json -p "[
-				{\"op\": \"add\", \"path\": \"/spec/template/spec/containers/0/volumeMounts/-\", \"value\": {\"name\": \"coverage-data\", \"mountPath\": \"${GOCOVERDIR_PATH}\"}},
-				{\"op\": \"add\", \"path\": \"/spec/template/spec/volumes/-\", \"value\": {\"name\": \"coverage-data\", \"emptyDir\": {}}}
+				${volume_mounts_op},
+				${volumes_op}
 			]"
 		else
 			echo "Volume 'coverage-data' already exists -- skipping volume patch"

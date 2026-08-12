@@ -34,6 +34,8 @@ const (
 
 // RunObfuscate executes the obfuscate subcommand. Args are everything after "obfuscate" on the command line.
 // Returns an exit code suitable for os.Exit.
+// Obfuscation logs are emitted to stderr via klog; the caller (build/bin/upload) redirects
+// them to a file with tee so they are included in the must-gather bundle.
 func RunObfuscate(args []string) int {
 	fs := goflag.NewFlagSet("obfuscate", goflag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -53,10 +55,15 @@ func RunObfuscate(args []string) int {
 		return 1
 	}
 
+	klog.Infof("obfuscation starting: input=%s output=%s config=%s", *input, *output, *config)
+
 	if err := mgclean.Run(*config, *input, *output, true, *output, ObfuscateWorkerCount); err != nil {
-		fmt.Fprintf(os.Stderr, "obfuscation failed: %v\n", err)
+		klog.Errorf("obfuscation failed: %v", err)
+		klog.Flush()
 		return 1
 	}
 
+	klog.Infof("obfuscation completed successfully")
+	klog.Flush()
 	return 0
 }
