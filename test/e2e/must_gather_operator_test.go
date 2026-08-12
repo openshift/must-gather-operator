@@ -3678,6 +3678,210 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			Expect(job.Spec.Template.Spec.Containers).NotTo(BeEmpty(),
 				"Job should have at least one container")
 		})
+
+		ginkgo.It("should run gather and upload successfully for a CR created with v1alpha1 apiVersion [Skipped:Disconnected]", func() {
+			mustGatherName = fmt.Sprintf("mg-v1alpha1-upload-%d", time.Now().UnixNano())
+
+			ginkgo.By("Getting SFTP credentials")
+			sftpUsername, sftpPassword, err := getCaseCreds()
+			Expect(err).NotTo(HaveOccurred(), "Failed to get SFTP credentials")
+
+			ginkgo.By("Creating case-management secret")
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      caseManagementSecretNameValid,
+					Namespace: ns.Name,
+					Labels: map[string]string{
+						"test": nonAdminLabel,
+					},
+				},
+				Type: corev1.SecretTypeOpaque,
+				StringData: map[string]string{
+					"username": sftpUsername,
+					"password": sftpPassword,
+				},
+			}
+			err = nonAdminClient.Create(testCtx, secret)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred(), "Failed to create case management secret")
+			}
+
+			ginkgo.By("Creating MustGather CR using v1alpha1 API version with uploadTarget")
+			caseID := generateTestCaseID()
+			ginkgo.GinkgoWriter.Printf("Using unique caseID: %s\n", caseID)
+
+			retainResources := true
+			mgAlpha := &mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+					Labels: map[string]string{
+						"test": nonAdminLabel,
+					},
+				},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName:          serviceAccount,
+					RetainResourcesOnCompletion: &retainResources,
+					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+						Type: mustgatherv1alpha1.UploadTypeSFTP,
+						SFTP: &mustgatherv1alpha1.SFTPSpec{
+							CaseID: caseID,
+							CaseManagementAccountSecretRef: corev1.LocalObjectReference{
+								Name: caseManagementSecretNameValid,
+							},
+							InternalUser: false,
+							Host:         prodHostName,
+						},
+					},
+				},
+			}
+			err = nonAdminClient.Create(testCtx, mgAlpha)
+			Expect(err).NotTo(HaveOccurred(), "Should be able to create a v1alpha1 MustGather CR with uploadTarget")
+
+			ginkgo.By("Verifying CR is readable via v1 with uploadTarget fields intact")
+			mgV1 := &mustgatherv1.MustGather{}
+			err = adminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, mgV1)
+			Expect(err).NotTo(HaveOccurred(), "CR created via v1alpha1 should be readable via v1")
+			Expect(mgV1.Spec.UploadTarget).NotTo(BeNil(), "UploadTarget should persist through version conversion")
+			Expect(mgV1.Spec.UploadTarget.SFTP.CaseID).To(Equal(caseID))
+
+			ginkgo.By("Waiting for Job to be created")
+			job := &batchv1.Job{}
+			Eventually(func(g Gomega) {
+				mg := &mustgatherv1alpha1.MustGather{}
+				g.Expect(nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, mg)).To(Succeed())
+
+				if mg.Status.Status == "Failed" {
+					ginkgo.Fail(fmt.Sprintf("MustGather validation failed before Job creation: %s", mg.Status.Reason))
+				}
+
+				g.Expect(nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job)).To(Succeed(), "Job should be created for v1alpha1 MustGather with UploadTarget")
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			ginkgo.By("Verifying Job has upload container with correct environment variables")
+			var uploadContainer *corev1.Container
+			for i := range job.Spec.Template.Spec.Containers {
+				if job.Spec.Template.Spec.Containers[i].Name == uploadContainerName {
+					uploadContainer = &job.Spec.Template.Spec.Containers[i]
+					break
+				}
+			}
+			Expect(uploadContainer).NotTo(BeNil(), "Job should have upload container")
+
+			envVars := make(map[string]string)
+			for _, env := range uploadContainer.Env {
+				envVars[env.Name] = env.Value
+			}
+			Expect(envVars).To(HaveKey("caseid"), "Upload container should have caseid env var")
+			Expect(envVars["caseid"]).To(Equal(caseID))
+			Expect(envVars).To(HaveKey("username"))
+			Expect(envVars).To(HaveKey("password"))
+			Expect(envVars).To(HaveKey("host"))
+			Expect(envVars).To(HaveKey("internal_user"))
+			Expect(envVars["internal_user"]).To(Equal("false"))
+
+			ginkgo.By("Waiting for Pod with both gather and upload containers")
+			var mustGatherPod *corev1.Pod
+			Eventually(func(g Gomega) {
+				podList := &corev1.PodList{}
+				g.Expect(nonAdminClient.List(testCtx, podList,
+					client.InNamespace(ns.Name),
+					client.MatchingLabels{jobNameLabelKey: mustGatherName})).To(Succeed())
+				g.Expect(podList.Items).NotTo(BeEmpty(), "Pod should be created by Job")
+				mustGatherPod = &podList.Items[0]
+
+				containerNames := make(map[string]bool)
+				for _, c := range mustGatherPod.Spec.Containers {
+					containerNames[c.Name] = true
+				}
+				g.Expect(containerNames).To(HaveKey(gatherContainerName))
+				g.Expect(containerNames).To(HaveKey(uploadContainerName))
+
+				g.Expect(mustGatherPod.Status.Phase).To(
+					Or(Equal(corev1.PodRunning), Equal(corev1.PodSucceeded), Equal(corev1.PodFailed)))
+			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+
+			ginkgo.By("Waiting for Job to complete successfully (gather and upload)")
+			Eventually(func() bool {
+				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, job); err != nil {
+					return false
+				}
+
+				if job.Status.Succeeded > 0 {
+					ginkgo.GinkgoWriter.Println("Job completed successfully")
+					return true
+				}
+				if job.Status.Failed > 0 {
+					var details []string
+					for _, c := range job.Status.Conditions {
+						details = append(details, fmt.Sprintf(
+							"jobCondition[%s]=%s reason=%q message=%q",
+							c.Type, c.Status, c.Reason, c.Message,
+						))
+					}
+					if mustGatherPod != nil && mustGatherPod.Name != "" {
+						tmpPod := &corev1.Pod{}
+						if err := nonAdminClient.Get(testCtx, client.ObjectKey{
+							Name:      mustGatherPod.Name,
+							Namespace: ns.Name,
+						}, tmpPod); err == nil {
+							for _, cs := range tmpPod.Status.ContainerStatuses {
+								if cs.State.Terminated != nil {
+									details = append(details, fmt.Sprintf(
+										"container[%s] terminated exitCode=%d reason=%q message=%q",
+										cs.Name, cs.State.Terminated.ExitCode, cs.State.Terminated.Reason, cs.State.Terminated.Message,
+									))
+								}
+							}
+						}
+					}
+					detailStr := strings.Join(details, "; ")
+					if detailStr == "" {
+						detailStr = "<no failure details available>"
+					}
+					ginkgo.Fail(fmt.Sprintf("Job failed - gather or upload container failed. Details: %s", detailStr))
+				}
+				return false
+			}).WithTimeout(5*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
+				"Job should complete successfully")
+
+			ginkgo.By("Verifying file was uploaded to SFTP server")
+			found, sftpLogs, err := verifySFTPUpload(ns.Name, caseManagementSecretNameValid, prodHostName, caseID, false)
+			if err != nil {
+				ginkgo.GinkgoWriter.Printf("SFTP verification error: %v\n", err)
+			}
+			ginkgo.GinkgoWriter.Printf("SFTP directory listing:\n%s\n", sftpLogs)
+			Expect(found).To(BeTrue(),
+				"File with caseID %s should exist on SFTP server for v1alpha1-created CR", caseID)
+
+			ginkgo.By("Verifying MustGather CR status via v1alpha1 API")
+			fetchedAlpha := &mustgatherv1alpha1.MustGather{}
+			Eventually(func(g Gomega) {
+				g.Expect(nonAdminClient.Get(testCtx, client.ObjectKey{
+					Name:      mustGatherName,
+					Namespace: ns.Name,
+				}, fetchedAlpha)).To(Succeed())
+				g.Expect(fetchedAlpha.Status.Completed).To(BeTrue(), "MustGather should be marked as completed")
+				g.Expect(fetchedAlpha.Status.Status).To(Equal("Completed"))
+				g.Expect(fetchedAlpha.Status.Reason).NotTo(BeEmpty())
+			}).WithTimeout(30*time.Second).WithPolling(2*time.Second).Should(Succeed(),
+				"MustGather status should reflect successful gather and upload")
+
+			ginkgo.GinkgoWriter.Printf("v1alpha1 gather+upload completed - Status: %s, Reason: %s\n",
+				fetchedAlpha.Status.Status, fetchedAlpha.Status.Reason)
+		})
 	})
 	// ─── Obfuscation Integration Tests ───────────────────────────────────
 
@@ -3830,7 +4034,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Eventually(func() bool {
 					return apierrors.IsNotFound(nonAdminClient.Get(testCtx,
 						client.ObjectKey{Name: mgName, Namespace: ns.Name},
-						&mustgatherv1alpha1.MustGather{}))
+						&mustgatherv1.MustGather{}))
 				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 			}()
 
@@ -3838,7 +4042,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			job := &batchv1.Job{}
 			Eventually(func() error {
 				return adminClient.Get(testCtx, client.ObjectKey{Name: mgName, Namespace: ns.Name}, job)
-			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed(),
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
 				"Operator should create the Job")
 
 			ginkgo.By("Verifying Job has both gather and upload containers")
@@ -3865,7 +4069,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.By("Waiting for MustGather to complete")
 			Eventually(func() bool {
-				mg := &mustgatherv1alpha1.MustGather{}
+				mg := &mustgatherv1.MustGather{}
 				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name: mgName, Namespace: ns.Name,
 				}, mg); err != nil {
@@ -4040,7 +4244,7 @@ echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/clean
 
 			ginkgo.By("Waiting for MustGather to complete")
 			Eventually(func() bool {
-				mg := &mustgatherv1alpha1.MustGather{}
+				mg := &mustgatherv1.MustGather{}
 				if err := nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name: mgName, Namespace: ns.Name,
 				}, mg); err != nil {
@@ -4057,7 +4261,7 @@ echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/clean
 			Eventually(func() bool {
 				return apierrors.IsNotFound(nonAdminClient.Get(testCtx,
 					client.ObjectKey{Name: mgName, Namespace: ns.Name},
-					&mustgatherv1alpha1.MustGather{}))
+					&mustgatherv1.MustGather{}))
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 
 			ginkgo.By("Verifying user-managed ConfigMap is NOT deleted by the operator")
@@ -4108,7 +4312,7 @@ echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/clean
 				Eventually(func() bool {
 					return apierrors.IsNotFound(nonAdminClient.Get(testCtx,
 						client.ObjectKey{Name: mgName, Namespace: ns.Name},
-						&mustgatherv1alpha1.MustGather{}))
+						&mustgatherv1.MustGather{}))
 				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(BeTrue())
 			}()
 
