@@ -72,10 +72,18 @@ if [ "${obfuscate}" = "true" ]; then
   if [ -n "${obfuscate_config}" ]; then
     config_args=(--config "$obfuscate_config")
   fi
-  /usr/local/bin/must-gather-operator obfuscate \
+  OBFUSCATION_LOG="${must_gather_upload}/obfuscation.log"
+  obfuscate_rc=0
+  (set +e; /usr/local/bin/must-gather-operator obfuscate \
     --input "$must_gather_output" \
     --output "${must_gather_upload}/cleaned" \
-    "${config_args[@]}" -v=3
+    "${config_args[@]}" -v=3 2>&1; echo $? > "${must_gather_upload}/.obfuscate_rc") | tee "${OBFUSCATION_LOG}"
+  obfuscate_rc=$(cat "${must_gather_upload}/.obfuscate_rc")
+  cp "${OBFUSCATION_LOG}" "${must_gather_upload}/cleaned/obfuscation.log"
+  if [ "$obfuscate_rc" -ne 0 ]; then
+    echo "Error: obfuscation failed with exit code ${obfuscate_rc}."
+    exit "$obfuscate_rc"
+  fi
   echo "Obfuscation complete."
   must_gather_output="${must_gather_upload}/cleaned"
 fi

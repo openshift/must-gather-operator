@@ -1,7 +1,7 @@
 # Build the must-gather-operator binary with coverage instrumentation.
 # This mirrors build/Dockerfile / Dockerfile.openshift but adds Go coverage flags
 # so the binary records which lines are executed during E2E tests.
-FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.25-openshift-4.22 AS builder
+FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.26-openshift-5.0 AS builder
 
 ARG SRC_DIR=/go/src/github.com/openshift/must-gather-operator
 
