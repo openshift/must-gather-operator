@@ -1,0 +1,23 @@
+# Custom obfuscation rules referenced by obfuscationConfigRef in Mode 1/2 examples
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-obfuscation-rules
+  namespace: must-gather-operator
+data:
+  config.yaml: |
+    config:
+      obfuscate:
+        - type: IP
+          replacementType: Consistent
+          target: All
+        - type: MAC
+          replacementType: Consistent
+          target: All
+        - type: Regex
+          regex: "my-internal-domain\\.corp\\.example\\.com"
+          replacementType: Consistent
+      omit:
+        - type: Kubernetes
+          kubernetesResource:
+            kind: "Secret"
