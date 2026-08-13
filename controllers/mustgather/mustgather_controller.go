@@ -688,20 +688,22 @@ func (r *MustGatherReconciler) cleanupTrustedCAConfigMap(ctx context.Context, re
 // getJobAge returns a human-readable string describing how long ago the job was created.
 func getJobAge(job *batchv1.Job) string {
 	age := time.Since(job.CreationTimestamp.Time)
-	seconds := int(age.Seconds())
-	if seconds < 60 {
-		return fmt.Sprintf("%ds", seconds)
-	} else if seconds < 3600 {
-		return fmt.Sprintf("%dm%ds", seconds/60, seconds%60)
+	if age < time.Minute {
+		return fmt.Sprintf("%ds", int(age.Seconds()))
+	} else if age < time.Hour {
+		minutes := int(age.Minutes())
+		seconds := int(age.Seconds()) % 60
+		return fmt.Sprintf("%dm%ds", minutes, seconds)
 	} else {
-		return fmt.Sprintf("%dh%dm", seconds/3600, (seconds%3600)/60)
+		hours := int(age.Hours())
+		minutes := int(age.Minutes()) % 60
+		return fmt.Sprintf("%dh%dm", hours, minutes)
 	}
 }
 
 // logCleanupSummary logs a summary of the resources that were cleaned up.
 func logCleanupSummary(reqLogger logr.Logger, jobName string, podCount int, namespace string) {
-	msg := fmt.Sprintf("cleanup complete for job %s in namespace %s", jobName, namespace)
-	reqLogger.Info(msg, "podsDeleted", podCount)
+	reqLogger.Info("cleanup complete", "job", jobName, "namespace", namespace, "podsDeleted", podCount)
 }
 
 // getImageStreamTag resolves the image reference from an ImageStream, falling back to default.
