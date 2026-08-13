@@ -717,10 +717,15 @@ func (r *MustGatherReconciler) getImageStreamTag(ctx context.Context, instance *
 	}
 
 	imageStream := &imagev1.ImageStream{}
-	r.GetClient().Get(ctx, types.NamespacedName{
+	if err := r.GetClient().Get(ctx, types.NamespacedName{
 		Name:      instance.Spec.ImageStreamRef.Name,
 		Namespace: r.OperatorNamespace,
-	}, imageStream)
+	}, imageStream); err != nil {
+		log.Error(err, "failed to get ImageStream, falling back to default image",
+			"name", instance.Spec.ImageStreamRef.Name,
+			"namespace", r.OperatorNamespace)
+		return r.DefaultMustGatherImage
+	}
 
 	for _, tag := range imageStream.Status.Tags {
 		if tag.Tag == instance.Spec.ImageStreamRef.Tag {
