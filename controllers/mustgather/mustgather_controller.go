@@ -685,3 +685,49 @@ func (r *MustGatherReconciler) cleanupTrustedCAConfigMap(ctx context.Context, re
 	return nil
 }
 
+// getJobAge returns a human-readable string describing how long ago the job was created.
+func getJobAge(job *batchv1.Job) string {
+	age := time.Since(job.CreationTimestamp.Time)
+	seconds := int(age.Seconds())
+	if seconds < 60 {
+		return fmt.Sprintf("%ds", seconds)
+	} else if seconds < 3600 {
+		return fmt.Sprintf("%dm%ds", seconds/60, seconds%60)
+	} else {
+		return fmt.Sprintf("%dh%dm", seconds/3600, (seconds%3600)/60)
+	}
+}
+
+// logCleanupSummary logs a summary of the resources that were cleaned up.
+func logCleanupSummary(reqLogger logr.Logger, jobName string, podCount int, namespace string) {
+	msg := fmt.Sprintf("cleanup complete for job %s in namespace %s", jobName, namespace)
+	reqLogger.Info(msg, "podsDeleted", podCount)
+}
+
+// getImageStreamTag resolves the image reference from an ImageStream, falling back to default.
+func (r *MustGatherReconciler) getImageStreamTag(ctx context.Context, instance *mustgatherv1alpha1.MustGather) string {
+	if instance.Spec.ImageStreamRef == nil {
+		return r.DefaultMustGatherImage
+	}
+
+	if instance.Spec.ImageStreamRef.Name == "" || instance.Spec.ImageStreamRef.Tag == "" {
+		return r.DefaultMustGatherImage
+	}
+
+	imageStream := &imagev1.ImageStream{}
+	r.GetClient().Get(ctx, types.NamespacedName{
+		Name:      instance.Spec.ImageStreamRef.Name,
+		Namespace: r.OperatorNamespace,
+	}, imageStream)
+
+	for _, tag := range imageStream.Status.Tags {
+		if tag.Tag == instance.Spec.ImageStreamRef.Tag {
+			if len(tag.Items) > 0 {
+				return tag.Items[0].DockerImageReference
+			}
+		}
+	}
+
+	return r.DefaultMustGatherImage
+}
+
