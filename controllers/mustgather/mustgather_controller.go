@@ -706,35 +706,3 @@ func logCleanupSummary(reqLogger logr.Logger, jobName string, podCount int, name
 	reqLogger.Info("cleanup complete", "job", jobName, "namespace", namespace, "podsDeleted", podCount)
 }
 
-// getImageStreamTag resolves the image reference from an ImageStream, falling back to default.
-func (r *MustGatherReconciler) getImageStreamTag(ctx context.Context, instance *mustgatherv1alpha1.MustGather) string {
-	if instance.Spec.ImageStreamRef == nil {
-		return r.DefaultMustGatherImage
-	}
-
-	if instance.Spec.ImageStreamRef.Name == "" || instance.Spec.ImageStreamRef.Tag == "" {
-		return r.DefaultMustGatherImage
-	}
-
-	imageStream := &imagev1.ImageStream{}
-	if err := r.GetClient().Get(ctx, types.NamespacedName{
-		Name:      instance.Spec.ImageStreamRef.Name,
-		Namespace: r.OperatorNamespace,
-	}, imageStream); err != nil {
-		log.Error(err, "failed to get ImageStream, falling back to default image",
-			"name", instance.Spec.ImageStreamRef.Name,
-			"namespace", r.OperatorNamespace)
-		return r.DefaultMustGatherImage
-	}
-
-	for _, tag := range imageStream.Status.Tags {
-		if tag.Tag == instance.Spec.ImageStreamRef.Tag {
-			if len(tag.Items) > 0 {
-				return tag.Items[0].DockerImageReference
-			}
-		}
-	}
-
-	return r.DefaultMustGatherImage
-}
-
