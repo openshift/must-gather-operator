@@ -1,0 +1,17 @@
+# Mode 4: Gather + Obfuscate + PVC (cleaned output persisted to PVC, no upload)
+# The raw gather output is written to the PVC at {subPath}/{directoryName}/
+# and the obfuscated output is written at {subPath}/{directoryName}/cleaned/
+apiVersion: operator.openshift.io/v1alpha1
+kind: MustGather
+metadata:
+  name: obfuscated-gather-pvc
+spec:
+  serviceAccountName: must-gather-admin
+  obfuscate:
+    enabled: true
+  storage:
+    type: PersistentVolume
+    persistentVolume:
+      claim:
+        name: must-gather-pvc
+      subPath: collections

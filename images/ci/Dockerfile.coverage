@@ -1,0 +1,29 @@
+# Build the must-gather-operator binary with coverage instrumentation.
+# This mirrors build/Dockerfile / Dockerfile.openshift but adds Go coverage flags
+# so the binary records which lines are executed during E2E tests.
+FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.26-openshift-5.0 AS builder
+
+ARG SRC_DIR=/go/src/github.com/openshift/must-gather-operator
+
+WORKDIR $SRC_DIR
+
+COPY . .
+
+RUN go build -cover -covermode=count -coverpkg=./... \
+	-o must-gather-operator .
+
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.7-1771346502
+
+RUN microdnf install -y tar gzip openssh-clients wget shadow-utils procps sshpass nc findutils && \
+	microdnf clean all
+
+ARG SRC_DIR=/go/src/github.com/openshift/must-gather-operator
+COPY --from=builder $SRC_DIR/must-gather-operator /usr/local/bin/must-gather-operator
+COPY --from=builder $SRC_DIR/build/bin /usr/local/bin
+COPY --from=builder /go/src/github.com/openshift/must-gather-operator/build/obfuscate-config.yaml /etc/must-gather-clean/default-config.yaml
+
+# 65534 is the 'nobody' user/group - a standard unprivileged user for containers
+RUN mkdir -p /tmp/e2e-cover && chown 65534:65534 /tmp/e2e-cover && chmod 700 /tmp/e2e-cover
+USER 65534:65534
+ENV GOCOVERDIR=/tmp/e2e-cover
+ENTRYPOINT ["/usr/local/bin/must-gather-operator"]

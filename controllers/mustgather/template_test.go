@@ -59,7 +59,7 @@ func Test_initializeJobTemplate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			job := initializeJobTemplate(testName, testNamespace, testServiceAccountRef, tt.storage, tt.caConfigMap)
+			job := initializeJobTemplate(testName, testNamespace, testServiceAccountRef, tt.storage, tt.caConfigMap, nil)
 
 			if got := job.Name; got != testName {
 				t.Fatalf("job name from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testName)
@@ -110,6 +110,7 @@ func Test_initializeJobTemplate(t *testing.T) {
 
 func Test_getGatherContainer(t *testing.T) {
 	testSinceTime := time.Date(2026, 1, 7, 10, 0, 0, 0, time.UTC)
+	testDirName := "must-gather.local.456789abcdef.20260617T143025Z.042315"
 
 	tests := []struct {
 		name            string
@@ -121,6 +122,7 @@ func Test_getGatherContainer(t *testing.T) {
 		args            []string
 		caConfigMap     string
 		timeFilter      *GatherTimeFilter
+		directoryName   string
 	}{
 		{
 			name:            "no audit",
@@ -140,7 +142,7 @@ func Test_getGatherContainer(t *testing.T) {
 			caConfigMap:     "trusted-ca-cert-001",
 		},
 		{
-			name:    "with PVC",
+			name:    "with PVC and directory name",
 			timeout: 5 * time.Second,
 			storage: &mustgatherv1alpha1.Storage{
 				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
@@ -151,9 +153,10 @@ func Test_getGatherContainer(t *testing.T) {
 					SubPath: "test-path",
 				},
 			},
+			directoryName: testDirName,
 		},
 		{
-			name:    "with PVC empty subPath sets subPathExpr to POD_NAME only",
+			name:    "with PVC empty subPath uses directory name only",
 			timeout: 5 * time.Second,
 			storage: &mustgatherv1alpha1.Storage{
 				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
@@ -162,9 +165,10 @@ func Test_getGatherContainer(t *testing.T) {
 					SubPath: "",
 				},
 			},
+			directoryName: testDirName,
 		},
 		{
-			name:    "with PVC whitespace subPath sets subPathExpr to POD_NAME only",
+			name:    "with PVC whitespace subPath uses directory name only",
 			timeout: 5 * time.Second,
 			storage: &mustgatherv1alpha1.Storage{
 				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
@@ -173,9 +177,10 @@ func Test_getGatherContainer(t *testing.T) {
 					SubPath: "   ",
 				},
 			},
+			directoryName: testDirName,
 		},
 		{
-			name:    "with PVC slash-only subPath sets subPathExpr to POD_NAME only",
+			name:    "with PVC slash-only subPath uses directory name only",
 			timeout: 5 * time.Second,
 			storage: &mustgatherv1alpha1.Storage{
 				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
@@ -184,6 +189,7 @@ func Test_getGatherContainer(t *testing.T) {
 					SubPath: "/",
 				},
 			},
+			directoryName: testDirName,
 		},
 		{
 			name:            "robust timeout",
@@ -216,7 +222,7 @@ func Test_getGatherContainer(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			container := getGatherContainer(tt.mustGatherImage, tt.audit, tt.timeout, tt.storage, tt.caConfigMap, tt.timeFilter, tt.command, tt.args)
+			container := getGatherContainer(tt.mustGatherImage, tt.audit, tt.timeout, tt.storage, tt.caConfigMap, tt.timeFilter, tt.command, tt.args, tt.directoryName, nil)
 
 			if len(tt.command) == 0 {
 				containerCommand := container.Command[2]
@@ -271,32 +277,10 @@ func Test_getGatherContainer(t *testing.T) {
 					t.Fatalf("volume mount name was not correctly set. got %v, wanted %v", volumeMount.Name, outputVolumeName)
 				}
 				base := strings.Trim(strings.TrimSpace(tt.storage.PersistentVolume.SubPath), "/")
-				wantExpr := path.Join(base, fmt.Sprintf("$(%s)", podNameEnvVar))
-				if volumeMount.SubPathExpr != wantExpr {
-					t.Fatalf("volume mount subPathExpr was not correctly set. got %q, wanted %q", volumeMount.SubPathExpr, wantExpr)
+				wantSubPath := path.Join(base, tt.directoryName)
+				if volumeMount.SubPath != wantSubPath {
+					t.Fatalf("volume mount subPath was not correctly set. got %q, wanted %q", volumeMount.SubPath, wantSubPath)
 				}
-				if volumeMount.SubPath != "" {
-					t.Fatalf("did not expect volume mount subPath to be set when using subPathExpr, got %q", volumeMount.SubPath)
-				}
-			}
-
-			// POD_NAME env var should be present only when SubPathExpr is used.
-			hasPodNameEnv := false
-			for _, env := range container.Env {
-				if env.Name == podNameEnvVar {
-					hasPodNameEnv = true
-					if env.ValueFrom == nil || env.ValueFrom.FieldRef == nil || env.ValueFrom.FieldRef.FieldPath != "metadata.name" {
-						t.Fatalf("expected %s env var to be sourced from metadata.name via fieldRef, got %#v", podNameEnvVar, env)
-					}
-				}
-			}
-			// SubPathExpr is always set for PVC storage (for per-pod isolation), so POD_NAME env is always present.
-			hasPVCStorage := tt.storage != nil && tt.storage.Type == mustgatherv1alpha1.StorageTypePersistentVolume
-			if hasPVCStorage && !hasPodNameEnv {
-				t.Fatalf("expected %s env var when PVC storage is used (SubPathExpr is set)", podNameEnvVar)
-			}
-			if !hasPVCStorage && hasPodNameEnv {
-				t.Fatalf("did not expect %s env var when storage is not PVC", podNameEnvVar)
 			}
 
 			// Check time filter environment variables
@@ -319,6 +303,8 @@ func Test_getGatherContainer(t *testing.T) {
 }
 
 func Test_getUploadContainer(t *testing.T) {
+	testDirName := "must-gather.local.456789abcdef.20260617T143025Z.042315"
+
 	tests := []struct {
 		name             string
 		operatorImage    string
@@ -331,6 +317,7 @@ func Test_getUploadContainer(t *testing.T) {
 		noProxy          string
 		mountCAConfigMap bool
 		secretKeyRefName v1.LocalObjectReference
+		directoryName    string
 	}{
 		{
 			name:             "All fields present",
@@ -386,7 +373,7 @@ func Test_getUploadContainer(t *testing.T) {
 			mountCAConfigMap: true,
 		},
 		{
-			name:          "With PVC subPath",
+			name:          "With PVC subPath and directory name",
 			operatorImage: "testImage",
 			caseId:        "1234",
 			secretKeyRefName: v1.LocalObjectReference{
@@ -401,9 +388,10 @@ func Test_getUploadContainer(t *testing.T) {
 					SubPath: "test-path",
 				},
 			},
+			directoryName: testDirName,
 		},
 		{
-			name:          "With PVC empty subPath sets subPathExpr to POD_NAME only",
+			name:          "With PVC empty subPath uses directory name only",
 			operatorImage: "testImage",
 			caseId:        "1234",
 			secretKeyRefName: v1.LocalObjectReference{
@@ -416,9 +404,10 @@ func Test_getUploadContainer(t *testing.T) {
 					SubPath: "",
 				},
 			},
+			directoryName: testDirName,
 		},
 		{
-			name:          "With PVC whitespace subPath sets subPathExpr to POD_NAME only",
+			name:          "With PVC whitespace subPath uses directory name only",
 			operatorImage: "testImage",
 			caseId:        "1234",
 			secretKeyRefName: v1.LocalObjectReference{
@@ -431,9 +420,10 @@ func Test_getUploadContainer(t *testing.T) {
 					SubPath: "   ",
 				},
 			},
+			directoryName: testDirName,
 		},
 		{
-			name:          "With PVC slash-only subPath sets subPathExpr to POD_NAME only",
+			name:          "With PVC slash-only subPath uses directory name only",
 			operatorImage: "testImage",
 			caseId:        "1234",
 			secretKeyRefName: v1.LocalObjectReference{
@@ -446,12 +436,19 @@ func Test_getUploadContainer(t *testing.T) {
 					SubPath: "/",
 				},
 			},
+			directoryName: testDirName,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testFailed := false
-			container := getUploadContainer(tt.operatorImage, tt.caseId, tt.host, tt.internalUser, tt.storage, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.secretKeyRefName, tt.mountCAConfigMap)
+			sftp := &mustgatherv1alpha1.SFTPSpec{
+				CaseID:                         tt.caseId,
+				Host:                           tt.host,
+				InternalUser:                   tt.internalUser,
+				CaseManagementAccountSecretRef: tt.secretKeyRefName,
+			}
+			container := getUploadContainer(tt.operatorImage, tt.storage, tt.httpProxy, tt.httpsProxy, tt.noProxy, tt.mountCAConfigMap, sftp, nil, tt.directoryName)
 
 			if container.Image != tt.operatorImage {
 				t.Fatalf("expected container image %v but got %v", tt.operatorImage, container.Image)
@@ -482,31 +479,10 @@ func Test_getUploadContainer(t *testing.T) {
 					t.Fatalf("expected output volume mount %q to be present", outputVolumeName)
 				}
 				base := strings.Trim(strings.TrimSpace(tt.storage.PersistentVolume.SubPath), "/")
-				wantExpr := path.Join(base, fmt.Sprintf("$(%s)", podNameEnvVar))
-				if outputMount.SubPathExpr != wantExpr {
-					t.Fatalf("expected output volume mount subPathExpr %q but got %q", wantExpr, outputMount.SubPathExpr)
+				wantSubPath := path.Join(base, tt.directoryName)
+				if outputMount.SubPath != wantSubPath {
+					t.Fatalf("expected output volume mount subPath %q but got %q", wantSubPath, outputMount.SubPath)
 				}
-				if outputMount.SubPath != "" {
-					t.Fatalf("did not expect output volume mount subPath to be set when using subPathExpr, got %q", outputMount.SubPath)
-				}
-			}
-
-			// POD_NAME env var is present when SubPathExpr is used (always for PVC storage).
-			hasPodNameEnv := false
-			for _, env := range container.Env {
-				if env.Name == podNameEnvVar {
-					hasPodNameEnv = true
-					if env.ValueFrom == nil || env.ValueFrom.FieldRef == nil || env.ValueFrom.FieldRef.FieldPath != "metadata.name" {
-						t.Fatalf("expected %s env var to be sourced from metadata.name via fieldRef, got %#v", podNameEnvVar, env)
-					}
-				}
-			}
-			hasPVCStorage := tt.storage != nil && tt.storage.Type == mustgatherv1alpha1.StorageTypePersistentVolume
-			if hasPVCStorage && !hasPodNameEnv {
-				t.Fatalf("expected %s env var when PVC storage is used (SubPathExpr is set)", podNameEnvVar)
-			}
-			if !hasPVCStorage && hasPodNameEnv {
-				t.Fatalf("did not expect %s env var when storage is not PVC", podNameEnvVar)
 			}
 
 			for _, env := range container.Env {
@@ -589,7 +565,7 @@ func Test_getJobTemplate_GatherSpec_BuildsTimeFilter(t *testing.T) {
 				},
 			}
 
-			job := getJobTemplate("img", "operator-image", mg, "")
+			job := getJobTemplate("img", "operator-image", mg, "", "must-gather.local.test.20240101T120000Z.000001")
 			gather := findGatherContainerInJob(t, job)
 			got := envValues(gather)
 
@@ -675,7 +651,7 @@ func Test_getJobTemplate_ProxyAuditTimeout(t *testing.T) {
 				},
 			}
 
-			job := getJobTemplate("image", "operator-image", mg, "")
+			job := getJobTemplate("image", "operator-image", mg, "", "must-gather.local.test.20240101T120000Z.000001")
 
 			gather := findGatherContainerInJob(t, job)
 			gatherCmd := gather.Command[2]
@@ -714,6 +690,466 @@ func Test_getJobTemplate_ProxyAuditTimeout(t *testing.T) {
 				if _, ok := uploadEnv[uploadEnvNoProxy]; ok {
 					t.Fatalf("did not expect %s env var, got %v", uploadEnvNoProxy, uploadEnv[uploadEnvNoProxy])
 				}
+			}
+		})
+	}
+}
+
+func Test_getJobTemplate_FilenamePrefix(t *testing.T) {
+	t.Setenv(DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
+
+	directoryName := "must-gather.local.456789abcdef.20260617T143025Z.042315"
+
+	mg := mustgatherv1alpha1.MustGather{
+		ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
+		Spec: mustgatherv1alpha1.MustGatherSpec{
+			ServiceAccountName: "default",
+			UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
+				Type: mustgatherv1alpha1.UploadTypeSFTP,
+				SFTP: &mustgatherv1alpha1.SFTPSpec{
+					CaseID: "1234",
+					Host:   "sftp.example.com",
+					CaseManagementAccountSecretRef: v1.LocalObjectReference{
+						Name: "case-mgmt-secret",
+					},
+				},
+			},
+		},
+	}
+
+	job := getJobTemplate("img", "operator-image", mg, "", directoryName)
+	upload := findUploadContainerInJob(t, job)
+	uploadEnv := envValues(upload)
+
+	val, ok := uploadEnv[uploadEnvFilenamePrefix]
+	if !ok {
+		t.Fatalf("expected %s env var in upload container, not found", uploadEnvFilenamePrefix)
+	}
+	if val != directoryName {
+		t.Fatalf("expected %s=%s, got %s", uploadEnvFilenamePrefix, directoryName, val)
+	}
+}
+
+func Test_getJobTemplate_GatherObfuscatePVC(t *testing.T) {
+	t.Setenv(DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
+
+	directoryName := "must-gather.local.abc123.20260722T120000Z.042315"
+
+	tests := []struct {
+		name    string
+		storage *mustgatherv1alpha1.Storage
+		subPath string
+	}{
+		{
+			name: "Gather + Obfuscate + PVC with subPath",
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "mg-pvc"},
+					SubPath: "collections",
+				},
+			},
+			subPath: "collections",
+		},
+		{
+			name: "Gather + Obfuscate + PVC without subPath",
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "mg-pvc"},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mg := mustgatherv1alpha1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
+				Spec: mustgatherv1alpha1.MustGatherSpec{
+					ServiceAccountName: "default",
+					Storage:            tt.storage,
+					Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
+						Enabled: ToPtr(true),
+					},
+				},
+			}
+
+			job := getJobTemplate("img", "operator-image", mg, "", directoryName)
+
+			// Gather container must be present (no obfuscate.source)
+			gather := findGatherContainerInJob(t, job)
+			gatherCmd := gather.Command[2]
+			if !strings.Contains(gatherCmd, obfuscateChownSuffix) {
+				t.Fatalf("expected gather command to contain chown suffix for obfuscation, got %q", gatherCmd)
+			}
+
+			// Upload container must be present (obfuscate.enabled)
+			upload := findUploadContainerInJob(t, job)
+			uploadEnv := envValues(upload)
+
+			if uploadEnv[obfuscateEnvEnabled] != "true" {
+				t.Fatalf("expected %s=true, got %q", obfuscateEnvEnabled, uploadEnv[obfuscateEnvEnabled])
+			}
+
+			// Upload volume should stay emptyDir (PVC is mounted via the output volume)
+			var uploadVol *v1.Volume
+			for i := range job.Spec.Template.Spec.Volumes {
+				if job.Spec.Template.Spec.Volumes[i].Name == uploadVolumeName {
+					uploadVol = &job.Spec.Template.Spec.Volumes[i]
+					break
+				}
+			}
+			if uploadVol == nil {
+				t.Fatalf("expected upload volume %q", uploadVolumeName)
+			}
+			if uploadVol.EmptyDir == nil {
+				t.Fatalf("expected upload volume to be emptyDir (PVC reuse is via mount, not volume)")
+			}
+
+			// Upload mount should reference the output volume (PVC-backed) with correct SubPath
+			var uploadMount *v1.VolumeMount
+			for i := range upload.VolumeMounts {
+				if upload.VolumeMounts[i].MountPath == volumeUploadMountPath {
+					uploadMount = &upload.VolumeMounts[i]
+					break
+				}
+			}
+			if uploadMount == nil {
+				t.Fatalf("expected upload mount at %q", volumeUploadMountPath)
+			}
+			if uploadMount.Name != outputVolumeName {
+				t.Fatalf("expected upload mount to reference %q (PVC-backed), got %q", outputVolumeName, uploadMount.Name)
+			}
+			base := strings.Trim(strings.TrimSpace(tt.subPath), "/")
+			wantSubPath := path.Join(base, directoryName)
+			if uploadMount.SubPath != wantSubPath {
+				t.Fatalf("expected upload mount SubPath %q, got %q", wantSubPath, uploadMount.SubPath)
+			}
+
+			// No SFTP env vars should be set (no uploadTarget)
+			if _, ok := uploadEnv[uploadEnvUsername]; ok {
+				t.Fatalf("expected no %s env var in Gather+Obfuscate+PVC mode", uploadEnvUsername)
+			}
+			if _, ok := uploadEnv[uploadEnvCaseId]; ok {
+				t.Fatalf("expected no %s env var in Gather+Obfuscate+PVC mode", uploadEnvCaseId)
+			}
+		})
+	}
+}
+
+func Test_getJobTemplate_ObfuscateSourceSkipsGather(t *testing.T) {
+	t.Setenv(DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
+
+	mg := mustgatherv1alpha1.MustGather{
+		ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
+		Spec: mustgatherv1alpha1.MustGatherSpec{
+			ServiceAccountName: "default",
+			Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
+				Enabled: ToPtr(true),
+				Source: &mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "existing-pvc"},
+					SubPath: "bundles/run-1",
+				},
+			},
+		},
+	}
+
+	job := getJobTemplate("img", "operator-image", mg, "", "dir-name")
+
+	// No gather container when source is provided
+	for _, c := range job.Spec.Template.Spec.Containers {
+		if c.Name == gatherContainerName {
+			t.Fatalf("expected no gather container when obfuscate.source is set")
+		}
+	}
+
+	// Upload container must be present
+	upload := findUploadContainerInJob(t, job)
+
+	// Output volume should be the source PVC (read-only)
+	var outputVol *v1.Volume
+	for i := range job.Spec.Template.Spec.Volumes {
+		if job.Spec.Template.Spec.Volumes[i].Name == outputVolumeName {
+			outputVol = &job.Spec.Template.Spec.Volumes[i]
+			break
+		}
+	}
+	if outputVol == nil || outputVol.PersistentVolumeClaim == nil {
+		t.Fatalf("expected output volume to be backed by source PVC")
+	}
+	if outputVol.PersistentVolumeClaim.ClaimName != "existing-pvc" {
+		t.Fatalf("expected output volume PVC claim %q, got %q", "existing-pvc", outputVol.PersistentVolumeClaim.ClaimName)
+	}
+	if !outputVol.PersistentVolumeClaim.ReadOnly {
+		t.Fatalf("expected source PVC to be mounted read-only")
+	}
+
+	// Output mount should have SubPath and be read-only
+	var outputMount *v1.VolumeMount
+	for i := range upload.VolumeMounts {
+		if upload.VolumeMounts[i].Name == outputVolumeName && upload.VolumeMounts[i].MountPath == volumeMountPath {
+			outputMount = &upload.VolumeMounts[i]
+			break
+		}
+	}
+	if outputMount == nil {
+		t.Fatalf("expected output volume mount")
+	}
+	if !outputMount.ReadOnly {
+		t.Fatalf("expected output mount to be read-only")
+	}
+	if outputMount.SubPath != "bundles/run-1" {
+		t.Fatalf("expected output mount SubPath %q, got %q", "bundles/run-1", outputMount.SubPath)
+	}
+
+	// Upload mount should stay on emptyDir (uploadVolumeName), NOT redirected to source PVC
+	var uploadMount *v1.VolumeMount
+	for i := range upload.VolumeMounts {
+		if upload.VolumeMounts[i].MountPath == volumeUploadMountPath {
+			uploadMount = &upload.VolumeMounts[i]
+			break
+		}
+	}
+	if uploadMount == nil {
+		t.Fatalf("expected upload mount at %q", volumeUploadMountPath)
+	}
+	if uploadMount.Name != uploadVolumeName {
+		t.Fatalf("expected upload mount to reference %q (emptyDir), got %q", uploadVolumeName, uploadMount.Name)
+	}
+
+	// Upload volume should be emptyDir
+	var uploadVol *v1.Volume
+	for i := range job.Spec.Template.Spec.Volumes {
+		if job.Spec.Template.Spec.Volumes[i].Name == uploadVolumeName {
+			uploadVol = &job.Spec.Template.Spec.Volumes[i]
+			break
+		}
+	}
+	if uploadVol == nil || uploadVol.EmptyDir == nil {
+		t.Fatalf("upload volume should be emptyDir in source mode")
+	}
+
+	// Upload command should be direct (no gather polling)
+	uploadCmd := upload.Command[2]
+	if !strings.Contains(uploadCmd, uploadCommandDirect) {
+		t.Fatalf("expected direct upload command for source mode, got %q", uploadCmd)
+	}
+
+	// No init containers needed (source PVC is read-only, upload goes to emptyDir)
+	if len(job.Spec.Template.Spec.InitContainers) != 0 {
+		t.Fatalf("source mode should not have init containers, got %d", len(job.Spec.Template.Spec.InitContainers))
+	}
+}
+
+func Test_obfuscateHelpers(t *testing.T) {
+	t.Run("isObfuscateEnabled", func(t *testing.T) {
+		if isObfuscateEnabled(nil) {
+			t.Fatal("expected false for nil")
+		}
+		if isObfuscateEnabled(&mustgatherv1alpha1.ObfuscateConfig{}) {
+			t.Fatal("expected false when Enabled is nil")
+		}
+		if isObfuscateEnabled(&mustgatherv1alpha1.ObfuscateConfig{Enabled: ToPtr(false)}) {
+			t.Fatal("expected false when Enabled is false")
+		}
+		if !isObfuscateEnabled(&mustgatherv1alpha1.ObfuscateConfig{Enabled: ToPtr(true)}) {
+			t.Fatal("expected true when Enabled is true")
+		}
+	})
+
+	t.Run("shouldAppendObfuscateChown", func(t *testing.T) {
+		if shouldAppendObfuscateChown(nil) {
+			t.Fatal("expected false for nil")
+		}
+		if shouldAppendObfuscateChown(&mustgatherv1alpha1.ObfuscateConfig{Enabled: ToPtr(true), Source: &mustgatherv1alpha1.PersistentVolumeConfig{Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "pvc"}}}) {
+			t.Fatal("expected false when source is set (no gather container)")
+		}
+		if !shouldAppendObfuscateChown(&mustgatherv1alpha1.ObfuscateConfig{Enabled: ToPtr(true)}) {
+			t.Fatal("expected true when enabled and no source")
+		}
+	})
+
+	t.Run("shouldAddUploadContainer", func(t *testing.T) {
+		mg := mustgatherv1alpha1.MustGather{
+			Spec: mustgatherv1alpha1.MustGatherSpec{
+				Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{Enabled: ToPtr(true)},
+			},
+		}
+		if !shouldAddUploadContainer(mg) {
+			t.Fatal("expected true when obfuscate enabled")
+		}
+
+		mgNoObfuscate := mustgatherv1alpha1.MustGather{
+			Spec: mustgatherv1alpha1.MustGatherSpec{},
+		}
+		if shouldAddUploadContainer(mgNoObfuscate) {
+			t.Fatal("expected false when no obfuscate and no upload target")
+		}
+	})
+
+	t.Run("getObfuscateConfigMapRefName", func(t *testing.T) {
+		if getObfuscateConfigMapRefName(nil) != "" {
+			t.Fatal("expected empty for nil")
+		}
+		ref := &mustgatherv1alpha1.ObfuscateConfig{
+			ObfuscationConfigRef: &v1.LocalObjectReference{Name: "my-config"},
+		}
+		if getObfuscateConfigMapRefName(ref) != "my-config" {
+			t.Fatal("expected my-config")
+		}
+	})
+
+	t.Run("hasObfuscateSource", func(t *testing.T) {
+		if hasObfuscateSource(nil) {
+			t.Fatal("expected false for nil")
+		}
+		src := &mustgatherv1alpha1.ObfuscateConfig{
+			Source: &mustgatherv1alpha1.PersistentVolumeConfig{
+				Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "pvc"},
+			},
+		}
+		if !hasObfuscateSource(src) {
+			t.Fatal("expected true with valid source claim")
+		}
+	})
+}
+
+func Test_getGatherContainer_ChownSuffix(t *testing.T) {
+	container := getGatherContainer("img", false, 5*time.Second, nil, "", nil, nil, nil, "", &mustgatherv1alpha1.ObfuscateConfig{Enabled: ToPtr(true)})
+	gatherCmd := container.Command[2]
+	if !strings.Contains(gatherCmd, obfuscateChownSuffix) {
+		t.Fatalf("expected chown suffix when obfuscate enabled, got %q", gatherCmd)
+	}
+
+	containerNoObfuscate := getGatherContainer("img", false, 5*time.Second, nil, "", nil, nil, nil, "", nil)
+	gatherCmdNoObfuscate := containerNoObfuscate.Command[2]
+	if strings.Contains(gatherCmdNoObfuscate, obfuscateChownSuffix) {
+		t.Fatalf("expected no chown suffix without obfuscation, got %q", gatherCmdNoObfuscate)
+	}
+
+	containerCustomCmd := getGatherContainer("img", false, 5*time.Second, nil, "", nil, []string{"/custom"}, []string{"--flag"}, "", &mustgatherv1alpha1.ObfuscateConfig{Enabled: ToPtr(true)})
+	if len(containerCustomCmd.Command) != 4 || containerCustomCmd.Command[0] != "/bin/bash" {
+		t.Fatalf("expected custom command to be wrapped in bash for chown, got %v", containerCustomCmd.Command)
+	}
+	wrappedScript := containerCustomCmd.Command[2]
+	if !strings.Contains(wrappedScript, `"$@"`) {
+		t.Fatalf("expected wrapped script to contain \"$@\" passthrough, got %q", wrappedScript)
+	}
+	if !strings.Contains(wrappedScript, obfuscateChownSuffix) {
+		t.Fatalf("expected wrapped script to contain chown suffix, got %q", wrappedScript)
+	}
+	expectedArgs := []string{"/custom", "--flag"}
+	if len(containerCustomCmd.Args) != len(expectedArgs) {
+		t.Fatalf("expected %d args, got %d: %v", len(expectedArgs), len(containerCustomCmd.Args), containerCustomCmd.Args)
+	}
+	for i, want := range expectedArgs {
+		if containerCustomCmd.Args[i] != want {
+			t.Fatalf("args[%d]: expected %q, got %q", i, want, containerCustomCmd.Args[i])
+		}
+	}
+
+	containerCustomCmdNoObfuscate := getGatherContainer("img", false, 5*time.Second, nil, "", nil, []string{"/custom"}, nil, "", nil)
+	if len(containerCustomCmdNoObfuscate.Command) != 1 || containerCustomCmdNoObfuscate.Command[0] != "/custom" {
+		t.Fatalf("expected custom command to be preserved without obfuscate, got %v", containerCustomCmdNoObfuscate.Command)
+	}
+}
+
+func Test_getUploadContainer_ObfuscateConfigMount(t *testing.T) {
+	obfuscate := &mustgatherv1alpha1.ObfuscateConfig{
+		Enabled:              ToPtr(true),
+		ObfuscationConfigRef: &v1.LocalObjectReference{Name: "custom-rules"},
+	}
+	container := getUploadContainer("img", nil, "", "", "", false, nil, obfuscate, "dir")
+
+	env := envValues(container)
+	if env[obfuscateEnvEnabled] != "true" {
+		t.Fatalf("expected %s=true", obfuscateEnvEnabled)
+	}
+	if env[obfuscateEnvConfig] != obfuscateConfigMountPath {
+		t.Fatalf("expected %s=%s, got %s", obfuscateEnvConfig, obfuscateConfigMountPath, env[obfuscateEnvConfig])
+	}
+
+	foundConfigMount := false
+	for _, vm := range container.VolumeMounts {
+		if vm.Name == obfuscateConfigVolumeName {
+			foundConfigMount = true
+			if vm.SubPath != obfuscateConfigMapKey {
+				t.Fatalf("expected config mount SubPath %q, got %q", obfuscateConfigMapKey, vm.SubPath)
+			}
+			if !vm.ReadOnly {
+				t.Fatalf("expected config mount to be read-only")
+			}
+		}
+	}
+	if !foundConfigMount {
+		t.Fatalf("expected obfuscate config volume mount")
+	}
+}
+
+func Test_outputSubPath(t *testing.T) {
+	tests := []struct {
+		name          string
+		storage       *mustgatherv1alpha1.Storage
+		directoryName string
+		wantPath      string
+		wantOk        bool
+	}{
+		{
+			name:     "nil storage returns empty",
+			storage:  nil,
+			wantPath: "",
+			wantOk:   false,
+		},
+		{
+			name: "PVC with subPath and directoryName",
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "pvc"},
+					SubPath: "base-path",
+				},
+			},
+			directoryName: "must-gather.local.abc.20260101T000000Z.123456",
+			wantPath:      "base-path/must-gather.local.abc.20260101T000000Z.123456",
+			wantOk:        true,
+		},
+		{
+			name: "PVC with empty subPath and directoryName",
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "pvc"},
+					SubPath: "",
+				},
+			},
+			directoryName: "must-gather.local.abc.20260101T000000Z.123456",
+			wantPath:      "must-gather.local.abc.20260101T000000Z.123456",
+			wantOk:        true,
+		},
+		{
+			name: "PVC with whitespace subPath and directoryName",
+			storage: &mustgatherv1alpha1.Storage{
+				Type: mustgatherv1alpha1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
+					Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "pvc"},
+					SubPath: "  / ",
+				},
+			},
+			directoryName: "must-gather.local.abc.20260101T000000Z.123456",
+			wantPath:      "must-gather.local.abc.20260101T000000Z.123456",
+			wantOk:        true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotPath, gotOk := outputSubPath(tt.storage, tt.directoryName)
+			if gotOk != tt.wantOk {
+				t.Fatalf("outputSubPath() ok = %v, want %v", gotOk, tt.wantOk)
+			}
+			if gotPath != tt.wantPath {
+				t.Fatalf("outputSubPath() path = %q, want %q", gotPath, tt.wantPath)
 			}
 		})
 	}

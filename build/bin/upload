@@ -12,9 +12,7 @@ set -o errexit
 
 must_gather_output=${must_gather_output:="/must-gather-output"}
 must_gather_upload=${must_gather_upload:="/must-gather-upload"}
-FILENAME_PREFIX=${FILENAME_PREFIX:="must-gather"}
-CURRENT_TIMESTAMP=$(date --utc +%Y%m%d_%H%M%SZ)
-CSP_FILENAME=${FILENAME_PREFIX}-${CURRENT_TIMESTAMP}.tar.gz
+CSP_FILENAME=${FILENAME_PREFIX}.tar.gz
 CSP_FILE="${must_gather_upload}/${CSP_FILENAME}"
 FTP_HOST=${host:-"sftp.access.redhat.com"}
 # Wrap bare IPv6 addresses in brackets for sftp/ssh compatibility
@@ -67,8 +65,35 @@ if [ -n "${http_proxy}" ] || [ -n "${https_proxy}" ]; then
 fi
 
 
+if [ "${obfuscate}" = "true" ]; then
+  echo "Running obfuscation on $must_gather_output ..."
+  mkdir -p "${must_gather_upload}/cleaned"
+  config_args=()
+  if [ -n "${obfuscate_config}" ]; then
+    config_args=(--config "$obfuscate_config")
+  fi
+  OBFUSCATION_LOG="${must_gather_upload}/obfuscation.log"
+  obfuscate_rc=0
+  (set +e; /usr/local/bin/must-gather-operator obfuscate \
+    --input "$must_gather_output" \
+    --output "${must_gather_upload}/cleaned" \
+    "${config_args[@]}" -v=3 2>&1; echo $? > "${must_gather_upload}/.obfuscate_rc") | tee "${OBFUSCATION_LOG}"
+  obfuscate_rc=$(cat "${must_gather_upload}/.obfuscate_rc")
+  cp "${OBFUSCATION_LOG}" "${must_gather_upload}/cleaned/obfuscation.log"
+  if [ "$obfuscate_rc" -ne 0 ]; then
+    echo "Error: obfuscation failed with exit code ${obfuscate_rc}."
+    exit "$obfuscate_rc"
+  fi
+  echo "Obfuscation complete."
+  must_gather_output="${must_gather_upload}/cleaned"
+fi
+
 if [ -z "${caseid}" ] || [ -z "${username}" ] || [ -z "${password}" ];
 then
+  if [ "${obfuscate}" = "true" ] && [ -z "${caseid}" ] && [ -z "${username}" ] && [ -z "${password}" ]; then
+    echo "Obfuscation complete; SFTP credentials not provided — skipping upload."
+    exit 0
+  fi
   echo "Error: Required Parameters have not been provided. Exiting..."
   exit 1
 fi
@@ -103,6 +128,7 @@ fi
 if [ $? -eq 0 ];
 then
   echo "Successfully uploaded '${CSP_FILENAME}' to Red Hat SFTP Server for case ${caseid}!"
+  rm -f "$CSP_FILE" 2>/dev/null || true
 else
   echo "Error: Upload to Red Hat Customer SFTP Server failed."
   exit 1
