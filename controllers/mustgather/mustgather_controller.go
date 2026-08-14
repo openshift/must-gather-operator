@@ -688,6 +688,10 @@ func (r *MustGatherReconciler) cleanupTrustedCAConfigMap(ctx context.Context, re
 // getJobAge returns a human-readable string describing how long ago the job was created.
 func getJobAge(job *batchv1.Job) string {
 	age := time.Since(job.CreationTimestamp.Time)
+	if age < 0 {
+		return "0s"
+	}
+	age = age.Truncate(time.Second)
 	if age < time.Minute {
 		return fmt.Sprintf("%ds", int(age.Seconds()))
 	} else if age < time.Hour {
@@ -703,6 +707,10 @@ func getJobAge(job *batchv1.Job) string {
 
 // logCleanupSummary logs a summary of the resources that were cleaned up.
 func logCleanupSummary(reqLogger logr.Logger, jobName string, podCount int, namespace string) {
+	if podCount == 0 {
+		reqLogger.V(4).Info("cleanup complete", "job", jobName, "namespace", namespace, "podsDeleted", podCount)
+		return
+	}
 	reqLogger.Info("cleanup complete", "job", jobName, "namespace", namespace, "podsDeleted", podCount)
 }
 
