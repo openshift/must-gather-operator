@@ -1,5 +1,5 @@
 # Mode 1: Gather + Obfuscate + Upload (built-in default obfuscation config)
-apiVersion: operator.openshift.io/v1alpha1
+apiVersion: operator.openshift.io/v1
 kind: MustGather
 metadata:
   name: obfuscated-gather

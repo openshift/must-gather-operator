@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	imagev1 "github.com/openshift/api/image/v1"
-	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
+	mustgatherv1 "github.com/openshift/must-gather-operator/api/v1"
 	"github.com/redhat-cop/operator-utils/pkg/util"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -38,7 +38,7 @@ func newImageTestReconciler(t *testing.T, objects []client.Object, interceptor i
 	if err := batchv1.AddToScheme(s); err != nil {
 		t.Fatalf("add batchv1 to scheme: %v", err)
 	}
-	if err := mustgatherv1alpha1.AddToScheme(s); err != nil {
+	if err := mustgatherv1.AddToScheme(s); err != nil {
 		t.Fatalf("add mustgather to scheme: %v", err)
 	}
 	if err := imagev1.Install(s); err != nil {
@@ -48,7 +48,7 @@ func newImageTestReconciler(t *testing.T, objects []client.Object, interceptor i
 	base := fake.NewClientBuilder().
 		WithScheme(s).
 		WithObjects(objects...).
-		WithStatusSubresource(&mustgatherv1alpha1.MustGather{}).
+		WithStatusSubresource(&mustgatherv1.MustGather{}).
 		Build()
 	cl := client.Client(base)
 	if interceptor.onGet != nil || interceptor.onList != nil || interceptor.onDelete != nil ||
@@ -64,13 +64,13 @@ func newImageTestReconciler(t *testing.T, objects []client.Object, interceptor i
 	}
 }
 
-func mustGatherWithImageStreamRef(name, namespace string, ref *mustgatherv1alpha1.ImageStreamTagRef) *mustgatherv1alpha1.MustGather {
-	return &mustgatherv1alpha1.MustGather{
+func mustGatherWithImageStreamRef(name, namespace string, ref *mustgatherv1.ImageStreamTagRef) *mustgatherv1.MustGather {
+	return &mustgatherv1.MustGather{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 		},
-		Spec: mustgatherv1alpha1.MustGatherSpec{
+		Spec: mustgatherv1.MustGatherSpec{
 			ImageStreamRef: ref,
 		},
 	}
@@ -94,14 +94,14 @@ func imageStreamWithTag(tag, dockerImageRef string) *imagev1.ImageStream {
 }
 
 func TestGetMustGatherImage(t *testing.T) {
-	imageStreamRef := &mustgatherv1alpha1.ImageStreamTagRef{
+	imageStreamRef := &mustgatherv1.ImageStreamTagRef{
 		Name: testImageStreamName,
 		Tag:  testImageStreamTag,
 	}
 
 	tests := []struct {
 		name           string
-		instance       *mustgatherv1alpha1.MustGather
+		instance       *mustgatherv1.MustGather
 		objects        []client.Object
 		interceptor    interceptClient
 		expectError    bool
@@ -232,7 +232,7 @@ func TestGetMustGatherImage(t *testing.T) {
 }
 
 func Test_getJobFromInstance_ImageStreamValidationErrors(t *testing.T) {
-	imageStreamRef := &mustgatherv1alpha1.ImageStreamTagRef{
+	imageStreamRef := &mustgatherv1.ImageStreamTagRef{
 		Name: testImageStreamName,
 		Tag:  testImageStreamTag,
 	}

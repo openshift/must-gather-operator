@@ -22,7 +22,7 @@ spec:
   version: 0.0.1
   provider:
     name: Red Hat, Inc
-  maturity: alpha
+  maturity: stable
   installModes:
   - type: OwnNamespace
     supported: true

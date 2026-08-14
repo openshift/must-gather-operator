@@ -4,7 +4,7 @@ The Must Gather operator helps collecting must-gather information on a cluster a
 To use the operator, a cluster administrator can create the following MustGather CR:
 
 ```yaml
-apiVersion: operator.openshift.io/v1alpha1
+apiVersion: operator.openshift.io/v1
 kind: MustGather
 metadata:
   name: example-mustgather-basic
@@ -24,7 +24,7 @@ This request will collect the standard must-gather info and upload it to case `#
 The field `audit` is **false** by default unless explicetely set to **true**.
 This will generate the default collection of audit logs as per [the collection script: gather_audit_logs](https://github.com/openshift/must-gather/blob/master/collection-scripts/gather_audit_logs)
 ```yaml
-apiVersion: operator.openshift.io/v1alpha1
+apiVersion: operator.openshift.io/v1
 kind: MustGather
 metadata:
   name: example-mustgather-full
@@ -38,6 +38,21 @@ spec:
         name: case-management-creds
   audit: true
 ```
+
+## Upgrading from Tech Preview
+
+Starting with release 5.0, the must-gather-operator is Generally Available (GA). The OLM channel has changed from `tech-preview` to `stable` and the API version has been promoted from `operator.openshift.io/v1alpha1` to `operator.openshift.io/v1`.
+
+If you previously installed the operator via the `tech-preview` channel, update your Subscription to use the `stable` channel:
+
+```shell
+oc patch subscription support-log-gather-operator -n must-gather-operator \
+  --type merge -p '{"spec":{"channel":"stable"}}'
+```
+
+Existing `v1alpha1` MustGather CRs continue to work — the CRD serves both versions — but `v1alpha1` is deprecated and will be removed in a future release. New CRs should use `operator.openshift.io/v1`.
+
+> **Note:** This operator may still be unsupported. For development, consider using the `stable` channel as described above. For support, consult the appropriate Red Hat documentation and the [OpenShift Operator Life Cycles](https://access.redhat.com/support/policy/updates/openshift_operators) policy.
 
 ## Garbage collection
 
