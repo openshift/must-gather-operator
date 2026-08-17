@@ -11,7 +11,7 @@ must-gather-operator/
 │   ├── template.go                  # Job spec builder: gather + upload containers, volumes, env
 │   ├── predicates.go                # Event filters: generation/finalizer changes, Job status changes
 │   ├── validation.go                # SFTP pre-flight check: SSH dial, proxy tunneling, retry
-│   ├── constant.go                  # Constants: env var names, default image var, default timeout
+│   ├── constant.go                  # Constants: env var names, default image var, validation types, retry count
 │   ├── mustgather_controller_test.go
 │   └── template_test.go
 ├── config/config.go                 # Operator name, OLM skip-range toggle
@@ -22,7 +22,7 @@ must-gather-operator/
 ├── build/bin/
 │   ├── upload                       # Shell: compress + SFTP upload with proxy support
 │   └── https-proxy-connect-util     # Shell: socat-based HTTPS CONNECT proxy tunneling
-├── deploy/                          # Deployment, RBAC, CRD, ServiceAccount, sample PVC
+├── deploy/                          # Deployment, RBAC, CRD, sample PVC
 ├── bundle/manifests/tech-preview/   # OLM bundle (CSV, CRD)
 ├── examples/                        # 8 example MustGather CRs
 ├── test/e2e/                        # Ginkgo E2E tests
@@ -45,7 +45,7 @@ must-gather-operator/
 
 There is exactly **one controller** (`MustGatherReconciler`) managing the full lifecycle. It uses controller-runtime (not library-go).
 
-### Registration (`main.go:175-186`)
+### Startup (`main.go:82-88 init`, `113-123 manager`, `175-186 controller registration`)
 
 ```text
 Scheme: clientgoscheme + config/v1 + image/v1 + operator.openshift.io/v1alpha1

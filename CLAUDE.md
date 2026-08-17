@@ -58,8 +58,8 @@ Note: The `OPERATOR_IMAGE` environment variable must be set in the deployment or
 # Run unit tests
 make go-test
 
-# Apply a test MustGather CR
-oc apply -f ./test/must-gather.yaml
+# Apply an example MustGather CR
+oc apply -f ./examples/mustgather_basic.yaml
 ```
 
 ## Architecture
@@ -68,7 +68,7 @@ oc apply -f ./test/must-gather.yaml
 
 **API Types** (`api/v1alpha1/mustgather_types.go`):
 - `MustGather` CR defines the specification for must-gather collection jobs
-- Key fields: `caseID`, `caseManagementAccountSecretRef`, `serviceAccountRef`, `audit`, `mustGatherTimeout`, `internalUser`
+- Key fields: `serviceAccountName`, `uploadTarget` (with nested `caseID`, `caseManagementAccountSecretRef`), `gatherSpec` (with nested `audit`), `mustGatherTimeout`, `retainResourcesOnCompletion`
 - Status tracking with conditions and completion state
 
 **Controller** (`controllers/mustgather/mustgather_controller.go`):
@@ -94,13 +94,13 @@ oc apply -f ./test/must-gather.yaml
 
 ### Reconciliation Flow
 
-1. Fetch MustGather instance
-2. Initialize defaults (ServiceAccountRef from cluster)
-3. Handle deletion via finalizer:
+1. Fetch MustGather instance (NotFound → done)
+2. Handle deletion via finalizer:
    - Clean up Job, Pods, and trusted CA ConfigMap ownerReferences (unless `retainResourcesOnCompletion`)
    - Remove finalizer
+3. Add finalizer if missing
 4. Create Job if it doesn't exist:
-   - Validate ServiceAccount, SFTP credentials (in-place via SecretKeyRef), and SFTP connectivity
+   - Validate ServiceAccount exists, SFTP credentials (in-place via SecretKeyRef), and SFTP connectivity
    - Create Job with gather container and conditional upload container
    - Increment Prometheus metrics
 5. Monitor Job status:
@@ -165,8 +165,8 @@ When changing the Job specification in `template.go`:
 ### Working with Finalizers
 
 The operator uses `finalizer.mustgathers.operator.openshift.io` to ensure cleanup. When modifying finalizer logic:
-- Ensure proper deletion of secrets in operator namespace
-- Clean up job and pods before removing finalizer
+- Clean up owned Job and Pods before removing finalizer
+- Remove ownerReference from trusted CA ConfigMap (delete ConfigMap if sole owner)
 - Handle errors gracefully (don't block deletion on transient errors)
 
 ### Metrics
