@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -86,6 +87,10 @@ var errImageValidation = goerror.New("image validation failed")
 //+kubebuilder:rbac:groups="",resources=pods;services;services/finalizers;endpoints;persistentvolumeclaims;events;configmaps;secrets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch
 // ServiceAccount read access needed for pre-flight validation before Job creation
+//+kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicies,verbs=create
+//+kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicies,resourceNames=block-mustgather-restricted-namespaces,verbs=get;list;watch;update;patch
+//+kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicybindings,verbs=create
+//+kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicybindings,resourceNames=block-mustgather-restricted-namespaces,verbs=get;list;watch;update;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -160,11 +165,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	if instance.Namespace == r.OperatorNamespace && saName == r.OperatorServiceAccountName {
 		validationErr := fmt.Errorf("serviceAccountName %q is not allowed in namespace %q: the operator's own service account cannot be used for must-gather jobs", saName, instance.Namespace)
 		reqLogger.Error(validationErr, "operator service account usage rejected", "name", saName, "namespace", instance.Namespace, "operatorNamespace", r.OperatorNamespace)
-		result, statusErr := r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationServiceAccount, validationErr)
-		if statusErr != nil {
-			return result, statusErr
-		}
-		return result, nil
+		return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationServiceAccount, validationErr)
 	}
 
 	// perform CA config map copy, iff set in caller
@@ -385,6 +386,12 @@ func (r *MustGatherReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	if r.TrustedCAConfigMap != "" {
 		b = b.Owns(&corev1.ConfigMap{}, builder.WithPredicates(isNameEquals(r.TrustedCAConfigMap)))
+	}
+
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		return r.ensureAdmissionPolicy(ctx, mgr.GetClient(), mgr.GetAPIReader())
+	})); err != nil {
+		return fmt.Errorf("failed to add admission policy runnable: %w", err)
 	}
 
 	return b.Complete(r)
@@ -684,4 +691,3 @@ func (r *MustGatherReconciler) cleanupTrustedCAConfigMap(ctx context.Context, re
 		"configMapName", r.TrustedCAConfigMap, "remainingNumOwners", len(updatedOwnerRefs))
 	return nil
 }
-
