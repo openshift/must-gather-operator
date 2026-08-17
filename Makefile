@@ -18,7 +18,7 @@ bin/golangci-lint-kube-api-linter: .custom-gcl.yml
 	${CONVENTION_DIR}/ensure.sh golangci-lint
 	golangci-lint custom
 
-.PHONY: kube-api-lint lint
+.PHONY: kube-api-lint
 kube-api-lint: bin/golangci-lint-kube-api-linter ## Run kube-api-linter against the API types
 	${GOENV} GOLANGCI_LINT_CACHE=${GOLANGCI_LINT_CACHE} ./bin/golangci-lint-kube-api-linter run -c .golangci.yml ./...
 

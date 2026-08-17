@@ -88,3 +88,6 @@ saas-must-gather-operator-bundle
 # IDE
 .idea
 test/e2e/test-run-results/
+
+# built by `make kube-api-lint` (golangci-lint custom)
+/bin/
