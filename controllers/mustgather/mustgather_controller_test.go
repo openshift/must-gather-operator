@@ -21,6 +21,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 
 	//nolint:staticcheck -- code is tied to a specific controller-runtime version. See OSD-11458
 
@@ -336,7 +337,7 @@ func TestHandleJobCompletion(t *testing.T) {
 				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, out); err != nil {
 					t.Fatalf("failed to get mustgather: %v", err)
 				}
-				if out.Status.Status != "Completed" || !out.Status.Completed || out.Status.Reason != "MustGather Job pods succeeded" {
+				if ptr.Deref(out.Status.Status, "") != "Completed" || !ptr.Deref(out.Status.Completed, false) || ptr.Deref(out.Status.Reason, "") != "MustGather Job pods succeeded" {
 					t.Fatalf("unexpected status: %+v", out.Status)
 				}
 				chkJob := &batchv1.Job{}
@@ -364,7 +365,7 @@ func TestHandleJobCompletion(t *testing.T) {
 				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, out); err != nil {
 					t.Fatalf("failed to get mustgather: %v", err)
 				}
-				if out.Status.Status != "Failed" || !out.Status.Completed || out.Status.Reason != "MustGather Job pods failed" {
+				if ptr.Deref(out.Status.Status, "") != "Failed" || !ptr.Deref(out.Status.Completed, false) || ptr.Deref(out.Status.Reason, "") != "MustGather Job pods failed" {
 					t.Fatalf("unexpected status: %+v", out.Status)
 				}
 				chkJob := &batchv1.Job{}
@@ -394,7 +395,7 @@ func TestHandleJobCompletion(t *testing.T) {
 				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, out); err != nil {
 					t.Fatalf("failed to get mustgather: %v", err)
 				}
-				if out.Status.Status != "Completed" || !out.Status.Completed {
+				if ptr.Deref(out.Status.Status, "") != "Completed" || !ptr.Deref(out.Status.Completed, false) {
 					t.Fatalf("unexpected status: %+v", out.Status)
 				}
 				chkJob := &batchv1.Job{}
@@ -424,7 +425,7 @@ func TestHandleJobCompletion(t *testing.T) {
 				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, out); err != nil {
 					t.Fatalf("failed to get mustgather: %v", err)
 				}
-				if out.Status.Status != "Failed" || !out.Status.Completed {
+				if ptr.Deref(out.Status.Status, "") != "Failed" || !ptr.Deref(out.Status.Completed, false) {
 					t.Fatalf("unexpected status: %+v", out.Status)
 				}
 				chkJob := &batchv1.Job{}
@@ -764,12 +765,12 @@ func TestReconcile(t *testing.T) {
 					t.Fatalf("failed to get mustgather: %v", getErr)
 				}
 				// setValidationFailureStatus sets Status to Failed
-				if out.Status.Status != "Failed" {
-					t.Fatalf("expected status to be Failed, got %s", out.Status.Status)
+				if ptr.Deref(out.Status.Status, "") != "Failed" {
+					t.Fatalf("expected status to be Failed, got %s", ptr.Deref(out.Status.Status, ""))
 				}
 				expectedReason := "Service Account validation failed"
-				if !strings.Contains(out.Status.Reason, expectedReason) {
-					t.Fatalf("expected reason to contain %q, got %q", expectedReason, out.Status.Reason)
+				if !strings.Contains(ptr.Deref(out.Status.Reason, ""), expectedReason) {
+					t.Fatalf("expected reason to contain %q, got %q", expectedReason, ptr.Deref(out.Status.Reason, ""))
 				}
 			},
 		},
@@ -802,14 +803,14 @@ func TestReconcile(t *testing.T) {
 				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, out); getErr != nil {
 					t.Fatalf("failed to get mustgather: %v", getErr)
 				}
-				if out.Status.Status != "Failed" {
-					t.Fatalf("expected status to be Failed, got %s", out.Status.Status)
+				if ptr.Deref(out.Status.Status, "") != "Failed" {
+					t.Fatalf("expected status to be Failed, got %s", ptr.Deref(out.Status.Status, ""))
 				}
-				if !out.Status.Completed {
+				if !ptr.Deref(out.Status.Completed, false) {
 					t.Fatalf("expected Completed to be true")
 				}
-				if !strings.Contains(out.Status.Reason, "operator's own service account cannot be used") {
-					t.Fatalf("expected reason to mention operator SA restriction, got %q", out.Status.Reason)
+				if !strings.Contains(ptr.Deref(out.Status.Reason, ""), "operator's own service account cannot be used") {
+					t.Fatalf("expected reason to mention operator SA restriction, got %q", ptr.Deref(out.Status.Reason, ""))
 				}
 				// Verify ReconcileError condition is set
 				var foundCondition bool
@@ -868,8 +869,8 @@ func TestReconcile(t *testing.T) {
 				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "other-ns"}, out); getErr != nil {
 					t.Fatalf("failed to get mustgather: %v", getErr)
 				}
-				if out.Status.Status == "Failed" && strings.Contains(out.Status.Reason, "operator's own service account cannot be used") {
-					t.Fatalf("CR in a different namespace should not be rejected for using the operator SA name, but got: %q", out.Status.Reason)
+				if ptr.Deref(out.Status.Status, "") == "Failed" && strings.Contains(ptr.Deref(out.Status.Reason, ""), "operator's own service account cannot be used") {
+					t.Fatalf("CR in a different namespace should not be rejected for using the operator SA name, but got: %q", ptr.Deref(out.Status.Reason, ""))
 				}
 				job := &batchv1.Job{}
 				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "other-ns"}, job); err != nil {
@@ -1125,7 +1126,7 @@ func TestReconcile(t *testing.T) {
 				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
 					t.Fatalf("failed to get mustgather: %v", getErr)
 				}
-				if !out.Status.Completed || out.Status.Status != "Failed" || out.Status.Reason != "MustGather Job pods failed" {
+				if !ptr.Deref(out.Status.Completed, false) || ptr.Deref(out.Status.Status, "") != "Failed" || ptr.Deref(out.Status.Reason, "") != "MustGather Job pods failed" {
 					t.Fatalf("unexpected status after failed without cleanup: %+v", out.Status)
 				}
 			},
@@ -1270,7 +1271,7 @@ func TestReconcile(t *testing.T) {
 						UploadTarget: &mustgatherv1.UploadTargetSpec{
 							Type: mustgatherv1.UploadTypeSFTP,
 							SFTP: &mustgatherv1.SFTPSpec{
-								Host:                           "sftp.example.com",
+								Host:                           ptr.To("sftp.example.com"),
 								CaseID:                         "12345678",
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
 							},
@@ -1414,10 +1415,10 @@ func TestReconcile(t *testing.T) {
 				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
 					t.Fatalf("failed to get mustgather: %v", getErr)
 				}
-				if out.Status.Status != "Failed" {
-					t.Fatalf("expected status Failed, got %s", out.Status.Status)
+				if ptr.Deref(out.Status.Status, "") != "Failed" {
+					t.Fatalf("expected status Failed, got %s", ptr.Deref(out.Status.Status, ""))
 				}
-				if !out.Status.Completed {
+				if !ptr.Deref(out.Status.Completed, false) {
 					t.Fatalf("expected Completed to be true")
 				}
 				var foundCondition bool
@@ -1565,7 +1566,7 @@ func TestReconcile(t *testing.T) {
 							Type: mustgatherv1.StorageTypePersistentVolume,
 							PersistentVolume: mustgatherv1.PersistentVolumeConfig{
 								Claim:   mustgatherv1.PersistentVolumeClaimReference{Name: "test-pvc"},
-								SubPath: "my-data",
+								SubPath: ptr.To("my-data"),
 							},
 						},
 					},
@@ -1644,14 +1645,14 @@ func TestReconcile(t *testing.T) {
 				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
 					t.Fatalf("failed to get mustgather: %v", getErr)
 				}
-				if out.Status.Status != "Failed" {
-					t.Fatalf("expected status Failed, got %s", out.Status.Status)
+				if ptr.Deref(out.Status.Status, "") != "Failed" {
+					t.Fatalf("expected status Failed, got %s", ptr.Deref(out.Status.Status, ""))
 				}
-				if !out.Status.Completed {
+				if !ptr.Deref(out.Status.Completed, false) {
 					t.Fatalf("expected Completed to be true")
 				}
-				if !strings.Contains(out.Status.Reason, "tag v2 not found") {
-					t.Fatalf("expected reason to mention tag not found, got %q", out.Status.Reason)
+				if !strings.Contains(ptr.Deref(out.Status.Reason, ""), "tag v2 not found") {
+					t.Fatalf("expected reason to mention tag not found, got %q", ptr.Deref(out.Status.Reason, ""))
 				}
 			},
 		},
@@ -1871,8 +1872,8 @@ func createMustGatherObjectWithUploadTarget() *mustgatherv1.MustGather {
 			CaseManagementAccountSecretRef: corev1.LocalObjectReference{
 				Name: "case-management-creds",
 			},
-			InternalUser: true,
-			Host:         "sftp.example.com",
+			InternalUser: ptr.To(true),
+			Host:         ptr.To("sftp.example.com"),
 		},
 	}
 	return mg
@@ -1963,7 +1964,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 						SFTP: &mustgatherv1.SFTPSpec{
 							CaseID:                         "12345678",
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
-							Host:                           "sftp.example.com",
+							Host:                           ptr.To("sftp.example.com"),
 						},
 					},
 				},
@@ -2003,7 +2004,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 						SFTP: &mustgatherv1.SFTPSpec{
 							CaseID:                         "12345678",
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
-							Host:                           "sftp.example.com",
+							Host:                           ptr.To("sftp.example.com"),
 						},
 					},
 				},
@@ -2042,7 +2043,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 						SFTP: &mustgatherv1.SFTPSpec{
 							CaseID:                         "12345678",
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
-							Host:                           "sftp.example.com",
+							Host:                           ptr.To("sftp.example.com"),
 						},
 					},
 				},
@@ -2082,7 +2083,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 						SFTP: &mustgatherv1.SFTPSpec{
 							CaseID:                         "12345678",
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
-							Host:                           "sftp.example.com",
+							Host:                           ptr.To("sftp.example.com"),
 						},
 					},
 				},
@@ -2122,7 +2123,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 						SFTP: &mustgatherv1.SFTPSpec{
 							CaseID:                         "12345678",
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
-							Host:                           "sftp.example.com",
+							Host:                           ptr.To("sftp.example.com"),
 						},
 					},
 				},
@@ -2164,7 +2165,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 						SFTP: &mustgatherv1.SFTPSpec{
 							CaseID:                         "12345678",
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
-							Host:                           "sftp.example.com",
+							Host:                           ptr.To("sftp.example.com"),
 						},
 					},
 				},
@@ -2208,7 +2209,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 						SFTP: &mustgatherv1.SFTPSpec{
 							CaseID:                         "12345678",
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
-							Host:                           "sftp.example.com",
+							Host:                           ptr.To("sftp.example.com"),
 						},
 					},
 				},
@@ -2281,25 +2282,28 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			}
 
 			// Check status fields if expected
+			if updatedMG.Status == nil {
+				updatedMG.Status = &mustgatherv1.MustGatherStatus{}
+			}
 			if tt.expectedStatus != "" {
-				if updatedMG.Status.Status != tt.expectedStatus {
-					t.Errorf("expected status %q, got %q", tt.expectedStatus, updatedMG.Status.Status)
+				if ptr.Deref(updatedMG.Status.Status, "") != tt.expectedStatus {
+					t.Errorf("expected status %q, got %q", tt.expectedStatus, ptr.Deref(updatedMG.Status.Status, ""))
 				}
 			}
 
-			if updatedMG.Status.Completed != tt.expectedCompleted {
-				t.Errorf("expected completed %v, got %v", tt.expectedCompleted, updatedMG.Status.Completed)
+			if ptr.Deref(updatedMG.Status.Completed, false) != tt.expectedCompleted {
+				t.Errorf("expected completed %v, got %v", tt.expectedCompleted, ptr.Deref(updatedMG.Status.Completed, false))
 			}
 
 			if tt.expectedReasonContains != "" {
-				if !strings.Contains(updatedMG.Status.Reason, tt.expectedReasonContains) {
-					t.Errorf("expected reason to contain %q, got %q", tt.expectedReasonContains, updatedMG.Status.Reason)
+				if !strings.Contains(ptr.Deref(updatedMG.Status.Reason, ""), tt.expectedReasonContains) {
+					t.Errorf("expected reason to contain %q, got %q", tt.expectedReasonContains, ptr.Deref(updatedMG.Status.Reason, ""))
 				}
 			}
 
 			// Check LastUpdate was set
 			if tt.checkLastUpdate {
-				if updatedMG.Status.LastUpdate.IsZero() {
+				if updatedMG.Status.LastUpdate == nil || updatedMG.Status.LastUpdate.IsZero() {
 					t.Errorf("expected LastUpdate to be set, but it was zero")
 				}
 			}
@@ -2334,4 +2338,3 @@ func TestSFTPCredentialValidation(t *testing.T) {
 		})
 	}
 }
-

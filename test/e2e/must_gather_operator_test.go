@@ -384,8 +384,10 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Name:      mustGatherName,
 				Namespace: ns.Name,
 			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred(), "Non-admin user should be able to get MustGather CR")
-			ginkgo.GinkgoWriter.Printf("Non-admin can read MustGather status: %s\n", fetchedMG.Status.Status)
+		Expect(err).NotTo(HaveOccurred(), "Non-admin user should be able to get MustGather CR")
+		if fetchedMG.Status != nil {
+			ginkgo.GinkgoWriter.Printf("Non-admin can read MustGather status: %s\n", ptr.Deref(fetchedMG.Status.Status, ""))
+		}
 
 			ginkgo.By("listing Jobs in namespace")
 			jobList := &batchv1.JobList{}
@@ -552,11 +554,12 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Name:      mustGatherName,
 				Namespace: ns.Name,
 			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR after completion")
-			Expect(fetchedMG.Status.Completed).To(BeTrue(), "MustGather should be marked as completed")
+		Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR after completion")
+		Expect(fetchedMG.Status).NotTo(BeNil(), "Status should be set after completion")
+		Expect(ptr.Deref(fetchedMG.Status.Completed, false)).To(BeTrue(), "MustGather should be marked as completed")
 
-			ginkgo.GinkgoWriter.Printf("MustGather with timeout completed - Status: %s, Reason: %s\n",
-				fetchedMG.Status.Status, fetchedMG.Status.Reason)
+		ginkgo.GinkgoWriter.Printf("MustGather with timeout completed - Status: %s, Reason: %s\n",
+			ptr.Deref(fetchedMG.Status.Status, ""), ptr.Deref(fetchedMG.Status.Reason, ""))
 		})
 
 		ginkgo.It("should store 10s timeout correctly and destroy pod after completion", func() {
@@ -912,24 +915,24 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 			ginkgo.By("Verifying MustGather status has error condition")
 			Eventually(func() bool {
-				fetchedMG := &mustgatherv1.MustGather{}
-				err := adminClient.Get(testCtx, client.ObjectKey{
-					Name:      mustGatherName,
-					Namespace: ns.Name,
-				}, fetchedMG)
-				if err != nil {
-					return false
-				}
-				// Check for error condition with service account message
-				for _, cond := range fetchedMG.Status.Conditions {
-					if cond.Type == "ReconcileError" && cond.Status == metav1.ConditionTrue {
-						if strings.Contains(strings.ToLower(cond.Message), "service account") &&
-							strings.Contains(strings.ToLower(cond.Message), "not found") {
-							ginkgo.GinkgoWriter.Printf("Found expected error condition: %s\n", cond.Message)
-							return true
-						}
+			fetchedMG := &mustgatherv1.MustGather{}
+			err := adminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, fetchedMG)
+			if err != nil || fetchedMG.Status == nil {
+				return false
+			}
+			// Check for error condition with service account message
+			for _, cond := range fetchedMG.Status.Conditions {
+				if cond.Type == "ReconcileError" && cond.Status == metav1.ConditionTrue {
+					if strings.Contains(strings.ToLower(cond.Message), "service account") &&
+						strings.Contains(strings.ToLower(cond.Message), "not found") {
+						ginkgo.GinkgoWriter.Printf("Found expected error condition: %s\n", cond.Message)
+						return true
 					}
 				}
+			}
 				return false
 			}).WithTimeout(1*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
 				"MustGather status should contain error condition about missing ServiceAccount")
@@ -993,24 +996,24 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			defer func() { _ = adminClient.Delete(testCtx, mgReject) }()
 
 			ginkgo.By("Verifying MustGather status reports operator SA rejection")
-			Eventually(func() bool {
-				fetchedMG := &mustgatherv1.MustGather{}
-				err := adminClient.Get(testCtx, client.ObjectKey{
-					Name:      mustGatherName,
-					Namespace: operatorNamespace,
-				}, fetchedMG)
-				if err != nil {
-					return false
-				}
-				for _, cond := range fetchedMG.Status.Conditions {
-					if cond.Type == "ReconcileError" && cond.Status == metav1.ConditionTrue {
-						if strings.Contains(cond.Message, "operator's own service account cannot be used") {
-							ginkgo.GinkgoWriter.Printf("Found expected error condition: %s\n", cond.Message)
-							return true
-						}
+		Eventually(func() bool {
+			fetchedMG := &mustgatherv1.MustGather{}
+			err := adminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: operatorNamespace,
+			}, fetchedMG)
+			if err != nil || fetchedMG.Status == nil {
+				return false
+			}
+			for _, cond := range fetchedMG.Status.Conditions {
+				if cond.Type == "ReconcileError" && cond.Status == metav1.ConditionTrue {
+					if strings.Contains(cond.Message, "operator's own service account cannot be used") {
+						ginkgo.GinkgoWriter.Printf("Found expected error condition: %s\n", cond.Message)
+						return true
 					}
 				}
-				return false
+			}
+			return false
 			}).WithTimeout(1*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
 				"MustGather should be rejected when using operator SA in operator namespace")
 
@@ -1042,15 +1045,16 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Creating MustGather with operator service account name in a non-operator namespace")
 			mg = createMustGatherCR(mustGatherName, ns.Name, operatorSAName, false, nil)
 
-			ginkgo.By("Verifying MustGather is accepted and Job is created without operator SA rejection")
-			Eventually(func() bool {
-				fetchedMG := &mustgatherv1.MustGather{}
-				if err := adminClient.Get(testCtx, client.ObjectKey{
-					Name:      mustGatherName,
-					Namespace: ns.Name,
-				}, fetchedMG); err != nil {
-					return false
-				}
+		ginkgo.By("Verifying MustGather is accepted and Job is created without operator SA rejection")
+		Eventually(func() bool {
+			fetchedMG := &mustgatherv1.MustGather{}
+			if err := adminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, fetchedMG); err != nil {
+				return false
+			}
+			if fetchedMG.Status != nil {
 				for _, cond := range fetchedMG.Status.Conditions {
 					if cond.Type == "ReconcileError" && cond.Status == metav1.ConditionTrue {
 						if strings.Contains(cond.Message, "operator's own service account cannot be used") {
@@ -1058,6 +1062,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 						}
 					}
 				}
+			}
 				job := &batchv1.Job{}
 				if err := adminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
@@ -1233,8 +1238,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Namespace: ns.Name,
 			}, fetchedMG)
 			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for external user upload test")
-			Expect(fetchedMG.Spec.UploadTarget.SFTP.InternalUser).To(BeFalse(),
-				"InternalUser flag should be false for external user")
+		Expect(ptr.Deref(fetchedMG.Spec.UploadTarget.SFTP.InternalUser, false)).To(BeFalse(),
+			"InternalUser flag should be false for external user")
 
 			ginkgo.By("Waiting for Job to be created")
 			job := &batchv1.Job{}
@@ -1395,22 +1400,23 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.GinkgoWriter.Println("SFTP upload functionality verified for external user (internal_user=false)")
 			ginkgo.GinkgoWriter.Printf("Verified upload path format: %s_<filename>.tar.gz (no username prefix)\n", caseID)
 
-			ginkgo.By("Verifying MustGather CR status is updated after Job completion")
-			Eventually(func(g Gomega) {
-				err := nonAdminClient.Get(testCtx, client.ObjectKey{
-					Name:      mustGatherName,
-					Namespace: ns.Name,
-				}, fetchedMG)
-				g.Expect(err).NotTo(HaveOccurred(), "Should fetch MustGather CR")
-				g.Expect(fetchedMG.Status.Completed).To(BeTrue(), "MustGather should be marked as completed")
-				g.Expect(fetchedMG.Status.Status).To(Or(Equal("Completed"), Equal("Failed")),
-					"Status should be Completed or Failed")
-				g.Expect(fetchedMG.Status.Reason).NotTo(BeEmpty(), "Reason should be set")
-			}).WithTimeout(30*time.Second).WithPolling(2*time.Second).Should(Succeed(),
-				"MustGather status should be updated after completion")
+		ginkgo.By("Verifying MustGather CR status is updated after Job completion")
+		Eventually(func(g Gomega) {
+			err := nonAdminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, fetchedMG)
+			g.Expect(err).NotTo(HaveOccurred(), "Should fetch MustGather CR")
+			g.Expect(fetchedMG.Status).NotTo(BeNil(), "Status should be set after completion")
+			g.Expect(ptr.Deref(fetchedMG.Status.Completed, false)).To(BeTrue(), "MustGather should be marked as completed")
+			g.Expect(ptr.Deref(fetchedMG.Status.Status, "")).To(Or(Equal("Completed"), Equal("Failed")),
+				"Status should be Completed or Failed")
+			g.Expect(ptr.Deref(fetchedMG.Status.Reason, "")).NotTo(BeEmpty(), "Reason should be set")
+		}).WithTimeout(30*time.Second).WithPolling(2*time.Second).Should(Succeed(),
+			"MustGather status should be updated after completion")
 
-			ginkgo.GinkgoWriter.Printf("MustGather with UploadTarget completed - Status: %s, Reason: %s\n",
-				fetchedMG.Status.Status, fetchedMG.Status.Reason)
+		ginkgo.GinkgoWriter.Printf("MustGather with UploadTarget completed - Status: %s, Reason: %s\n",
+			ptr.Deref(fetchedMG.Status.Status, ""), ptr.Deref(fetchedMG.Status.Reason, ""))
 		})
 
 		ginkgo.It("should fail upload with invalid SFTP credentials [Skipped:Disconnected]", func() {
@@ -1427,23 +1433,24 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				},
 			})
 
-			ginkgo.By("Waiting for MustGather status to be updated to Failed")
-			fetchedMG := &mustgatherv1.MustGather{}
-			Eventually(func(g Gomega) {
-				err := nonAdminClient.Get(testCtx, client.ObjectKey{
-					Name:      mustGatherName,
-					Namespace: ns.Name,
-				}, fetchedMG)
-				g.Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for SFTP validation check")
-				g.Expect(fetchedMG.Status.Status).To(Equal("Failed"),
-					"MustGather should fail fast with invalid SFTP credentials")
-				g.Expect(fetchedMG.Status.Reason).To(ContainSubstring("SFTP"),
-					"Failure reason should mention SFTP validation error")
-			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
-				"MustGather should fail validation before creating Job")
+		ginkgo.By("Waiting for MustGather status to be updated to Failed")
+		fetchedMG := &mustgatherv1.MustGather{}
+		Eventually(func(g Gomega) {
+			err := nonAdminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, fetchedMG)
+			g.Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for SFTP validation check")
+			g.Expect(fetchedMG.Status).NotTo(BeNil(), "Status should be set")
+			g.Expect(ptr.Deref(fetchedMG.Status.Status, "")).To(Equal("Failed"),
+				"MustGather should fail fast with invalid SFTP credentials")
+			g.Expect(ptr.Deref(fetchedMG.Status.Reason, "")).To(ContainSubstring("SFTP"),
+				"Failure reason should mention SFTP validation error")
+		}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+			"MustGather should fail validation before creating Job")
 
-			ginkgo.GinkgoWriter.Printf("MustGather failed with status: %s, reason: %s\n",
-				fetchedMG.Status.Status, fetchedMG.Status.Reason)
+		ginkgo.GinkgoWriter.Printf("MustGather failed with status: %s, reason: %s\n",
+			ptr.Deref(fetchedMG.Status.Status, ""), ptr.Deref(fetchedMG.Status.Reason, ""))
 
 			ginkgo.By("Verifying Job is NOT created due to failed validation")
 			job := &batchv1.Job{}
@@ -1473,23 +1480,24 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				},
 			})
 
-			ginkgo.By("Waiting for MustGather status to be updated to Failed")
-			fetchedMG := &mustgatherv1.MustGather{}
-			Eventually(func(g Gomega) {
-				err := nonAdminClient.Get(testCtx, client.ObjectKey{
-					Name:      mustGatherName,
-					Namespace: ns.Name,
-				}, fetchedMG)
-				g.Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for username validation check")
-				g.Expect(fetchedMG.Status.Status).To(Equal("Failed"),
-					"MustGather should fail with empty username")
-				g.Expect(fetchedMG.Status.Reason).To(ContainSubstring("username"),
-					"Failure reason should mention username validation error")
-			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
-				"MustGather should fail validation with empty username")
+		ginkgo.By("Waiting for MustGather status to be updated to Failed")
+		fetchedMG := &mustgatherv1.MustGather{}
+		Eventually(func(g Gomega) {
+			err := nonAdminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, fetchedMG)
+			g.Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for username validation check")
+			g.Expect(fetchedMG.Status).NotTo(BeNil(), "Status should be set")
+			g.Expect(ptr.Deref(fetchedMG.Status.Status, "")).To(Equal("Failed"),
+				"MustGather should fail with empty username")
+			g.Expect(ptr.Deref(fetchedMG.Status.Reason, "")).To(ContainSubstring("username"),
+				"Failure reason should mention username validation error")
+		}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+			"MustGather should fail validation with empty username")
 
-			ginkgo.GinkgoWriter.Printf("MustGather failed with status: %s, reason: %s\n",
-				fetchedMG.Status.Status, fetchedMG.Status.Reason)
+		ginkgo.GinkgoWriter.Printf("MustGather failed with status: %s, reason: %s\n",
+			ptr.Deref(fetchedMG.Status.Status, ""), ptr.Deref(fetchedMG.Status.Reason, ""))
 
 			ginkgo.By("Verifying Job is NOT created due to failed validation")
 			job := &batchv1.Job{}
@@ -1519,23 +1527,24 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				},
 			})
 
-			ginkgo.By("Waiting for MustGather status to be updated to Failed")
-			fetchedMG := &mustgatherv1.MustGather{}
-			Eventually(func(g Gomega) {
-				err := nonAdminClient.Get(testCtx, client.ObjectKey{
-					Name:      mustGatherName,
-					Namespace: ns.Name,
-				}, fetchedMG)
-				g.Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for password validation check")
-				g.Expect(fetchedMG.Status.Status).To(Equal("Failed"),
-					"MustGather should fail with empty password")
-				g.Expect(fetchedMG.Status.Reason).To(ContainSubstring("password"),
-					"Failure reason should mention password validation error")
-			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
-				"MustGather should fail validation with empty password")
+		ginkgo.By("Waiting for MustGather status to be updated to Failed")
+		fetchedMG := &mustgatherv1.MustGather{}
+		Eventually(func(g Gomega) {
+			err := nonAdminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, fetchedMG)
+			g.Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for password validation check")
+			g.Expect(fetchedMG.Status).NotTo(BeNil(), "Status should be set")
+			g.Expect(ptr.Deref(fetchedMG.Status.Status, "")).To(Equal("Failed"),
+				"MustGather should fail with empty password")
+			g.Expect(ptr.Deref(fetchedMG.Status.Reason, "")).To(ContainSubstring("password"),
+				"Failure reason should mention password validation error")
+		}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+			"MustGather should fail validation with empty password")
 
-			ginkgo.GinkgoWriter.Printf("MustGather failed with status: %s, reason: %s\n",
-				fetchedMG.Status.Status, fetchedMG.Status.Reason)
+		ginkgo.GinkgoWriter.Printf("MustGather failed with status: %s, reason: %s\n",
+			ptr.Deref(fetchedMG.Status.Status, ""), ptr.Deref(fetchedMG.Status.Reason, ""))
 
 			ginkgo.By("Verifying Job is NOT created due to failed validation")
 			job := &batchv1.Job{}
@@ -1839,23 +1848,24 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			Expect(found).To(BeTrue(),
 				"File with caseID %s should exist on SFTP server (external user path, uploaded through proxy)", caseID)
 
-			ginkgo.By("Verifying MustGather CR status is updated after proxy upload completion")
-			fetchedMG := &mustgatherv1.MustGather{}
-			Eventually(func(g Gomega) {
-				err := nonAdminClient.Get(testCtx, client.ObjectKey{
-					Name:      mustGatherName,
-					Namespace: ns.Name,
-				}, fetchedMG)
-				g.Expect(err).NotTo(HaveOccurred(), "Should fetch MustGather CR")
-				g.Expect(fetchedMG.Status.Completed).To(BeTrue(), "MustGather should be marked as completed")
-				g.Expect(fetchedMG.Status.Status).To(Or(Equal("Completed"), Equal("Failed")),
-					"Status should be Completed or Failed")
-				g.Expect(fetchedMG.Status.Reason).NotTo(BeEmpty(), "Reason should be set")
-			}).WithTimeout(30*time.Second).WithPolling(2*time.Second).Should(Succeed(),
-				"MustGather status should be updated after proxy upload completion")
+		ginkgo.By("Verifying MustGather CR status is updated after proxy upload completion")
+		fetchedMG := &mustgatherv1.MustGather{}
+		Eventually(func(g Gomega) {
+			err := nonAdminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, fetchedMG)
+			g.Expect(err).NotTo(HaveOccurred(), "Should fetch MustGather CR")
+			g.Expect(fetchedMG.Status).NotTo(BeNil(), "Status should be set after completion")
+			g.Expect(ptr.Deref(fetchedMG.Status.Completed, false)).To(BeTrue(), "MustGather should be marked as completed")
+			g.Expect(ptr.Deref(fetchedMG.Status.Status, "")).To(Or(Equal("Completed"), Equal("Failed")),
+				"Status should be Completed or Failed")
+			g.Expect(ptr.Deref(fetchedMG.Status.Reason, "")).NotTo(BeEmpty(), "Reason should be set")
+		}).WithTimeout(30*time.Second).WithPolling(2*time.Second).Should(Succeed(),
+			"MustGather status should be updated after proxy upload completion")
 
-			ginkgo.GinkgoWriter.Printf("Proxy upload completed — Status: %s, Reason: %s\n",
-				fetchedMG.Status.Status, fetchedMG.Status.Reason)
+		ginkgo.GinkgoWriter.Printf("Proxy upload completed — Status: %s, Reason: %s\n",
+			ptr.Deref(fetchedMG.Status.Status, ""), ptr.Deref(fetchedMG.Status.Reason, ""))
 		})
 
 	})
@@ -2126,8 +2136,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Namespace: ns.Name,
 			}, fetchedMG)
 			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for subPath verification")
-			Expect(fetchedMG.Spec.Storage.PersistentVolume.SubPath).To(Equal(subPath),
-				"PersistentVolume subPath should match the configured value")
+		Expect(ptr.Deref(fetchedMG.Spec.Storage.PersistentVolume.SubPath, "")).To(Equal(subPath),
+			"PersistentVolume subPath should match the configured value")
 
 			ginkgo.By("Waiting for Job to be created")
 			job := &batchv1.Job{}
@@ -2700,12 +2710,13 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				Name:      mustGatherName,
 				Namespace: ns.Name,
 			}, fetchedMG)
-			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR status after no-upload completion")
-			Expect(fetchedMG.Status.Completed).To(BeTrue(),
-				"MustGather should be marked as completed")
+		Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR status after no-upload completion")
+		Expect(fetchedMG.Status).NotTo(BeNil(), "Status should be set after completion")
+		Expect(ptr.Deref(fetchedMG.Status.Completed, false)).To(BeTrue(),
+			"MustGather should be marked as completed")
 
-			ginkgo.GinkgoWriter.Printf("MustGather without upload completed - Status: %s\n",
-				fetchedMG.Status.Status)
+		ginkgo.GinkgoWriter.Printf("MustGather without upload completed - Status: %s\n",
+			ptr.Deref(fetchedMG.Status.Status, ""))
 			ginkgo.GinkgoWriter.Println("Verified: No upload container when uploadTarget is not specified")
 		})
 	})
@@ -2781,7 +2792,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			}, fetchedMG)
 			Expect(err).NotTo(HaveOccurred(), "Failed to get MustGather CR for audit log defaults check")
 			if fetchedMG.Spec.GatherSpec != nil {
-				Expect(fetchedMG.Spec.GatherSpec.Audit).To(BeFalse(),
+				Expect(ptr.Deref(fetchedMG.Spec.GatherSpec.Audit, false)).To(BeFalse(),
 					"Audit field should default to false")
 			}
 
