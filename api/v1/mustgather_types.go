@@ -280,7 +280,7 @@ type MustGatherStatus struct {
 	// +optional
 	Reason *string `json:"reason,omitempty"`
 	// completed indicates whether the must-gather operation has finished.
-	// +optional
+	// +required
 	Completed *bool `json:"completed,omitempty"`
 }
 
