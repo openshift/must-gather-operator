@@ -135,7 +135,7 @@ CEL rules are applied at four levels: top-level type (`MustGather`), spec struct
 3. **Audit + custom commands** (spec-level): Audit mode cannot combine with custom `gatherSpec.command`
 4. **Since exclusivity** (nested): Only one of `since` or `sinceTime` — pattern: `!(has(self.fieldA) && has(self.fieldB))`
 5. **SFTP union** (nested): `sftp` field required when `type=SFTP`, forbidden otherwise
-6. **Non-empty caseID/secretRef** (field): `size(self.caseID) > 0` complements `+kubebuilder:validation:Required`
+6. **Non-empty caseID/secretRef** (nested, on `SFTPSpec`): `size(self.caseID) > 0` complements `+kubebuilder:validation:Required`
 7. **DNS name validation** (field): `!format.dns1123Subdomain().validate(self).hasValue()`
 
 Cross-struct validation (e.g., audit + imageStreamRef) goes on the parent struct since CEL cannot reference sibling structs. Always provide a human-readable `message` with every `XValidation` rule.
