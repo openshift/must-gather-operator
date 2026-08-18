@@ -37,5 +37,5 @@ Users must delete and recreate the CR to change parameters.
 
 ## References
 
-- `api/v1alpha1/mustgather_types.go:231` — CEL rule
+- `api/v1/mustgather_types.go:275` (and `api/v1alpha1/mustgather_types.go:278`) — CEL rule
 - [Must-Gather Operator Enhancement](https://github.com/openshift/enhancements/blob/master/enhancements/support-log-gather/must-gather-operator.md)

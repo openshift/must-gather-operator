@@ -13,7 +13,7 @@ The operator needs to (1) collect cluster diagnostics using a must-gather image 
 Use a single Kubernetes Job with a gather container and a conditional upload container sharing a process namespace:
 
 1. **Gather container** (always present): Runs the must-gather image (default or custom via ImageStream) with cluster read access
-2. **Upload container** (added only when `uploadTarget` is configured): Runs the operator image, polls for gather completion via `pgrep`, then compresses and uploads
+2. **Upload container** (added when `uploadTarget` is configured or `obfuscate.enabled` is true): Runs the operator image, polls for gather completion via `pgrep`, then compresses and uploads
 
 `ShareProcessNamespace: true` enables cross-container process visibility.
 
@@ -29,7 +29,7 @@ Use a single Kubernetes Job with a gather container and a conditional upload con
 ### Positive
 - Custom must-gather images work without bundling upload logic
 - Shared volume (`/must-gather`) passes data without external storage
-- When no upload target is configured, the Job runs only the gather container
+- When neither upload target nor obfuscation is configured, the Job runs only the gather container
 
 ### Negative
 - `pgrep` polling is fragile — depends on process naming conventions in the gather image

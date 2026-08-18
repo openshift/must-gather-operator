@@ -60,7 +60,7 @@ harness-evals/harness-docs/
 | Generate manifests | `make manifests` |
 | Build image | `make docker-build` |
 
-**Framework**: controller-runtime v0.21.0 | **Go**: 1.25.7 | **FIPS**: enabled (BoringCrypto)
+**Framework**: controller-runtime v0.21.0 | **Go**: 1.26.0 | **FIPS**: enabled (BoringCrypto)
 
 ## Knowledge Graph
 

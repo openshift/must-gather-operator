@@ -53,5 +53,5 @@ The XValidation CEL rule enforces that `sftp` is required when `type=SFTP` and f
 
 ## References
 
-- `api/v1alpha1/mustgather_types.go:153-168` — UploadTargetSpec; `SFTPSpec` at lines 121-143
+- `api/v1alpha1/mustgather_types.go:168-183` — UploadTargetSpec; `SFTPSpec` at lines 136-158
 - [Extensible Upload Targets Enhancement](https://github.com/openshift/enhancements/blob/master/enhancements/support-log-gather/operator-upload-targets.md) (MG-53)

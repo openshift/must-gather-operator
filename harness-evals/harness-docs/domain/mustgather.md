@@ -1,6 +1,6 @@
 # MustGather
 
-**API Group**: `operator.openshift.io/v1alpha1`
+**API Group**: `operator.openshift.io/v1` (Go package: `api/v1/`; deprecated `v1alpha1` in `api/v1alpha1/`)
 **Kind**: `MustGather`
 **Scope**: Namespaced
 **CRD name**: `mustgathers.operator.openshift.io`
@@ -14,7 +14,7 @@ Declares a must-gather diagnostic collection job. The operator creates a Kuberne
 ## Spec Structure
 
 ```go
-// api/v1alpha1/mustgather_types.go
+// api/v1/mustgather_types.go
 type MustGatherSpec struct {
     ServiceAccountName          string               `json:"serviceAccountName"`              // Required, MinLength=1
     ImageStreamRef              *ImageStreamTagRef    `json:"imageStreamRef,omitempty"`         // Custom gather image
@@ -23,6 +23,7 @@ type MustGatherSpec struct {
     UploadTarget                *UploadTargetSpec     `json:"uploadTarget,omitempty"`           // Where to upload
     RetainResourcesOnCompletion *bool                 `json:"retainResourcesOnCompletion,omitempty"` // Default: false
     Storage                     *Storage              `json:"storage,omitempty"`                // PVC storage option
+    Obfuscate                   *ObfuscateConfig      `json:"obfuscate,omitempty"`              // Obfuscation config
 }
 ```
 
@@ -35,6 +36,7 @@ type MustGatherSpec struct {
 | `uploadTarget` | `UploadTargetSpec` | No | nil (no upload) | SFTP upload configuration |
 | `retainResourcesOnCompletion` | `*bool` | No | `false` | If true, skip garbage collection of Job/Pods |
 | `storage` | `Storage` | No | nil (ephemeral `emptyDir`) | PVC-backed storage for gather output |
+| `obfuscate` | `*ObfuscateConfig` | No | nil (no obfuscation) | Obfuscation of bundle before upload/storage |
 
 ## Field Conventions
 
@@ -146,7 +148,7 @@ No admission webhooks — validation is CEL rules on the CRD plus controller-sid
 
 ## Lifecycle
 
-1. **Creation**: Controller creates a Job with a gather container (always) and an upload container (only when `uploadTarget` is configured); credentials are accessed directly via SecretKeyRef from the CR namespace (no secret replication)
+1. **Creation**: Controller creates a Job with a gather container (always) and an upload container (when `uploadTarget` is configured or `obfuscate.enabled` is true); credentials are accessed directly via SecretKeyRef from the CR namespace (no secret replication)
 2. **Running**: Job executes gather → upload pipeline; controller monitors via Job status
 3. **Completion**: Status updated, `completed=true`; cleanup runs immediately (Jobs, Pods, trusted CA ConfigMaps) unless `retainResourcesOnCompletion=true`
 4. **Deletion**: Finalizer cleans up Job, Pods, and trusted CA ConfigMap ownerReferences
@@ -154,7 +156,7 @@ No admission webhooks — validation is CEL rules on the CRD plus controller-sid
 ## Example: Basic SFTP Upload
 
 ```yaml
-apiVersion: operator.openshift.io/v1alpha1
+apiVersion: operator.openshift.io/v1
 kind: MustGather
 metadata:
   name: must-gather-basic
@@ -172,7 +174,7 @@ spec:
 ## Example: With PVC Storage and Timeout
 
 ```yaml
-apiVersion: operator.openshift.io/v1alpha1
+apiVersion: operator.openshift.io/v1
 kind: MustGather
 metadata:
   name: must-gather-pvc

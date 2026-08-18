@@ -40,6 +40,71 @@ spec:
         name: case-management-creds
 ```
 
+## Obfuscation
+
+The operator supports obfuscation of must-gather bundles before upload, consistently replacing sensitive data such as IP addresses and MAC addresses. Obfuscation is enabled by setting `obfuscate.enabled: true` in the CR spec.
+
+Three operational modes are supported:
+
+1. **Gather + Obfuscate + Upload** — collect, redact, then upload via SFTP:
+
+```yaml
+apiVersion: operator.openshift.io/v1
+kind: MustGather
+metadata:
+  name: obfuscated-gather
+spec:
+  serviceAccountName: must-gather-admin
+  obfuscate:
+    enabled: true
+  uploadTarget:
+    type: SFTP
+    sftp:
+      caseID: '02527285'
+      caseManagementAccountSecretRef:
+        name: case-management-creds
+```
+
+2. **Gather + Obfuscate + PVC** — collect and redact, persist to PVC (no upload):
+
+```yaml
+apiVersion: operator.openshift.io/v1
+kind: MustGather
+metadata:
+  name: obfuscated-gather-pvc
+spec:
+  serviceAccountName: must-gather-admin
+  obfuscate:
+    enabled: true
+  storage:
+    pvc:
+      claim: must-gather-pvc
+```
+
+3. **Obfuscate + Upload from source** — redact an existing bundle on a PVC and upload:
+
+```yaml
+apiVersion: operator.openshift.io/v1
+kind: MustGather
+metadata:
+  name: obfuscate-existing
+spec:
+  serviceAccountName: must-gather-admin
+  obfuscate:
+    enabled: true
+    source:
+      pvc:
+        claim: existing-bundle-pvc
+  uploadTarget:
+    type: SFTP
+    sftp:
+      caseID: '02527285'
+      caseManagementAccountSecretRef:
+        name: case-management-creds
+```
+
+A custom obfuscation config can be supplied via `obfuscate.obfuscationConfigRef` referencing a ConfigMap. If omitted, the built-in default config (replaces IPs and MACs, omits Secrets and ConfigMaps) is used. See `examples/` for all variations.
+
 ## Upgrading from Tech Preview
 
 Starting with release 5.0, the must-gather-operator is Generally Available (GA). The OLM channel has changed from `tech-preview` to `stable` and the API version has been promoted from `operator.openshift.io/v1alpha1` to `operator.openshift.io/v1`.
@@ -65,7 +130,9 @@ On CR deletion, the finalizer performs this same cleanup only when retention is 
 
 | Component | Version / Detail |
 |---|---|
-| Language | Go 1.25.7 |
+| Language | Go 1.26.0 |
+| API version | `operator.openshift.io/v1` (GA). `v1alpha1` deprecated but still served. |
+| CRD types | `api/v1/mustgather_types.go` (primary); `api/v1alpha1/` retained for backward compat |
 | Framework | [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime) v0.21.0 |
 | Kubernetes client | client-go v0.33.3 |
 | Testing | [Ginkgo](https://github.com/onsi/ginkgo) v2 / [Gomega](https://github.com/onsi/gomega) v1.36 |
@@ -78,7 +145,9 @@ On CR deletion, the finalizer performs this same cleanup only when retention is 
 
 ```text
 must-gather-operator/
-├── api/v1alpha1/          # MustGather CRD types and generated code
+├── api/
+│   ├── v1/               # GA MustGather CRD types (primary)
+│   └── v1alpha1/         # Deprecated types (still served for compat)
 ├── controllers/mustgather/ # Reconciler, Job template, predicates
 ├── build/bin/             # Upload shell script (compress + SFTP)
 ├── config/                # Operator constants, metadata, templates
@@ -91,9 +160,12 @@ must-gather-operator/
 ├── test/
 │   ├── e2e/               # End-to-end tests (Ginkgo, -tags e2e)
 │   └── library/           # Test helper library
+├── harness-evals/
+│   ├── evals/             # Evaluation harness tests
+│   └── harness-docs/      # Domain model, ADRs, development guides
 ├── bundle/                # OLM bundle manifests
 ├── hack/                  # Release and OLM registry tooling
-├── examples/              # Example CRs and supporting resources
+├── examples/              # 14 example CRs and supporting resources
 ├── scripts/               # Build scripts
 ├── boilerplate/           # openshift-eng boilerplate convention system
 ├── main.go                # Operator entrypoint
@@ -167,10 +239,11 @@ oc create secret generic case-management-creds --from-literal=username=<username
 Execute the following steps to develop the functionality locally. It is recommended that development be done using a cluster with `cluster-admin` permissions.
 
 In the operator's `Deployment.yaml` [file](deploy/99_must-gather-operator.Deployment.yaml), add a variable to the deployment's `spec.template.spec.containers.env` list called `OPERATOR_IMAGE` and set the value to your local copy of the image:
-```shell
-          env:
-            - name: OPERATOR_IMAGE
-              value: "registry.example/repo/image:latest"
+
+```yaml
+env:
+  - name: OPERATOR_IMAGE
+    value: "registry.example/repo/image:latest"
 ```
 Then run:
 ```shell
