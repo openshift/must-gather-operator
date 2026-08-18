@@ -40,6 +40,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
@@ -591,7 +592,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				}, mg); err != nil {
 					return false
 				}
-				return mg.Status.Completed
+				return mg.Status != nil && ptr.Deref(mg.Status.Completed, false)
 			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
 				"MustGather should complete after timeout expires")
 
@@ -781,12 +782,15 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					Name:      mustGatherName,
 					Namespace: ns.Name,
 				}, fetchedMG)
-				return fetchedMG.Status.Status
+				if fetchedMG.Status == nil {
+					return ""
+				}
+				return ptr.Deref(fetchedMG.Status.Status, "")
 			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).ShouldNot(BeEmpty(),
 				"MustGather status should be updated by operator")
 
 			ginkgo.GinkgoWriter.Printf("MustGather Status: %s - Completed: %v - Reason: %s\n",
-				fetchedMG.Status.Status, fetchedMG.Status.Completed, fetchedMG.Status.Reason)
+				ptr.Deref(fetchedMG.Status.Status, ""), ptr.Deref(fetchedMG.Status.Completed, false), ptr.Deref(fetchedMG.Status.Reason, ""))
 
 			ginkgo.By("Verifying resources are retained after completion (RetainResourcesOnCompletion=true)")
 			// Wait a bit to ensure the operator has had time to process the completion
@@ -862,12 +866,12 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				}, fetchedMG); err != nil {
 					return false
 				}
-				return fetchedMG.Status.Completed
+				return fetchedMG.Status != nil && ptr.Deref(fetchedMG.Status.Completed, false)
 			}).WithTimeout(5*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
 				"MustGather should complete")
 
 			ginkgo.GinkgoWriter.Printf("MustGather Status: %s - Completed: %v - Reason: %s\n",
-				fetchedMG.Status.Status, fetchedMG.Status.Completed, fetchedMG.Status.Reason)
+				ptr.Deref(fetchedMG.Status.Status, ""), ptr.Deref(fetchedMG.Status.Completed, false), ptr.Deref(fetchedMG.Status.Reason, ""))
 
 			ginkgo.By("Verifying Job is cleaned up after completion (retainResources defaults to false)")
 			Eventually(func() bool {
@@ -1252,8 +1256,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				}, mg)).To(Succeed())
 
 				// If status is Failed, fail immediately with the reason
-				if mg.Status.Status == "Failed" {
-					ginkgo.Fail(fmt.Sprintf("MustGather validation failed before Job creation: %s", mg.Status.Reason))
+				if mg.Status != nil && ptr.Deref(mg.Status.Status, "") == "Failed" {
+					ginkgo.Fail(fmt.Sprintf("MustGather validation failed before Job creation: %s", ptr.Deref(mg.Status.Reason, "")))
 				}
 
 				// Otherwise, check if Job was created
@@ -1630,8 +1634,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					Name:      mustGatherName,
 					Namespace: ns.Name,
 				}, mg)).To(Succeed())
-				if mg.Status.Status == "Failed" {
-					ginkgo.Fail(fmt.Sprintf("MustGather validation failed before Job creation: %s", mg.Status.Reason))
+				if mg.Status != nil && ptr.Deref(mg.Status.Status, "") == "Failed" {
+					ginkgo.Fail(fmt.Sprintf("MustGather validation failed before Job creation: %s", ptr.Deref(mg.Status.Reason, "")))
 				}
 				g.Expect(nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
@@ -1720,8 +1724,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					Name:      mustGatherName,
 					Namespace: ns.Name,
 				}, mg)).To(Succeed())
-				if mg.Status.Status == "Failed" {
-					ginkgo.Fail(fmt.Sprintf("MustGather validation failed before Job creation: %s", mg.Status.Reason))
+				if mg.Status != nil && ptr.Deref(mg.Status.Status, "") == "Failed" {
+					ginkgo.Fail(fmt.Sprintf("MustGather validation failed before Job creation: %s", ptr.Deref(mg.Status.Reason, "")))
 				}
 				g.Expect(nonAdminClient.Get(testCtx, client.ObjectKey{
 					Name:      mustGatherName,
@@ -1973,7 +1977,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 						Tag:  "latest",
 					},
 					GatherSpec: &mustgatherv1.GatherSpec{
-						Audit: true,
+						Audit: ptr.To(true),
 					},
 				},
 			}
@@ -2000,10 +2004,10 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					Name:      mustGatherName,
 					Namespace: ns.Name,
 				}, fetchedMG)
-				if err != nil {
+				if err != nil || fetchedMG.Status == nil {
 					return ""
 				}
-				return fetchedMG.Status.Status
+				return ptr.Deref(fetchedMG.Status.Status, "")
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Equal("Failed"))
 		})
 
@@ -2026,10 +2030,10 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					Name:      mustGatherName,
 					Namespace: ns.Name,
 				}, fetchedMG)
-				if err != nil {
+				if err != nil || fetchedMG.Status == nil {
 					return ""
 				}
-				return fetchedMG.Status.Status
+				return ptr.Deref(fetchedMG.Status.Status, "")
 			}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Equal("Failed"))
 		})
 
@@ -2750,7 +2754,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 			ginkgo.By("Creating MustGather CR with audit enabled")
 			mustGatherCR = createMustGatherCR(mustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
 				GatherSpec: &mustgatherv1.GatherSpec{
-					Audit: true,
+					Audit: ptr.To(true),
 				},
 			})
 
@@ -2909,7 +2913,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				subPath := fmt.Sprintf("audit-test-%d", time.Now().UnixNano())
 				auditMustGatherCR = createMustGatherCR(auditMustGatherName, ns.Name, serviceAccount, true, &MustGatherCROptions{
 					GatherSpec: &mustgatherv1.GatherSpec{
-						Audit: true,
+						Audit: ptr.To(true),
 					},
 					PersistentVolume: &PersistentVolumeOptions{
 						PVCName: pvcName,
@@ -4086,7 +4090,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				}, mg); err != nil {
 					return false
 				}
-				return mg.Status.Completed
+				return mg.Status != nil && ptr.Deref(mg.Status.Completed, false)
 			}).WithTimeout(15*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
 				"MustGather should complete (gather + obfuscate)")
 
@@ -4112,8 +4116,8 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 							Image: operatorImage,
 							Command: []string{
 								"/bin/sh", "-c",
-							// List cleaned directory and check for report.yaml and obfuscation.log
-							`echo "=== PVC top-level ===" && ls -la /pvc/collections/ 2>/dev/null &&
+								// List cleaned directory and check for report.yaml and obfuscation.log
+								`echo "=== PVC top-level ===" && ls -la /pvc/collections/ 2>/dev/null &&
 echo "=== Cleaned directories ===" && find /pvc/collections -name 'cleaned' -type d 2>/dev/null &&
 echo "=== obfuscation report ===" && find /pvc/collections -name 'report.yaml' -type f 2>/dev/null | head -5 &&
 echo "=== obfuscation log ===" && find /pvc/collections -name 'obfuscation.log' -type f 2>/dev/null | head -5 &&
@@ -4261,7 +4265,7 @@ echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/clean
 				}, mg); err != nil {
 					return false
 				}
-				return mg.Status.Completed
+				return mg.Status != nil && ptr.Deref(mg.Status.Completed, false)
 			}).WithTimeout(15*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
 				"MustGather with custom config should complete")
 
@@ -4499,8 +4503,8 @@ func createMustGatherCR(name, namespace, serviceAccountName string, retainResour
 					CaseManagementAccountSecretRef: corev1.LocalObjectReference{
 						Name: opts.UploadTarget.SecretName,
 					},
-					InternalUser: opts.UploadTarget.InternalUser,
-					Host:         opts.UploadTarget.Host,
+					InternalUser: ptr.To(opts.UploadTarget.InternalUser),
+					Host:         ptr.To(opts.UploadTarget.Host),
 				},
 			}
 		}
@@ -4512,7 +4516,7 @@ func createMustGatherCR(name, namespace, serviceAccountName string, retainResour
 					Claim: mustgatherv1.PersistentVolumeClaimReference{
 						Name: opts.PersistentVolume.PVCName,
 					},
-					SubPath: opts.PersistentVolume.SubPath,
+					SubPath: ptr.To(opts.PersistentVolume.SubPath),
 				},
 			}
 		}
@@ -4544,7 +4548,7 @@ func createMustGatherCR(name, namespace, serviceAccountName string, retainResour
 					Claim: mustgatherv1.PersistentVolumeClaimReference{
 						Name: opts.Obfuscate.Source.ClaimName,
 					},
-					SubPath: opts.Obfuscate.Source.SubPath,
+					SubPath: ptr.To(opts.Obfuscate.Source.SubPath),
 				}
 			}
 		}
