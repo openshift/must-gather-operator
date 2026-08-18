@@ -5,7 +5,8 @@
 ```text
 must-gather-operator/
 ├── main.go                          # Entrypoint: scheme, manager, metrics server, leader election
-├── api/v1alpha1/                    # CRD types (MustGather, sub-types, deepcopy, openapi)
+├── api/v1/                          # GA CRD types (primary, storage version)
+├── api/v1alpha1/                    # Deprecated types (still served for compat)
 ├── controllers/mustgather/
 │   ├── mustgather_controller.go     # Single reconciler: Job lifecycle, cleanup, validation
 │   ├── template.go                  # Job spec builder: gather + upload containers, volumes, env
@@ -242,7 +243,9 @@ Build-time only (`Makefile:1` → `FIPS_ENABLED=true`):
 
 | File | Generator | Make Target |
 |---|---|---|
+| `api/v1/zz_generated.deepcopy.go` | controller-gen `object` | `make generate` |
 | `api/v1alpha1/zz_generated.deepcopy.go` | controller-gen `object` | `make generate` |
+| `api/v1/zz_generated.openapi.go` | openapi-gen | `make generate` |
 | `api/v1alpha1/zz_generated.openapi.go` | openapi-gen | `make generate` |
 | `deploy/crds/operator.openshift.io_mustgathers.yaml` | controller-gen `crd` | `make manifests` |
 | `boilerplate/generated-includes.mk` | boilerplate update | `make boilerplate-update` |

@@ -77,7 +77,7 @@ OPERATOR_NAME=must-gather-operator operator-sdk run --verbose --local --namespac
 
 ### Add a New Upload Target Type
 
-1. Add new `UploadType` enum value in `api/v1alpha1/mustgather_types.go`
+1. Add new `UploadType` enum value in `api/v1/mustgather_types.go` (and `api/v1alpha1/` for compat)
 2. Add new `*NewTypeSpec` struct and union member field on `UploadTargetSpec`
 3. Update CEL validation on `UploadTargetSpec` to handle the new discriminator value
 4. Run `make generate` and `make manifests`

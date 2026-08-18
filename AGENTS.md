@@ -16,7 +16,7 @@ Automates diagnostic collection on OpenShift clusters. Creates a Kubernetes Job 
 
 | Component | Location | Purpose |
 |---|---|---|
-| MustGather CRD | `api/v1alpha1/mustgather_types.go` | CR spec: SA, image, gather params, upload target, storage, timeout |
+| MustGather CRD | `api/v1/mustgather_types.go` (primary); `api/v1alpha1/` deprecated | CR spec: SA, image, gather params, upload target, storage, obfuscation, timeout |
 | Controller | `controllers/mustgather/mustgather_controller.go` | Single reconciler: Job lifecycle, cleanup, SFTP validation |
 | Job Template | `controllers/mustgather/template.go` | Job builder (gather container + conditional upload container), volumes, affinity |
 | Upload Script | `build/bin/upload` | Shell: compress + SFTP upload with proxy support |
