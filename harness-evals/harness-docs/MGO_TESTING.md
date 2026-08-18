@@ -75,14 +75,14 @@ Table-driven tests in `template_test.go` verify Job spec generation across confi
 ```go
 tests := []struct {
     name        string
-    storage     *mustgatherv1alpha1.Storage
+    storage     *mustgatherv1.Storage
     caConfigMap string
 }{
     {name: "Without PVC"},
-    {name: "With PVC", storage: &mustgatherv1alpha1.Storage{
-        Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-        PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-            Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{
+    {name: "With PVC", storage: &mustgatherv1.Storage{
+        Type: mustgatherv1.StorageTypePersistentVolume,
+        PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+            Claim: mustgatherv1.PersistentVolumeClaimReference{
                 Name: pvcClaimName,
             },
             SubPath: pvcSubPath,

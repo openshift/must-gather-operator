@@ -8,7 +8,7 @@ This guide covers **must-gather-operator-specific** development practices.
 
 ### Prerequisites
 
-- Go 1.25.7 (see `go.mod`)
+- Go 1.26.0 (see `go.mod`)
 - [operator-sdk](https://github.com/operator-framework/operator-sdk) (for local development)
 - Access to OpenShift cluster with `KUBECONFIG` set
 - Container build tool (Podman or Docker)
@@ -65,7 +65,7 @@ OPERATOR_NAME=must-gather-operator operator-sdk run --verbose --local --namespac
 
 ### Add a New Field to MustGather CR
 
-1. Add field + kubebuilder markers to `api/v1alpha1/mustgather_types.go`
+1. Add field + kubebuilder markers to `api/v1/mustgather_types.go` (primary; also update `api/v1alpha1/` if served on both)
 2. Add CEL validation rules if needed (XValidation markers)
 3. Run `make generate` (deepcopy + OpenAPI)
 4. Run `make manifests` (CRD YAML)
@@ -98,7 +98,7 @@ Key files: `controllers/mustgather/template.go`
 Remember:
 - Both containers share volumes: `must-gather-output` and `must-gather-upload`
 - Gather writes to `/must-gather`, upload reads from it
-- Upload container is **only added** when `UploadTarget` is configured
+- Upload container is added when `UploadTarget` is configured **or** `obfuscate.enabled` is true
 - `ShareProcessNamespace: true` is required for upload's `pgrep`-based polling
 
 ### Modify Upload Script

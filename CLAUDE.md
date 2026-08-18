@@ -66,7 +66,7 @@ oc apply -f ./examples/mustgather_basic.yaml
 
 ### Core Components
 
-**API Types** (`api/v1alpha1/mustgather_types.go`):
+**API Types** (`api/v1/mustgather_types.go`, primary; `api/v1alpha1/` deprecated):
 - `MustGather` CR defines the specification for must-gather collection jobs
 - Key fields: `serviceAccountName`, `uploadTarget` (with nested `caseID`, `caseManagementAccountSecretRef`), `gatherSpec` (with nested `audit`), `mustGatherTimeout`, `retainResourcesOnCompletion`
 - Status tracking with conditions and completion state
@@ -137,7 +137,7 @@ Optional:
 
 ### API Group Migration
 
-The operator previously used a different API group. The current API group is `operator.openshift.io/v1alpha1`. When working with manifests, ensure you're using the correct group.
+The user-facing API version is `operator.openshift.io/v1` (promoted from `v1alpha1` in release 5.0). The CRD serves both versions for backward compatibility, but new CRs should use `v1`. The primary Go package is `api/v1/` (storage version); `api/v1alpha1/` is retained for backward compatibility but is deprecated.
 
 ### Boilerplate System
 
@@ -147,7 +147,7 @@ This project uses the openshift-eng boilerplate convention system. The actual Ma
 
 ### Adding New Fields to MustGather CR
 
-1. Update `api/v1alpha1/mustgather_types.go` with new field and kubebuilder markers
+1. Update `api/v1/mustgather_types.go` with new field and kubebuilder markers (also update `api/v1alpha1/` if the field must be served on both versions)
 2. Run `make generate` to update generated code
 3. Run `make manifests` to update CRD YAML
 4. Update controller logic in `controllers/mustgather/mustgather_controller.go`

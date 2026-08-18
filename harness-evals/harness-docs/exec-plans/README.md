@@ -1,20 +1,7 @@
 # Execution Plans
 
-> **Exec-Plans Guidance**: See [Platform AI-Docs Index](https://github.com/openshift/enhancements/tree/master/ai-docs/) for general patterns. No dedicated exec-plan guide is published yet.
+Active plans for the must-gather-operator are captured as enhancement proposals in the upstream repository:
 
-## Component-Specific Exec-Plans
+- [openshift/enhancements — support-log-gather](https://github.com/openshift/enhancements/tree/master/enhancements/support-log-gather)
 
-Active exec-plans for must-gather-operator are tracked in `active/`:
-
-```text
-exec-plans/
-├── active/       # Create feature-specific exec-plans here
-├── completed/    # Move completed plans here
-└── README.md     # This file
-```
-
-## Usage
-
-Create an exec-plan in `active/` for each new feature. Move to `completed/` when merged.
-
-See [Platform AI-Docs Index](https://github.com/openshift/enhancements/tree/master/ai-docs/) for general patterns. A dedicated exec-plan template is planned but not yet published.
+See [Platform AI-Docs Index](https://github.com/openshift/enhancements/tree/master/ai-docs/) for general patterns and conventions.

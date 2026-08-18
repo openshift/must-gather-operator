@@ -24,7 +24,7 @@ must-gather-operator/
 │   └── https-proxy-connect-util     # Shell: socat-based HTTPS CONNECT proxy tunneling
 ├── deploy/                          # Deployment, RBAC, CRD, sample PVC
 ├── bundle/manifests/tech-preview/   # OLM bundle (CSV, CRD)
-├── examples/                        # 8 example MustGather CRs
+├── examples/                        # 14 example MustGather CRs
 ├── test/e2e/                        # Ginkgo E2E tests
 ├── version/version.go               # Operator version (0.1.1), SDK version (1.21.0)
 ├── Makefile                         # Thin wrapper → boilerplate/generated-includes.mk
@@ -45,15 +45,15 @@ must-gather-operator/
 
 There is exactly **one controller** (`MustGatherReconciler`) managing the full lifecycle. It uses controller-runtime (not library-go).
 
-### Startup (`main.go:82-88 init`, `113-123 manager`, `175-186 controller registration`)
+### Startup (`main.go:84-91 init`, `120-134 manager`, `183-192 controller registration`)
 
 ```text
-Scheme: clientgoscheme + config/v1 + image/v1 + operator.openshift.io/v1alpha1
+Scheme: clientgoscheme + config/v1 + image/v1 + operator.openshift.io/v1 + operator.openshift.io/v1alpha1
 Manager: leader election via operator-lib + controller-runtime flag
 Metrics: built-in metrics DISABLED (BindAddress: "0"), custom OSD metrics on :8080
 ```
 
-### Watches (`mustgather_controller.go:371-381`)
+### Watches (`mustgather_controller.go:381-391`)
 
 | Resource | Predicate | Purpose |
 |---|---|---|
@@ -122,7 +122,7 @@ Job (backoffLimit: 3, restartPolicy: Never)
 │   ├── Mounts: /must-gather (output), /etc/pki/tls/certs (CA, optional)
 │   └── Env: MUST_GATHER_SINCE, MUST_GATHER_SINCE_TIME (optional)
 │
-├── Container: "upload" (ONLY when UploadTarget is configured)
+├── Container: "upload" (when UploadTarget is configured OR obfuscation is enabled)
 │   ├── Image: OPERATOR_IMAGE
 │   ├── Command: poll for gather completion (pgrep), then /usr/local/bin/upload
 │   ├── Mounts: /must-gather (input), /must-gather-upload (staging), /etc/pki/tls/certs (optional)
