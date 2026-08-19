@@ -4,7 +4,7 @@ metadata:
   name: must-gather-admin
 roleRef:
   kind: ClusterRole
-  name: must-gather-admin
+  name: must-gather-minimal
   apiGroup: rbac.authorization.k8s.io
 subjects:
 - kind: ServiceAccount
