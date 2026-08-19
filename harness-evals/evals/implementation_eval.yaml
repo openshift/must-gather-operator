@@ -1,0 +1,158 @@
+stage: implementation
+template: evals/refined-templates/implementation-template.md
+artifact: implementation.md
+version: 2
+eval_count: 5
+evals:
+  - id: eval-r001-impl-001
+    round: 1
+    stage: implementation
+    source_issue_ids: [ISSUE-003]
+    patterns: [PAT-003]
+    input_refs:
+      - evals/evals/outputs/epic-bug-analysis/rca-summary.md
+    prompt: |
+      When a task introduces a user-facing path field (e.g., SubPath for PVC storage),
+      does the implementation log's Edge-Case & Input Validation Coverage table show
+      explicit handling for all edge cases?
+
+      The implementation log must:
+      1. Include the Edge-Case & Input Validation Coverage table
+      2. Show "handled" for Empty, Whitespace, Separator-only, and Trim columns
+      3. Reference test files covering each edge case (e.g., Test_outputSubPath,
+         Test_getGatherContainer with PVC variants)
+      4. Show that the sanitization uses strings.TrimSpace followed by
+         strings.Trim(base, "/") — not just one or the other
+    assertions:
+      must_mention:
+        - "edge case"
+        - "empty"
+        - "whitespace"
+        - "TrimSpace"
+        - "test"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-impl-002
+    round: 1
+    stage: implementation
+    source_issue_ids: [ISSUE-001]
+    patterns: [PAT-001, PAT-002]
+    input_refs:
+      - evals/evals/outputs/epic-bug-analysis/rca-summary.md
+    prompt: |
+      When a task implements PVC volume mounts in a multi-container pod, does the
+      implementation log show that BOTH containers (gather and upload) were updated
+      consistently?
+
+      The implementation log must:
+      1. List files touched in both the gather container and upload container code
+         paths (getGatherContainer and getUploadContainer in template.go)
+      2. Show that SubPath is computed by the same outputSubPath function for both
+         containers
+      3. Include test results covering multi-container mount consistency
+      4. Document the obfuscation special case where the upload mount reuses the
+         output volume (PVC-backed) with the same SubPath
+    assertions:
+      must_mention:
+        - "gather"
+        - "upload"
+        - "both"
+        - "SubPath"
+        - "volume"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-impl-003
+    round: 1
+    stage: implementation
+    source_issue_ids: [ISSUE-005]
+    patterns: [PAT-006, PAT-004]
+    input_refs:
+      - evals/evals/outputs/epic-bug-analysis/issue-taxonomy.json
+    prompt: |
+      When a task implements env var lookup for required startup variables (e.g.,
+      OPERATOR_IMAGE), does the implementation log show that the lookup uses
+      os.LookupEnv and returns an error when not present?
+
+      The implementation log must:
+      1. Show that os.LookupEnv is used (not os.Getenv) for presence detection
+      2. Include test results for the missing-env-var case
+      3. Show that conditional env var injection is used (e.g., proxy vars only
+         added when non-empty, obfuscation vars only when enabled)
+      4. Document the difference between presence-checked vars (OPERATOR_IMAGE)
+         and deployment-set vars (DefaultMustGatherImage)
+    assertions:
+      must_mention:
+        - "LookupEnv"
+        - "missing"
+        - "error"
+        - "conditional"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-impl-004
+    round: 1
+    stage: implementation
+    source_issue_ids: [ISSUE-006]
+    patterns: [PAT-007]
+    input_refs:
+      - evals/evals/outputs/epic-bug-analysis/issue-taxonomy.json
+    prompt: |
+      When a task implements obfuscation support, does the implementation log show
+      correct handling of all three operational modes?
+
+      The implementation log must:
+      1. Show gather+obfuscate mode: chown suffix appended, upload container added
+      2. Show gather+obfuscate+PVC mode: upload mount references output volume (not
+         duplicate PVC), SubPath matches gather container
+      3. Show obfuscate-only (source) mode: gather container omitted, source PVC
+         mounted read-only, direct upload command
+      4. Include test results for each mode (Test_getJobTemplate_GatherObfuscatePVC,
+         Test_getJobTemplate_ObfuscateSourceSkipsGather)
+      5. Document CEL validation rules preventing invalid mode combinations
+    assertions:
+      must_mention:
+        - "obfuscate"
+        - "source"
+        - "chown"
+        - "read-only"
+        - "test"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-impl-005
+    round: 1
+    stage: implementation
+    source_issue_ids: [ISSUE-008]
+    patterns: [PAT-009]
+    input_refs:
+      - evals/evals/outputs/epic-bug-analysis/rca-summary.md
+    prompt: |
+      When a task implements controller-level validation (ServiceAccount, SFTP,
+      ImageStream), does the implementation log show consistent use of the
+      setValidationFailureStatus pattern?
+
+      The implementation log must:
+      1. Show that all validation failures use setValidationFailureStatus with the
+         same ReconcileError condition type and ValidationFailed reason
+      2. Show that validation type constants (ValidationServiceAccount,
+         ValidationSFTPCredentials, ValidationImageStream) are defined in constant.go
+      3. Include test results for each validation path (SA not found, SA is operator's
+         own, SFTP auth failure, SFTP transient error, ImageStream tag not found)
+      4. Document the return convention: (Result{}, nil) for terminal validation
+         failures (no requeue due to immutable spec)
+    assertions:
+      must_mention:
+        - "setValidationFailureStatus"
+        - "ReconcileError"
+        - "ValidationFailed"
+        - "terminal"
+        - "test"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80

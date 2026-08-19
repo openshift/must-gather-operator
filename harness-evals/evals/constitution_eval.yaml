@@ -1,0 +1,119 @@
+stage: constitution
+template: evals/refined-templates/constitution-template.md
+artifact: constitution.md
+version: 2
+eval_count: 4
+evals:
+  - id: eval-r001-con-001
+    round: 1
+    stage: constitution
+    source_issue_ids: [ISSUE-001, ISSUE-003]
+    patterns: [PAT-002, PAT-003]
+    input_refs:
+      - evals/evals/outputs/epic-bug-analysis/rca-summary.md
+    prompt: |
+      Does the constitution include a principle about multi-container pod consistency
+      that requires mount and env var configuration to be applied uniformly across all
+      containers sharing a volume?
+
+      The constitution must:
+      1. Include a principle about shared volume consistency (gather + upload containers)
+      2. Require that any volume mount changes (SubPath, ReadOnly) apply to ALL
+         containers sharing the volume
+      3. Include guidance on user-facing field sanitization (TrimSpace + Trim for paths)
+      4. Cite the outputSubPath function as evidence of the sanitization pattern
+    assertions:
+      must_mention:
+        - "shared volume"
+        - "container"
+        - "consistency"
+        - "SubPath"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-con-002
+    round: 1
+    stage: constitution
+    source_issue_ids: [ISSUE-005]
+    patterns: [PAT-006]
+    input_refs:
+      - evals/evals/outputs/epic-bug-analysis/issue-taxonomy.json
+    prompt: |
+      Does the constitution include a principle about environment variable handling
+      that distinguishes between presence-checked and deployment-set variables?
+
+      The constitution must:
+      1. Include a principle about using os.LookupEnv for runtime-required env vars
+         (not os.Getenv which cannot distinguish empty from unset)
+      2. Require fail-fast error handling when critical env vars are absent
+      3. Specify that conditional injection must be used for optional env vars (e.g.,
+         proxy vars only when non-empty, obfuscation vars only when enabled)
+      4. Cite the OPERATOR_IMAGE lookup pattern in getJobFromInstance as evidence
+    assertions:
+      must_mention:
+        - "environment variable"
+        - "LookupEnv"
+        - "fail-fast"
+        - "conditional"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-con-003
+    round: 1
+    stage: constitution
+    source_issue_ids: [ISSUE-004]
+    patterns: [PAT-005]
+    input_refs:
+      - evals/evals/outputs/epic-bug-analysis/issue-taxonomy.json
+    prompt: |
+      Does the constitution include a principle about spec immutability and its
+      implications for validation failure handling?
+
+      The constitution must:
+      1. Include a principle that the MustGather spec is immutable once set (CEL rule)
+      2. Explain the consequence: validation failures are terminal and must NOT be
+         requeued (retrying an immutable spec is pointless)
+      3. Specify the validation failure pattern: setValidationFailureStatus with
+         Status=Failed, Completed=true, ReconcileError condition, no requeue
+      4. Cite the CEL validation rule as evidence
+    assertions:
+      must_mention:
+        - "immutable"
+        - "terminal"
+        - "no requeue"
+        - "ValidationFailed"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-con-004
+    round: 1
+    stage: constitution
+    source_issue_ids: [ISSUE-009]
+    patterns: [PAT-010]
+    input_refs:
+      - evals/evals/outputs/epic-bug-analysis/rca-summary.md
+    prompt: |
+      Does the constitution include a principle about resource ownership verification
+      during cleanup operations?
+
+      The constitution must:
+      1. Include a principle that cleanup operations must verify ownership via
+         OwnerReferences before deleting resources
+      2. Require that Jobs are only deleted if their OwnerReferences include the
+         MustGather CR's UID
+      3. Specify that cleanup is skipped entirely when RetainResourcesOnCompletion
+         is true
+      4. Include guidance on multi-owner ConfigMap lifecycle (remove ownerReference
+         first, delete only if last owner)
+    assertions:
+      must_mention:
+        - "ownership"
+        - "OwnerReferences"
+        - "cleanup"
+        - "retain"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
