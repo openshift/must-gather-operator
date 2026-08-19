@@ -226,21 +226,40 @@ func Test_getGatherContainer(t *testing.T) {
 
 			if len(tt.command) == 0 {
 				containerCommand := container.Command[2]
+				if !strings.Contains(containerCommand, "set -o pipefail") {
+					t.Fatalf("gather command missing pipefail, got %q", containerCommand)
+				}
 				if tt.audit && !strings.Contains(containerCommand, gatherCommandBinaryAudit) {
 					t.Fatalf("gather container command expected with binary %v but it wasn't present", gatherCommandBinaryAudit)
 				} else if !tt.audit && !strings.Contains(containerCommand, gatherCommandBinaryNoAudit) {
 					t.Fatalf("gather container command expected with binary %v but it wasn't present", gatherCommandBinaryNoAudit)
 				}
 				timeoutInSeconds := int(math.Ceil(tt.timeout.Seconds()))
-				if !strings.HasPrefix(containerCommand, fmt.Sprintf("timeout %d", timeoutInSeconds)) {
-					t.Fatalf("the duration was not properly added to the container command, got %v but wanted %v", strings.Split(containerCommand, " ")[1], timeoutInSeconds)
+				if !strings.Contains(containerCommand, fmt.Sprintf("timeout %d", timeoutInSeconds)) {
+					t.Fatalf("the duration was not properly added to the container command, got %v", containerCommand)
+				}
+				if !strings.Contains(containerCommand, "touch "+gatherSuccessMarkerFile) {
+					t.Fatalf("gather command missing success marker touch, got %q", containerCommand)
+				}
+				if !strings.Contains(containerCommand, "exit $gather_rc") {
+					t.Fatalf("gather command missing exit code propagation, got %q", containerCommand)
 				}
 			} else {
-				if !reflect.DeepEqual(container.Command, tt.command) {
-					t.Fatalf("expected container command %v but got %v", tt.command, container.Command)
+				if len(container.Command) < 3 || container.Command[0] != "/bin/bash" {
+					t.Fatalf("expected custom command to be wrapped in bash, got %v", container.Command)
 				}
-				if !reflect.DeepEqual(container.Args, tt.args) {
-					t.Fatalf("expected container args %v but got %v", tt.args, container.Args)
+				wrappedScript := container.Command[2]
+				if !strings.Contains(wrappedScript, "\"$@\"") {
+					t.Fatalf("expected wrapped script to contain \"$@\" passthrough, got %q", wrappedScript)
+				}
+				if !strings.Contains(wrappedScript, "touch "+gatherSuccessMarkerFile) {
+					t.Fatalf("expected wrapped script to contain success marker, got %q", wrappedScript)
+				}
+				expectedArgs := make([]string, 0, len(tt.command)+len(tt.args))
+				expectedArgs = append(expectedArgs, tt.command...)
+				expectedArgs = append(expectedArgs, tt.args...)
+				if !reflect.DeepEqual(container.Args, expectedArgs) {
+					t.Fatalf("expected container args %v but got %v", expectedArgs, container.Args)
 				}
 			}
 
@@ -664,8 +683,8 @@ func Test_getJobTemplate_ProxyAuditTimeout(t *testing.T) {
 					t.Fatalf("expected gather command to contain %v but got %v", gatherCommandBinaryNoAudit, gatherCmd)
 				}
 			}
-			if !strings.HasPrefix(gatherCmd, tt.wantTimeout) {
-				t.Fatalf("expected gather command to start with %q but got %q", tt.wantTimeout, gatherCmd)
+			if !strings.Contains(gatherCmd, tt.wantTimeout) {
+				t.Fatalf("expected gather command to contain %q but got %q", tt.wantTimeout, gatherCmd)
 			}
 
 			upload := findUploadContainerInJob(t, job)
@@ -1050,8 +1069,55 @@ func Test_getGatherContainer_ChownSuffix(t *testing.T) {
 	}
 
 	containerCustomCmdNoObfuscate := getGatherContainer("img", false, 5*time.Second, nil, "", nil, []string{"/custom"}, nil, "", nil)
-	if len(containerCustomCmdNoObfuscate.Command) != 1 || containerCustomCmdNoObfuscate.Command[0] != "/custom" {
-		t.Fatalf("expected custom command to be preserved without obfuscate, got %v", containerCustomCmdNoObfuscate.Command)
+	if len(containerCustomCmdNoObfuscate.Command) < 3 || containerCustomCmdNoObfuscate.Command[0] != "/bin/bash" {
+		t.Fatalf("expected custom command without obfuscate to be wrapped in bash for success marker, got %v", containerCustomCmdNoObfuscate.Command)
+	}
+	noObfuscateScript := containerCustomCmdNoObfuscate.Command[2]
+	if !strings.Contains(noObfuscateScript, "touch "+gatherSuccessMarkerFile) {
+		t.Fatalf("expected success marker in custom command without obfuscate, got %q", noObfuscateScript)
+	}
+	if strings.Contains(noObfuscateScript, obfuscateChownSuffix) {
+		t.Fatalf("expected no chown suffix in custom command without obfuscate, got %q", noObfuscateScript)
+	}
+	if !reflect.DeepEqual(containerCustomCmdNoObfuscate.Args, []string{"/custom"}) {
+		t.Fatalf("expected args [/custom], got %v", containerCustomCmdNoObfuscate.Args)
+	}
+}
+
+func Test_gatherCommand_ExitCodePropagation(t *testing.T) {
+	container := getGatherContainer("img", false, 30*time.Second, nil, "", nil, nil, nil, "", nil)
+	cmd := container.Command[2]
+
+	if !strings.Contains(cmd, "set -o pipefail") {
+		t.Fatalf("gather command must include pipefail to propagate gather exit code through tee pipe")
+	}
+	if !strings.Contains(cmd, "gather_rc=$?") {
+		t.Fatalf("gather command must capture exit code into gather_rc")
+	}
+	if !strings.Contains(cmd, "exit $gather_rc") {
+		t.Fatalf("gather command must exit with gather_rc on non-timeout failure")
+	}
+	if !strings.Contains(cmd, "touch "+gatherSuccessMarkerFile) {
+		t.Fatalf("gather command must write success marker on completion")
+	}
+
+	// Timeout (124/137) should not trigger the failure exit path
+	if strings.Contains(cmd, "gather_rc -ne 0 ]]; then") && !strings.Contains(cmd, "gather_rc -ne 124") {
+		t.Fatalf("gather command must exclude timeout codes (124/137) from the failure exit")
+	}
+}
+
+func Test_uploadCommand_GatherSuccessGating(t *testing.T) {
+	if !strings.Contains(uploadCommand, gatherSuccessMarkerFile) {
+		t.Fatalf("uploadCommand must check for gather success marker file, got %q", uploadCommand)
+	}
+	if !strings.Contains(uploadCommand, "exit 1") {
+		t.Fatalf("uploadCommand must exit 1 when gather marker is missing")
+	}
+
+	// uploadCommandDirect (obfuscate.source mode) must NOT check the marker
+	if strings.Contains(uploadCommandDirect, gatherSuccessMarkerFile) {
+		t.Fatalf("uploadCommandDirect must not check gather success marker (no gather in source mode)")
 	}
 }
 
