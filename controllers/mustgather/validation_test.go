@@ -959,6 +959,84 @@ func Test_getProxyURLForAddr(t *testing.T) {
 	})
 }
 
+func Test_noAuthProxyURLFormat(t *testing.T) {
+	t.Run("getProxyURLForAddr parses http://host:port without credentials", func(t *testing.T) {
+		t.Setenv("HTTP_PROXY", "http://proxy.example.com:83")
+		t.Setenv("HTTPS_PROXY", "")
+		t.Setenv("NO_PROXY", "")
+
+		proxyURL, err := getProxyURLForAddr("sftp.access.redhat.com:22")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if proxyURL == nil {
+			t.Fatal("expected proxy URL, got nil")
+		}
+		if proxyURL.Host != "proxy.example.com:83" {
+			t.Errorf("expected host proxy.example.com:83, got %s", proxyURL.Host)
+		}
+		if proxyURL.User != nil {
+			t.Errorf("expected no userinfo for no-auth proxy, got %v", proxyURL.User)
+		}
+	})
+
+	t.Run("getProxyURLForAddr parses http://ip:port without credentials", func(t *testing.T) {
+		t.Setenv("HTTP_PROXY", "http://10.0.11.131:3128")
+		t.Setenv("HTTPS_PROXY", "")
+		t.Setenv("NO_PROXY", "")
+
+		proxyURL, err := getProxyURLForAddr("sftp.access.redhat.com:22")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if proxyURL == nil {
+			t.Fatal("expected proxy URL, got nil")
+		}
+		if proxyURL.Host != "10.0.11.131:3128" {
+			t.Errorf("expected host 10.0.11.131:3128, got %s", proxyURL.Host)
+		}
+		if proxyURL.User != nil {
+			t.Errorf("expected no userinfo for no-auth proxy, got %v", proxyURL.User)
+		}
+	})
+
+	t.Run("proxyDialContext sends CONNECT without Proxy-Authorization", func(t *testing.T) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to start listener: %v", err)
+		}
+		defer ln.Close()
+
+		var receivedRequest string
+		go func() {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 4096)
+			n, _ := conn.Read(buf)
+			receivedRequest = string(buf[:n])
+			_, _ = conn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
+		}()
+
+		proxyURL, _ := url.Parse("http://" + ln.Addr().String())
+		conn, err := proxyDialContext(context.Background(), proxyURL, "sftp.access.redhat.com:22")
+		if err != nil {
+			t.Fatalf("proxyDialContext() error = %v", err)
+		}
+		conn.Close()
+
+		if !strings.Contains(receivedRequest, "CONNECT sftp.access.redhat.com:22 HTTP/1.1") {
+			t.Errorf("expected CONNECT request, got: %s", receivedRequest)
+		}
+		if strings.Contains(receivedRequest, "Proxy-Authorization") {
+			t.Error("no-auth proxy should not send Proxy-Authorization header")
+		}
+	})
+}
+
 func Test_netDialFunc_proxyIntegration(t *testing.T) {
 	t.Run("uses proxy when configured", func(t *testing.T) {
 		originalGetProxy := getProxyURLForAddr
