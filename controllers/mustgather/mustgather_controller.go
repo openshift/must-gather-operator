@@ -26,7 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	imagev1 "github.com/openshift/api/image/v1"
-	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
+	mustgatherv1 "github.com/openshift/must-gather-operator/api/v1"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
 	"github.com/openshift/must-gather-operator/pkg/mustgatherutil"
 	"github.com/redhat-cop/operator-utils/pkg/util"
@@ -85,6 +85,7 @@ var errImageValidation = goerror.New("image validation failed")
 //+kubebuilder:rbac:groups=image.openshift.io,resources=imagestreams,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods;services;services/finalizers;endpoints;persistentvolumeclaims;events;configmaps;secrets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch
+//+kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;delete
 // ServiceAccount read access needed for pre-flight validation before Job creation
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -101,7 +102,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	reqLogger.Info("Reconciling MustGather")
 
 	// Fetch the MustGather instance
-	instance := &mustgatherv1alpha1.MustGather{}
+	instance := &mustgatherv1.MustGather{}
 	err := r.GetClient().Get(ctx, request.NamespacedName, instance)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -316,7 +317,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 }
 
-func (r *MustGatherReconciler) handleJobCompletion(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather, status string, reason string) (reconcile.Result, error) {
+func (r *MustGatherReconciler) handleJobCompletion(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1.MustGather, status string, reason string) (reconcile.Result, error) {
 	instance.Status.Status = status
 	instance.Status.Completed = true
 	instance.Status.Reason = reason
@@ -336,7 +337,7 @@ func (r *MustGatherReconciler) handleJobCompletion(ctx context.Context, reqLogge
 	return reconcile.Result{}, nil
 }
 
-func (r *MustGatherReconciler) updateStatus(ctx context.Context, instance *mustgatherv1alpha1.MustGather, job *batchv1.Job) (reconcile.Result, error) {
+func (r *MustGatherReconciler) updateStatus(ctx context.Context, instance *mustgatherv1.MustGather, job *batchv1.Job) (reconcile.Result, error) {
 	instance.Status.Completed = !job.Status.CompletionTime.IsZero()
 
 	return r.ManageSuccess(ctx, instance)
@@ -348,7 +349,7 @@ func (r *MustGatherReconciler) updateStatus(ctx context.Context, instance *mustg
 func (r *MustGatherReconciler) setValidationFailureStatus(
 	ctx context.Context,
 	reqLogger logr.Logger,
-	instance *mustgatherv1alpha1.MustGather,
+	instance *mustgatherv1.MustGather,
 	validationType string,
 	validationErr error,
 ) (reconcile.Result, error) {
@@ -380,7 +381,7 @@ func (r *MustGatherReconciler) setValidationFailureStatus(
 // SetupWithManager sets up the controller with the Manager.
 func (r *MustGatherReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	b := ctrl.NewControllerManagedBy(mgr).
-		For(&mustgatherv1alpha1.MustGather{}, builder.WithPredicates(resourceGenerationOrFinalizerChangedPredicate())).
+		For(&mustgatherv1.MustGather{}, builder.WithPredicates(resourceGenerationOrFinalizerChangedPredicate())).
 		Owns(&batchv1.Job{}, builder.WithPredicates(isStateUpdated()))
 
 	if r.TrustedCAConfigMap != "" {
@@ -391,7 +392,7 @@ func (r *MustGatherReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // addFinalizer is a function that adds a finalizer for the MustGather CR
-func (r *MustGatherReconciler) addFinalizer(ctx context.Context, reqLogger logr.Logger, m *mustgatherv1alpha1.MustGather) error {
+func (r *MustGatherReconciler) addFinalizer(ctx context.Context, reqLogger logr.Logger, m *mustgatherv1.MustGather) error {
 	reqLogger.Info("Adding Finalizer for the MustGather")
 	m.SetFinalizers(append(m.GetFinalizers(), mustGatherFinalizer))
 
@@ -404,7 +405,7 @@ func (r *MustGatherReconciler) addFinalizer(ctx context.Context, reqLogger logr.
 	return nil
 }
 
-func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather) (*batchv1.Job, error) {
+func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1.MustGather) (*batchv1.Job, error) {
 
 	image, err := r.getMustGatherImage(ctx, instance)
 	if err != nil {
@@ -424,7 +425,7 @@ func (r *MustGatherReconciler) getJobFromInstance(ctx context.Context, reqLogger
 	return getJobTemplate(image, operatorImage, *instance, r.TrustedCAConfigMap, directoryName), nil
 }
 
-func (r *MustGatherReconciler) getMustGatherImage(ctx context.Context, instance *mustgatherv1alpha1.MustGather) (string, error) {
+func (r *MustGatherReconciler) getMustGatherImage(ctx context.Context, instance *mustgatherv1.MustGather) (string, error) {
 	if instance.Spec.ImageStreamRef == nil {
 		// Use default image
 		return r.DefaultMustGatherImage, nil
@@ -462,7 +463,7 @@ func (r *MustGatherReconciler) getMustGatherImage(ctx context.Context, instance 
 }
 
 // cleanupMustGatherResources cleans up the secret, job, and pods associated with a MustGather instance
-func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather) error {
+func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1.MustGather) error {
 	reqLogger.Info("cleaning up resources")
 	var err error
 
@@ -541,7 +542,7 @@ func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, r
 
 // ensureTrustedCAConfigMap copies the trustedCA ConfigMap from operator namespace to the CR namespace,
 // adds/updates the ownerReference to include the MustGather CR.
-func (r *MustGatherReconciler) ensureTrustedCAConfigMap(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather) error {
+func (r *MustGatherReconciler) ensureTrustedCAConfigMap(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1.MustGather) error {
 	if instance.Namespace == r.OperatorNamespace {
 		reqLogger.V(4).Info("MustGather CR is in the same namespace as the operator, skipping ConfigMap copy")
 		return nil
@@ -632,7 +633,7 @@ func (r *MustGatherReconciler) ensureTrustedCAConfigMap(ctx context.Context, req
 // cleanupTrustedCAConfigMap removes the owner reference for the given instance from the trustedCA ConfigMap.
 // If there are other owner references, UPDATE the ConfigMap to remove only this instance's owner reference.
 // If the instance is the only owner, the ConfigMap is DELETEd.
-func (r *MustGatherReconciler) cleanupTrustedCAConfigMap(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1alpha1.MustGather) error {
+func (r *MustGatherReconciler) cleanupTrustedCAConfigMap(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1.MustGather) error {
 	if instance.Namespace == r.OperatorNamespace {
 		return nil
 	}

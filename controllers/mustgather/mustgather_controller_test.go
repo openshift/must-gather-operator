@@ -10,7 +10,7 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	imagev1 "github.com/openshift/api/image/v1"
-	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
+	mustgatherv1 "github.com/openshift/must-gather-operator/api/v1"
 	mgconfig "github.com/openshift/must-gather-operator/config"
 	"github.com/redhat-cop/operator-utils/pkg/util"
 	batchv1 "k8s.io/api/batch/v1"
@@ -96,9 +96,9 @@ func (w failingStatusWriter) Update(ctx context.Context, obj client.Object, opts
 }
 
 // mustGatherOwnerRef returns an OwnerReference suitable for a Job owned by the given MustGather.
-func mustGatherOwnerRef(mg *mustgatherv1alpha1.MustGather) metav1.OwnerReference {
+func mustGatherOwnerRef(mg *mustgatherv1.MustGather) metav1.OwnerReference {
 	return metav1.OwnerReference{
-		APIVersion: "operator.openshift.io/v1alpha1",
+		APIVersion: "operator.openshift.io/v1",
 		Kind:       "MustGather",
 		Name:       mg.Name,
 		UID:        mg.UID,
@@ -118,12 +118,12 @@ func TestCleanupMustGatherResources(t *testing.T) {
 		{
 			name: "cleanup_success_all_resources_deleted",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: targetNamespace, UID: "mg-uid-1"},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
-						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-							Type: mustgatherv1alpha1.UploadTypeSFTP,
-							SFTP: &mustgatherv1alpha1.SFTPSpec{
+					Spec: mustgatherv1.MustGatherSpec{
+						UploadTarget: &mustgatherv1.UploadTargetSpec{
+							Type: mustgatherv1.UploadTypeSFTP,
+							SFTP: &mustgatherv1.SFTPSpec{
 								CaseID:                         "12345678",
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "case-management-creds"},
 							},
@@ -148,9 +148,9 @@ func TestCleanupMustGatherResources(t *testing.T) {
 		{
 			name: "cleanup_job_get_error_continues_successfully",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: targetNamespace},
-					Spec:       mustgatherv1alpha1.MustGatherSpec{},
+					Spec:       mustgatherv1.MustGatherSpec{},
 				}
 				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: targetNamespace}}
 				return []client.Object{mg, sa}
@@ -171,9 +171,9 @@ func TestCleanupMustGatherResources(t *testing.T) {
 		{
 			name: "cleanup_pod_list_error_leaves_job_intact",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: targetNamespace, UID: "mg-uid-2"},
-					Spec:       mustgatherv1alpha1.MustGatherSpec{},
+					Spec:       mustgatherv1.MustGatherSpec{},
 				}
 				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: targetNamespace, UID: "u", OwnerReferences: []metav1.OwnerReference{mustGatherOwnerRef(mg)}}}
 				return []client.Object{mg, job}
@@ -200,9 +200,9 @@ func TestCleanupMustGatherResources(t *testing.T) {
 		{
 			name: "cleanup_pod_delete_error_returns_error",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: targetNamespace, UID: "mg-uid-3"},
-					Spec:       mustgatherv1alpha1.MustGatherSpec{},
+					Spec:       mustgatherv1.MustGatherSpec{},
 				}
 				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: targetNamespace, UID: "u", OwnerReferences: []metav1.OwnerReference{mustGatherOwnerRef(mg)}}}
 				pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: targetNamespace, Labels: map[string]string{"controller-uid": string(job.UID)}}}
@@ -224,14 +224,14 @@ func TestCleanupMustGatherResources(t *testing.T) {
 		{
 			name: "cleanup_job_not_owned_by_instance_skips_cleanup",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: targetNamespace, UID: "mg-uid-owner"},
-					Spec:       mustgatherv1alpha1.MustGatherSpec{},
+					Spec:       mustgatherv1.MustGatherSpec{},
 				}
 				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{
 					Name: mg.Name, Namespace: targetNamespace, UID: "job-uid",
 					OwnerReferences: []metav1.OwnerReference{{
-						APIVersion: "operator.openshift.io/v1alpha1",
+						APIVersion: "operator.openshift.io/v1",
 						Kind:       "MustGather",
 						Name:       "other-mustgather",
 						UID:        "other-uid",
@@ -256,7 +256,7 @@ func TestCleanupMustGatherResources(t *testing.T) {
 			s := runtime.NewScheme()
 			_ = corev1.AddToScheme(s)
 			_ = batchv1.AddToScheme(s)
-			_ = mustgatherv1alpha1.AddToScheme(s)
+			_ = mustgatherv1.AddToScheme(s)
 
 			// Setup objects and client
 			objects := tt.setupObjects()
@@ -279,9 +279,9 @@ func TestCleanupMustGatherResources(t *testing.T) {
 			}
 
 			// Get the MustGather object for the test
-			var mg *mustgatherv1alpha1.MustGather
+			var mg *mustgatherv1.MustGather
 			for _, obj := range objects {
-				if mgObj, ok := obj.(*mustgatherv1alpha1.MustGather); ok {
+				if mgObj, ok := obj.(*mustgatherv1.MustGather); ok {
 					mg = mgObj
 					break
 				}
@@ -321,9 +321,9 @@ func TestHandleJobCompletion(t *testing.T) {
 			status: "Completed",
 			reason: "MustGather Job pods succeeded",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, UID: "mg-uid-4"},
-					Spec:       mustgatherv1alpha1.MustGatherSpec{},
+					Spec:       mustgatherv1.MustGatherSpec{},
 				}
 				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: operatorNs, UID: "uid-1", OwnerReferences: []metav1.OwnerReference{mustGatherOwnerRef(mg)}}}
 				pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod1", Namespace: operatorNs, Labels: map[string]string{"controller-uid": string(job.UID)}}}
@@ -332,7 +332,7 @@ func TestHandleJobCompletion(t *testing.T) {
 			interceptors: func() interceptClient { return interceptClient{} },
 			expectError:  false,
 			postTestChecks: func(t *testing.T, cl client.Client) {
-				out := &mustgatherv1alpha1.MustGather{}
+				out := &mustgatherv1.MustGather{}
 				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, out); err != nil {
 					t.Fatalf("failed to get mustgather: %v", err)
 				}
@@ -350,9 +350,9 @@ func TestHandleJobCompletion(t *testing.T) {
 			status: "Failed",
 			reason: "MustGather Job pods failed",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, UID: "mg-uid-5"},
-					Spec:       mustgatherv1alpha1.MustGatherSpec{},
+					Spec:       mustgatherv1.MustGatherSpec{},
 				}
 				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: operatorNs, UID: "uid-2", OwnerReferences: []metav1.OwnerReference{mustGatherOwnerRef(mg)}}}
 				return []client.Object{mg, job}
@@ -360,7 +360,7 @@ func TestHandleJobCompletion(t *testing.T) {
 			interceptors: func() interceptClient { return interceptClient{} },
 			expectError:  false,
 			postTestChecks: func(t *testing.T, cl client.Client) {
-				out := &mustgatherv1alpha1.MustGather{}
+				out := &mustgatherv1.MustGather{}
 				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, out); err != nil {
 					t.Fatalf("failed to get mustgather: %v", err)
 				}
@@ -378,9 +378,9 @@ func TestHandleJobCompletion(t *testing.T) {
 			status: "Completed",
 			reason: "MustGather Job pods succeeded",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						RetainResourcesOnCompletion: ToPtr(true),
 					},
 				}
@@ -390,7 +390,7 @@ func TestHandleJobCompletion(t *testing.T) {
 			interceptors: func() interceptClient { return interceptClient{} },
 			expectError:  false,
 			postTestChecks: func(t *testing.T, cl client.Client) {
-				out := &mustgatherv1alpha1.MustGather{}
+				out := &mustgatherv1.MustGather{}
 				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, out); err != nil {
 					t.Fatalf("failed to get mustgather: %v", err)
 				}
@@ -408,9 +408,9 @@ func TestHandleJobCompletion(t *testing.T) {
 			status: "Failed",
 			reason: "MustGather Job pods failed",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						RetainResourcesOnCompletion: ToPtr(true),
 					},
 				}
@@ -420,7 +420,7 @@ func TestHandleJobCompletion(t *testing.T) {
 			interceptors: func() interceptClient { return interceptClient{} },
 			expectError:  false,
 			postTestChecks: func(t *testing.T, cl client.Client) {
-				out := &mustgatherv1alpha1.MustGather{}
+				out := &mustgatherv1.MustGather{}
 				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, out); err != nil {
 					t.Fatalf("failed to get mustgather: %v", err)
 				}
@@ -438,9 +438,9 @@ func TestHandleJobCompletion(t *testing.T) {
 			status: "Completed",
 			reason: "MustGather Job pods succeeded",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs},
-					Spec:       mustgatherv1alpha1.MustGatherSpec{},
+					Spec:       mustgatherv1.MustGatherSpec{},
 				}
 				return []client.Object{mg}
 			},
@@ -457,9 +457,9 @@ func TestHandleJobCompletion(t *testing.T) {
 			status: "Completed",
 			reason: "MustGather Job pods succeeded",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, UID: "mg-uid-6"},
-					Spec:       mustgatherv1alpha1.MustGatherSpec{},
+					Spec:       mustgatherv1.MustGatherSpec{},
 				}
 				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mg.Name, Namespace: operatorNs, UID: "uid-5", OwnerReferences: []metav1.OwnerReference{mustGatherOwnerRef(mg)}}}
 				return []client.Object{mg, job}
@@ -484,10 +484,10 @@ func TestHandleJobCompletion(t *testing.T) {
 			s := runtime.NewScheme()
 			_ = corev1.AddToScheme(s)
 			_ = batchv1.AddToScheme(s)
-			_ = mustgatherv1alpha1.AddToScheme(s)
+			_ = mustgatherv1.AddToScheme(s)
 
 			objects := tt.setupObjects()
-			base := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).WithStatusSubresource(&mustgatherv1alpha1.MustGather{}).Build()
+			base := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).WithStatusSubresource(&mustgatherv1.MustGather{}).Build()
 
 			interceptor := tt.interceptors()
 			var cl client.Client = base
@@ -502,9 +502,9 @@ func TestHandleJobCompletion(t *testing.T) {
 				OperatorServiceAccountName: mgconfig.OperatorName,
 			}
 
-			var mg *mustgatherv1alpha1.MustGather
+			var mg *mustgatherv1.MustGather
 			for _, obj := range objects {
-				if mgObj, ok := obj.(*mustgatherv1alpha1.MustGather); ok {
+				if mgObj, ok := obj.(*mustgatherv1.MustGather); ok {
 					mg = mgObj
 					break
 				}
@@ -554,7 +554,7 @@ func TestReconcile(t *testing.T) {
 			interceptors: func() interceptClient {
 				return interceptClient{
 					onGet: func(ctx context.Context, key client.ObjectKey, obj client.Object) error {
-						if _, ok := obj.(*mustgatherv1alpha1.MustGather); ok {
+						if _, ok := obj.(*mustgatherv1.MustGather); ok {
 							return errors.New("failed to get mustgather")
 						}
 						return nil
@@ -568,7 +568,7 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_initialize_mustgather_update_succeeds",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns"}}
+				mg := &mustgatherv1.MustGather{ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns"}}
 				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
 				return []client.Object{mg, sa}
 			},
@@ -580,14 +580,14 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_initialize_mustgather_update_fails",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns"}}
+				mg := &mustgatherv1.MustGather{ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns"}}
 				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
 				return []client.Object{mg, sa}
 			},
 			interceptors: func() interceptClient {
 				return interceptClient{
 					onUpdate: func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
-						if _, ok := obj.(*mustgatherv1alpha1.MustGather); ok {
+						if _, ok := obj.(*mustgatherv1.MustGather); ok {
 							return errors.New("failed to update mustgather")
 						}
 						return nil
@@ -602,17 +602,17 @@ func TestReconcile(t *testing.T) {
 			name: "reconcile_deletion_cleanup_and_finalizer_removal_success",
 			setupObjects: func() []client.Object {
 				secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: operatorNs}}
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "example-mustgather", Namespace: operatorNs,
 						Finalizers:        []string{mustGatherFinalizer},
 						DeletionTimestamp: &metav1.Time{Time: time.Now()},
 					},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
-						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-							Type: mustgatherv1alpha1.UploadTypeSFTP,
-							SFTP: &mustgatherv1alpha1.SFTPSpec{
+						UploadTarget: &mustgatherv1.UploadTargetSpec{
+							Type: mustgatherv1.UploadTypeSFTP,
+							SFTP: &mustgatherv1.SFTPSpec{
 								CaseID:                         "12345678",
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "s"},
 							},
@@ -625,7 +625,7 @@ func TestReconcile(t *testing.T) {
 			expectError:  false,
 			expectResult: reconcile.Result{},
 			postTestChecks: func(t *testing.T, cl client.Client) {
-				out := &mustgatherv1alpha1.MustGather{}
+				out := &mustgatherv1.MustGather{}
 				_ = cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, out)
 				if slices.Contains(out.GetFinalizers(), mustGatherFinalizer) {
 					t.Fatalf("expected finalizer removed")
@@ -635,18 +635,18 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_deletion_cleanup_resources_returns_error",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "example-mustgather", Namespace: operatorNs,
 						UID:               "mg-uid-7",
 						Finalizers:        []string{mustGatherFinalizer},
 						DeletionTimestamp: &metav1.Time{Time: time.Now()},
 					},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
-						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-							Type: mustgatherv1alpha1.UploadTypeSFTP,
-							SFTP: &mustgatherv1alpha1.SFTPSpec{
+						UploadTarget: &mustgatherv1.UploadTargetSpec{
+							Type: mustgatherv1.UploadTypeSFTP,
+							SFTP: &mustgatherv1.SFTPSpec{
 								CaseID:                         "12345678",
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "s"},
 							},
@@ -673,9 +673,9 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_template_env_missing_returns_error",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
 					},
 				}
@@ -690,9 +690,9 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_not_found_no_upload_target_creates_job_successfully",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
 					},
 				}
@@ -707,9 +707,9 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_not_found_creates_job_successfully",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
 					},
 				}
@@ -740,9 +740,9 @@ func TestReconcile(t *testing.T) {
 				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "non-existent-sa",
 					},
 				}
@@ -759,7 +759,7 @@ func TestReconcile(t *testing.T) {
 			expectResult: reconcile.Result{},
 			postTestChecks: func(t *testing.T, cl client.Client) {
 				// Verify the MustGather status was updated with error condition
-				out := &mustgatherv1alpha1.MustGather{}
+				out := &mustgatherv1.MustGather{}
 				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
 					t.Fatalf("failed to get mustgather: %v", getErr)
 				}
@@ -779,9 +779,9 @@ func TestReconcile(t *testing.T) {
 				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: mgconfig.OperatorName,
 					},
 				}
@@ -798,7 +798,7 @@ func TestReconcile(t *testing.T) {
 			expectError:  false,
 			expectResult: reconcile.Result{},
 			postTestChecks: func(t *testing.T, cl client.Client) {
-				out := &mustgatherv1alpha1.MustGather{}
+				out := &mustgatherv1.MustGather{}
 				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: operatorNs}, out); getErr != nil {
 					t.Fatalf("failed to get mustgather: %v", getErr)
 				}
@@ -845,9 +845,9 @@ func TestReconcile(t *testing.T) {
 				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "other-ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: mgconfig.OperatorName,
 					},
 				}
@@ -864,7 +864,7 @@ func TestReconcile(t *testing.T) {
 			expectError:  false,
 			expectResult: reconcile.Result{},
 			postTestChecks: func(t *testing.T, cl client.Client) {
-				out := &mustgatherv1alpha1.MustGather{}
+				out := &mustgatherv1.MustGather{}
 				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "other-ns"}, out); getErr != nil {
 					t.Fatalf("failed to get mustgather: %v", getErr)
 				}
@@ -883,9 +883,9 @@ func TestReconcile(t *testing.T) {
 				t.Setenv("OPERATOR_IMAGE", "img")
 			},
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
 					},
 				}
@@ -915,13 +915,13 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_not_found_user_secret_not_found_calls_manage_error",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
-						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-							Type: mustgatherv1alpha1.UploadTypeSFTP,
-							SFTP: &mustgatherv1alpha1.SFTPSpec{
+						UploadTarget: &mustgatherv1.UploadTargetSpec{
+							Type: mustgatherv1.UploadTypeSFTP,
+							SFTP: &mustgatherv1.SFTPSpec{
 								CaseID:                         "12345678",
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "sec"},
 							},
@@ -942,7 +942,7 @@ func TestReconcile(t *testing.T) {
 			expectResult: reconcile.Result{},
 			postTestChecks: func(t *testing.T, cl client.Client) {
 				// Verify the MustGather status was updated with error condition
-				out := &mustgatherv1alpha1.MustGather{}
+				out := &mustgatherv1.MustGather{}
 				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
 					t.Fatalf("failed to get mustgather: %v", getErr)
 				}
@@ -955,13 +955,13 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_not_found_user_secret_get_error_returns_requeue",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
-						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-							Type: mustgatherv1alpha1.UploadTypeSFTP,
-							SFTP: &mustgatherv1alpha1.SFTPSpec{
+						UploadTarget: &mustgatherv1.UploadTargetSpec{
+							Type: mustgatherv1.UploadTypeSFTP,
+							SFTP: &mustgatherv1.SFTPSpec{
 								CaseID:                         "12345678",
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "sec"},
 							},
@@ -1001,9 +1001,9 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_active_updates_status_running",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
 					},
 				}
@@ -1027,9 +1027,9 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_succeeded_retain_resources_no_cleanup",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName:          "default",
 						RetainResourcesOnCompletion: ToPtr(true),
 					},
@@ -1058,13 +1058,13 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_failed_cleanup_error_returns_error",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, UID: "mg-uid-8", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
-						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-							Type: mustgatherv1alpha1.UploadTypeSFTP,
-							SFTP: &mustgatherv1alpha1.SFTPSpec{
+						UploadTarget: &mustgatherv1.UploadTargetSpec{
+							Type: mustgatherv1.UploadTypeSFTP,
+							SFTP: &mustgatherv1.SFTPSpec{
 								CaseID:                         "12345678",
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "sec"},
 							},
@@ -1099,9 +1099,9 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_failed_retain_resources_no_cleanup",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName:          "default",
 						RetainResourcesOnCompletion: ToPtr(true),
 					},
@@ -1121,7 +1121,7 @@ func TestReconcile(t *testing.T) {
 			expectError:  false,
 			expectResult: reconcile.Result{},
 			postTestChecks: func(t *testing.T, cl client.Client) {
-				out := &mustgatherv1alpha1.MustGather{}
+				out := &mustgatherv1.MustGather{}
 				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
 					t.Fatalf("failed to get mustgather: %v", getErr)
 				}
@@ -1133,9 +1133,9 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_succeeded_status_update_fails",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
 					},
 				}
@@ -1162,9 +1162,9 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_failed_status_update_fails",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
 					},
 				}
@@ -1193,17 +1193,17 @@ func TestReconcile(t *testing.T) {
 			setupObjects: func() []client.Object {
 				operatorNs := "must-gather-operator"
 				secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: operatorNs}}
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "must-gather", Namespace: operatorNs,
 						Finalizers:        []string{mustGatherFinalizer},
 						DeletionTimestamp: &metav1.Time{Time: time.Now()},
 					},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
-						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-							Type: mustgatherv1alpha1.UploadTypeSFTP,
-							SFTP: &mustgatherv1alpha1.SFTPSpec{
+						UploadTarget: &mustgatherv1.UploadTargetSpec{
+							Type: mustgatherv1.UploadTypeSFTP,
+							SFTP: &mustgatherv1.SFTPSpec{
 								CaseID:                         "12345678",
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
 							},
@@ -1216,7 +1216,7 @@ func TestReconcile(t *testing.T) {
 				updateCount := 0
 				return interceptClient{
 					onUpdate: func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
-						if mgObj, ok := obj.(*mustgatherv1alpha1.MustGather); ok {
+						if mgObj, ok := obj.(*mustgatherv1.MustGather); ok {
 							updateCount++
 							// Fail the update when removing finalizer (after cleanup is done)
 							if updateCount > 0 && !slices.Contains(mgObj.GetFinalizers(), mustGatherFinalizer) {
@@ -1234,9 +1234,9 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_add_finalizer_fails",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns"},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default", // Pre-initialized to skip IsInitialized update
 					},
 				}
@@ -1246,7 +1246,7 @@ func TestReconcile(t *testing.T) {
 			interceptors: func() interceptClient {
 				return interceptClient{
 					onUpdate: func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
-						if mgObj, ok := obj.(*mustgatherv1alpha1.MustGather); ok {
+						if mgObj, ok := obj.(*mustgatherv1.MustGather); ok {
 							// Fail when trying to add the finalizer (when finalizer is present in the object)
 							if slices.Contains(mgObj.GetFinalizers(), mustGatherFinalizer) {
 								return errors.New("failed to add finalizer")
@@ -1263,13 +1263,13 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_not_found_create_job_fails",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: operatorNs, Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
-						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-							Type: mustgatherv1alpha1.UploadTypeSFTP,
-							SFTP: &mustgatherv1alpha1.SFTPSpec{
+						UploadTarget: &mustgatherv1.UploadTargetSpec{
+							Type: mustgatherv1.UploadTypeSFTP,
+							SFTP: &mustgatherv1.SFTPSpec{
 								Host:                           "sftp.example.com",
 								CaseID:                         "12345678",
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
@@ -1311,13 +1311,13 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_lookup_error_non_notfound",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
-						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-							Type: mustgatherv1alpha1.UploadTypeSFTP,
-							SFTP: &mustgatherv1alpha1.SFTPSpec{
+						UploadTarget: &mustgatherv1.UploadTargetSpec{
+							Type: mustgatherv1.UploadTypeSFTP,
+							SFTP: &mustgatherv1.SFTPSpec{
 								CaseID:                         "12345678",
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
 							},
@@ -1352,13 +1352,13 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_not_found_get_secret_returns_non_not_found_error",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
-						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-							Type: mustgatherv1alpha1.UploadTypeSFTP,
-							SFTP: &mustgatherv1alpha1.SFTPSpec{
+						UploadTarget: &mustgatherv1.UploadTargetSpec{
+							Type: mustgatherv1.UploadTypeSFTP,
+							SFTP: &mustgatherv1.SFTPSpec{
 								CaseID:                         "12345678",
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
 							},
@@ -1393,10 +1393,10 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_image_validation_error_sets_imagestream_failure_status",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
-						ImageStreamRef: &mustgatherv1alpha1.ImageStreamTagRef{Name: "nonexistent-is", Tag: "latest"},
+					Spec: mustgatherv1.MustGatherSpec{
+						ImageStreamRef: &mustgatherv1.ImageStreamTagRef{Name: "nonexistent-is", Tag: "latest"},
 					},
 				}
 				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
@@ -1410,7 +1410,7 @@ func TestReconcile(t *testing.T) {
 			expectError:  false,
 			expectResult: reconcile.Result{},
 			postTestChecks: func(t *testing.T, cl client.Client) {
-				out := &mustgatherv1alpha1.MustGather{}
+				out := &mustgatherv1.MustGather{}
 				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
 					t.Fatalf("failed to get mustgather: %v", getErr)
 				}
@@ -1438,13 +1438,13 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_created_with_FILENAME_PREFIX_env_var",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
-						UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-							Type: mustgatherv1alpha1.UploadTypeSFTP,
-							SFTP: &mustgatherv1alpha1.SFTPSpec{
+						UploadTarget: &mustgatherv1.UploadTargetSpec{
+							Type: mustgatherv1.UploadTypeSFTP,
+							SFTP: &mustgatherv1.SFTPSpec{
 								CaseID:                         "12345678",
 								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "case-management-creds"},
 							},
@@ -1507,9 +1507,9 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_existing_job_does_not_regenerate_directory_name",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
 					},
 				}
@@ -1557,14 +1557,14 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_job_created_with_PVC_uses_generated_subpath",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
-						Storage: &mustgatherv1alpha1.Storage{
-							Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-							PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-								Claim:   mustgatherv1alpha1.PersistentVolumeClaimReference{Name: "test-pvc"},
+						Storage: &mustgatherv1.Storage{
+							Type: mustgatherv1.StorageTypePersistentVolume,
+							PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+								Claim:   mustgatherv1.PersistentVolumeClaimReference{Name: "test-pvc"},
 								SubPath: "my-data",
 							},
 						},
@@ -1614,11 +1614,11 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "reconcile_imagestream_tag_not_found_sets_validation_failure",
 			setupObjects: func() []client.Object {
-				mg := &mustgatherv1alpha1.MustGather{
+				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
-					Spec: mustgatherv1alpha1.MustGatherSpec{
+					Spec: mustgatherv1.MustGatherSpec{
 						ServiceAccountName: "default",
-						ImageStreamRef:     &mustgatherv1alpha1.ImageStreamTagRef{Name: "my-is", Tag: "v2"},
+						ImageStreamRef:     &mustgatherv1.ImageStreamTagRef{Name: "my-is", Tag: "v2"},
 					},
 				}
 				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
@@ -1640,7 +1640,7 @@ func TestReconcile(t *testing.T) {
 			expectError:  false,
 			expectResult: reconcile.Result{},
 			postTestChecks: func(t *testing.T, cl client.Client) {
-				out := &mustgatherv1alpha1.MustGather{}
+				out := &mustgatherv1.MustGather{}
 				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
 					t.Fatalf("failed to get mustgather: %v", getErr)
 				}
@@ -1664,13 +1664,13 @@ func TestReconcile(t *testing.T) {
 			s := runtime.NewScheme()
 			_ = corev1.AddToScheme(s)
 			_ = batchv1.AddToScheme(s)
-			_ = mustgatherv1alpha1.AddToScheme(s)
+			_ = mustgatherv1.AddToScheme(s)
 			_ = configv1.AddToScheme(s)
 			_ = imagev1.Install(s)
 
 			// Setup objects and client
 			objects := tt.setupObjects()
-			base := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).WithStatusSubresource(&mustgatherv1alpha1.MustGather{}).Build()
+			base := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).WithStatusSubresource(&mustgatherv1.MustGather{}).Build()
 
 			// Setup interceptor if needed
 			interceptor := tt.interceptors()
@@ -1701,7 +1701,7 @@ func TestReconcile(t *testing.T) {
 			// Determine request based on test objects
 			var req reconcile.Request
 			for _, obj := range objects {
-				if mgObj, ok := obj.(*mustgatherv1alpha1.MustGather); ok {
+				if mgObj, ok := obj.(*mustgatherv1.MustGather); ok {
 					req = reconcile.Request{NamespacedName: types.NamespacedName{Name: mgObj.Name, Namespace: mgObj.Namespace}}
 					break
 				}
@@ -1783,7 +1783,7 @@ func TestMustGatherController(t *testing.T) {
 func TestMustGatherControllerWithUploadTarget(t *testing.T) {
 	tests := []struct {
 		name                  string
-		mustGather            *mustgatherv1alpha1.MustGather
+		mustGather            *mustgatherv1.MustGather
 		expectedContainers    int
 		expectUploadContainer bool
 	}{
@@ -1849,8 +1849,8 @@ func TestMustGatherControllerWithUploadTarget(t *testing.T) {
 	}
 }
 
-func createMustGatherObject() *mustgatherv1alpha1.MustGather {
-	return &mustgatherv1alpha1.MustGather{
+func createMustGatherObject() *mustgatherv1.MustGather {
+	return &mustgatherv1.MustGather{
 		TypeMeta: metav1.TypeMeta{
 			Kind: "MustGather",
 		},
@@ -1858,15 +1858,15 @@ func createMustGatherObject() *mustgatherv1alpha1.MustGather {
 			Name:      "example-mustgather",
 			Namespace: "openshift-must-gather-operator",
 		},
-		Spec: mustgatherv1alpha1.MustGatherSpec{},
+		Spec: mustgatherv1.MustGatherSpec{},
 	}
 }
 
-func createMustGatherObjectWithUploadTarget() *mustgatherv1alpha1.MustGather {
+func createMustGatherObjectWithUploadTarget() *mustgatherv1.MustGather {
 	mg := createMustGatherObject()
-	mg.Spec.UploadTarget = &mustgatherv1alpha1.UploadTargetSpec{
-		Type: mustgatherv1alpha1.UploadTypeSFTP,
-		SFTP: &mustgatherv1alpha1.SFTPSpec{
+	mg.Spec.UploadTarget = &mustgatherv1.UploadTargetSpec{
+		Type: mustgatherv1.UploadTypeSFTP,
+		SFTP: &mustgatherv1.SFTPSpec{
 			CaseID: "01234567",
 			CaseManagementAccountSecretRef: corev1.LocalObjectReference{
 				Name: "case-management-creds",
@@ -1878,7 +1878,7 @@ func createMustGatherObjectWithUploadTarget() *mustgatherv1alpha1.MustGather {
 	return mg
 }
 
-func createMustGatherObjectWithoutUploadTarget() *mustgatherv1alpha1.MustGather {
+func createMustGatherObjectWithoutUploadTarget() *mustgatherv1.MustGather {
 	mg := createMustGatherObject()
 	mg.Spec.UploadTarget = nil
 	return mg
@@ -1912,8 +1912,8 @@ func createServiceAccountObject() *corev1.ServiceAccount {
 
 func generateFakeClient(objs ...runtime.Object) (client.Client, *runtime.Scheme) {
 	s := scheme.Scheme
-	s.AddKnownTypes(mustgatherv1alpha1.GroupVersion, &mustgatherv1alpha1.MustGather{})
-	cl := fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(objs...).WithStatusSubresource(&mustgatherv1alpha1.MustGather{}).Build()
+	s.AddKnownTypes(mustgatherv1.GroupVersion, &mustgatherv1.MustGather{})
+	cl := fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(objs...).WithStatusSubresource(&mustgatherv1.MustGather{}).Build()
 	return cl, s
 }
 
@@ -1922,13 +1922,13 @@ func TestSFTPCredentialValidation(t *testing.T) {
 	// Setup scheme
 	s := runtime.NewScheme()
 	_ = corev1.AddToScheme(s)
-	_ = mustgatherv1alpha1.AddToScheme(s)
+	_ = mustgatherv1.AddToScheme(s)
 	_ = batchv1.AddToScheme(s)
 
 	tests := []struct {
 		name                     string
 		secret                   *corev1.Secret
-		mustgather               *mustgatherv1alpha1.MustGather
+		mustgather               *mustgatherv1.MustGather
 		mockSFTPDialFunc         func(ctx context.Context, username, password, host string) error
 		expectError              bool
 		expectedStatus           string
@@ -1950,17 +1950,17 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					"password": []byte("password123"),
 				},
 			},
-			mustgather: &mustgatherv1alpha1.MustGather{
+			mustgather: &mustgatherv1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       "test-mg",
 					Namespace:  "test-ns",
 					Finalizers: []string{mustGatherFinalizer},
 				},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
+				Spec: mustgatherv1.MustGatherSpec{
 					ServiceAccountName: "default",
-					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-						Type: mustgatherv1alpha1.UploadTypeSFTP,
-						SFTP: &mustgatherv1alpha1.SFTPSpec{
+					UploadTarget: &mustgatherv1.UploadTargetSpec{
+						Type: mustgatherv1.UploadTypeSFTP,
+						SFTP: &mustgatherv1.SFTPSpec{
 							CaseID:                         "12345678",
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
 							Host:                           "sftp.example.com",
@@ -1990,17 +1990,17 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					"password": []byte("password123"),
 				},
 			},
-			mustgather: &mustgatherv1alpha1.MustGather{
+			mustgather: &mustgatherv1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       "test-mg",
 					Namespace:  "test-ns",
 					Finalizers: []string{mustGatherFinalizer},
 				},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
+				Spec: mustgatherv1.MustGatherSpec{
 					ServiceAccountName: "default",
-					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-						Type: mustgatherv1alpha1.UploadTypeSFTP,
-						SFTP: &mustgatherv1alpha1.SFTPSpec{
+					UploadTarget: &mustgatherv1.UploadTargetSpec{
+						Type: mustgatherv1.UploadTypeSFTP,
+						SFTP: &mustgatherv1.SFTPSpec{
 							CaseID:                         "12345678",
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
 							Host:                           "sftp.example.com",
@@ -2029,17 +2029,17 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					"username": []byte("testuser"),
 				},
 			},
-			mustgather: &mustgatherv1alpha1.MustGather{
+			mustgather: &mustgatherv1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       "test-mg",
 					Namespace:  "test-ns",
 					Finalizers: []string{mustGatherFinalizer},
 				},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
+				Spec: mustgatherv1.MustGatherSpec{
 					ServiceAccountName: "default",
-					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-						Type: mustgatherv1alpha1.UploadTypeSFTP,
-						SFTP: &mustgatherv1alpha1.SFTPSpec{
+					UploadTarget: &mustgatherv1.UploadTargetSpec{
+						Type: mustgatherv1.UploadTypeSFTP,
+						SFTP: &mustgatherv1.SFTPSpec{
 							CaseID:                         "12345678",
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
 							Host:                           "sftp.example.com",
@@ -2069,17 +2069,17 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					"password": []byte(""),
 				},
 			},
-			mustgather: &mustgatherv1alpha1.MustGather{
+			mustgather: &mustgatherv1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       "test-mg",
 					Namespace:  "test-ns",
 					Finalizers: []string{mustGatherFinalizer},
 				},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
+				Spec: mustgatherv1.MustGatherSpec{
 					ServiceAccountName: "default",
-					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-						Type: mustgatherv1alpha1.UploadTypeSFTP,
-						SFTP: &mustgatherv1alpha1.SFTPSpec{
+					UploadTarget: &mustgatherv1.UploadTargetSpec{
+						Type: mustgatherv1.UploadTypeSFTP,
+						SFTP: &mustgatherv1.SFTPSpec{
 							CaseID:                         "12345678",
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
 							Host:                           "sftp.example.com",
@@ -2109,17 +2109,17 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					"password": []byte("password123"),
 				},
 			},
-			mustgather: &mustgatherv1alpha1.MustGather{
+			mustgather: &mustgatherv1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       "test-mg",
 					Namespace:  "test-ns",
 					Finalizers: []string{mustGatherFinalizer},
 				},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
+				Spec: mustgatherv1.MustGatherSpec{
 					ServiceAccountName: "default",
-					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-						Type: mustgatherv1alpha1.UploadTypeSFTP,
-						SFTP: &mustgatherv1alpha1.SFTPSpec{
+					UploadTarget: &mustgatherv1.UploadTargetSpec{
+						Type: mustgatherv1.UploadTypeSFTP,
+						SFTP: &mustgatherv1.SFTPSpec{
 							CaseID:                         "12345678",
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
 							Host:                           "sftp.example.com",
@@ -2151,17 +2151,17 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					"password": []byte("password123"),
 				},
 			},
-			mustgather: &mustgatherv1alpha1.MustGather{
+			mustgather: &mustgatherv1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       "test-mg",
 					Namespace:  "test-ns",
 					Finalizers: []string{mustGatherFinalizer},
 				},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
+				Spec: mustgatherv1.MustGatherSpec{
 					ServiceAccountName: "default",
-					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-						Type: mustgatherv1alpha1.UploadTypeSFTP,
-						SFTP: &mustgatherv1alpha1.SFTPSpec{
+					UploadTarget: &mustgatherv1.UploadTargetSpec{
+						Type: mustgatherv1.UploadTypeSFTP,
+						SFTP: &mustgatherv1.SFTPSpec{
 							CaseID:                         "12345678",
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
 							Host:                           "sftp.example.com",
@@ -2195,17 +2195,17 @@ func TestSFTPCredentialValidation(t *testing.T) {
 					"password": []byte("password123"),
 				},
 			},
-			mustgather: &mustgatherv1alpha1.MustGather{
+			mustgather: &mustgatherv1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       "test-mg",
 					Namespace:  "test-ns",
 					Finalizers: []string{mustGatherFinalizer},
 				},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
+				Spec: mustgatherv1.MustGatherSpec{
 					ServiceAccountName: "default",
-					UploadTarget: &mustgatherv1alpha1.UploadTargetSpec{
-						Type: mustgatherv1alpha1.UploadTypeSFTP,
-						SFTP: &mustgatherv1alpha1.SFTPSpec{
+					UploadTarget: &mustgatherv1.UploadTargetSpec{
+						Type: mustgatherv1.UploadTypeSFTP,
+						SFTP: &mustgatherv1.SFTPSpec{
 							CaseID:                         "12345678",
 							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
 							Host:                           "sftp.example.com",
@@ -2231,7 +2231,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			// Include a "default" ServiceAccount matching the spec; the controller validates it exists before SFTP validation
 			sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: tt.mustgather.Namespace}}
 			objects := []client.Object{tt.mustgather, tt.secret, sa}
-			cl := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).WithStatusSubresource(&mustgatherv1alpha1.MustGather{}).Build()
+			cl := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).WithStatusSubresource(&mustgatherv1.MustGather{}).Build()
 
 			// Create reconciler
 			r := &MustGatherReconciler{
@@ -2272,7 +2272,7 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			}
 
 			// Get updated MustGather to check status
-			updatedMG := &mustgatherv1alpha1.MustGather{}
+			updatedMG := &mustgatherv1.MustGather{}
 			if getErr := cl.Get(context.Background(), types.NamespacedName{
 				Name:      tt.mustgather.Name,
 				Namespace: tt.mustgather.Namespace,
