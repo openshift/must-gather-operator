@@ -86,6 +86,7 @@ var errImageValidation = goerror.New("image validation failed")
 //+kubebuilder:rbac:groups=image.openshift.io,resources=imagestreams,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods;services;services/finalizers;endpoints;persistentvolumeclaims;events;configmaps;secrets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch
+//+kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;delete
 // ServiceAccount read access needed for pre-flight validation before Job creation
 //+kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicies,verbs=create
 //+kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicies,resourceNames=block-mustgather-restricted-namespaces,verbs=get;list;watch;update;patch
