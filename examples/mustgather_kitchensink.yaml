@@ -1,0 +1,47 @@
+# Kitchen-sink example: uses the maximum combination of fields.
+# Note: audit=true cannot be combined with imageStreamRef or custom command;
+# sinceTime and since are mutually exclusive; obfuscate.source is for
+# obfuscating an existing bundle (no gather) and is excluded here.
+apiVersion: operator.openshift.io/v1alpha1
+kind: MustGather
+metadata:
+  name: kitchen-sink-mustgather
+spec:
+  serviceAccountName: must-gather-admin
+
+  imageStreamRef:
+    name: my-custom-must-gather
+    tag: latest
+
+  gatherSpec:
+    command:
+      - /usr/bin/gather
+    args:
+      - --node-logs
+      - --all-namespaces
+    since: 30m
+
+  mustGatherTimeout: "1h"
+
+  obfuscate:
+    enabled: true
+    obfuscationConfigRef:
+      name: my-obfuscation-rules
+
+  storage:
+    type: PersistentVolume
+    persistentVolume:
+      claim:
+        name: must-gather-pvc
+      subPath: collections/full-run
+
+  uploadTarget:
+    type: SFTP
+    sftp:
+      caseID: "02527285"
+      caseManagementAccountSecretRef:
+        name: case-management-creds
+      internalUser: true
+      host: sftp.access.redhat.com
+
+  retainResourcesOnCompletion: true
