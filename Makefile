@@ -1,7 +1,10 @@
 FIPS_ENABLED=true
-TESTTARGETS := $(shell ${GOENV} go list -e ./... | grep -E -v "/(vendor)/" | grep -E -v "/(test/e2e|test/apis)")
+TESTTARGETS := $(shell ${GOENV} go list -e ./... | grep -E -v "/(vendor)/" | grep -E -v "/(test/e2e)")
 
 include boilerplate/generated-includes.mk
+
+# CRD uses CEL format() library (Kube 1.31+), so we need a newer envtest than the boilerplate default.
+ENVTEST_K8S_VERSION = 1.35.0
 
 .PHONY: boilerplate-update
 boilerplate-update:
@@ -28,19 +31,6 @@ kube-api-lint: bin/golangci-lint-kube-api-linter ## Run kube-api-linter against 
 .PHONY: bundle
 bundle: generate ## Sync generated CRD into the OLM bundle directory.
 	cp deploy/crds/operator.openshift.io_mustgathers.yaml bundle/manifests/stable/operator.openshift.io_mustgathers.yaml
-
-##@ CRD Validation Tests (envtest)
-# CRD uses CEL format() library (Kube 1.31+), so we need a newer envtest than the boilerplate default.
-ENVTEST_K8S_VERSION_APIS ?= 1.35.0
-
-.PHONY: test-apis test
-test: go-test test-apis
-test-apis: setup-envtest ## Run CRD validation tests against an envtest API server
-	@if ! ASSETS_PATH=$$($(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION_APIS) --arch amd64 --os $$(go env GOOS) --bin-dir /tmp/envtest-binaries -p path 2>&1); then \
-		echo "Failed to setup envtest: $$ASSETS_PATH"; \
-		exit 1; \
-	fi; \
-	${GOENV} KUBEBUILDER_ASSETS="$$ASSETS_PATH" go test -v -timeout 30m ./test/apis/...
 
 .PHONY: lint
 lint: kube-api-lint olm-deploy-yaml-validate go-check

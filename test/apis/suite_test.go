@@ -2,6 +2,7 @@ package apis
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -22,6 +23,13 @@ import (
 	operatorv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 )
 
+func getTestDir() string {
+	if os.Getenv("OPENSHIFT_CI") == "true" {
+		return os.Getenv("ARTIFACT_DIR")
+	}
+	return "/tmp"
+}
+
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
 
@@ -31,7 +39,11 @@ func TestAPIs(t *testing.T) {
 	suites, err = LoadTestSuiteSpecs(filepath.Join("..", "..", "api"))
 	g.Expect(err).ToNot(HaveOccurred())
 
-	RunSpecs(t, "API Integration Suite")
+	suiteConfig, reportConfig := GinkgoConfiguration()
+	testDir := getTestDir()
+	reportConfig.JUnitReport = filepath.Join(testDir, "junit_api_integration.xml")
+
+	RunSpecs(t, "API Integration Suite", suiteConfig, reportConfig)
 }
 
 var _ = BeforeSuite(func() {
