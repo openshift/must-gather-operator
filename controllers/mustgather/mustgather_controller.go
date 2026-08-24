@@ -325,6 +325,8 @@ func (r *MustGatherReconciler) handleJobCompletion(ctx context.Context, reqLogge
 	instance.Status.Status = ptr.To(status)
 	instance.Status.Completed = ptr.To(true)
 	instance.Status.Reason = ptr.To(reason)
+	now := metav1.Now()
+	instance.Status.LastUpdate = &now
 	err := r.GetClient().Status().Update(ctx, instance)
 	if err != nil {
 		reqLogger.Error(err, "unable to update instance", "instance", instance.Name)
@@ -346,6 +348,8 @@ func (r *MustGatherReconciler) updateStatus(ctx context.Context, instance *mustg
 		instance.Status = &mustgatherv1.MustGatherStatus{}
 	}
 	instance.Status.Completed = ptr.To(!job.Status.CompletionTime.IsZero())
+	now := metav1.Now()
+	instance.Status.LastUpdate = &now
 
 	return r.ManageSuccess(ctx, instance)
 }
