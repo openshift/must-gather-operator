@@ -25,7 +25,11 @@ import (
 
 func getTestDir() string {
 	if os.Getenv("OPENSHIFT_CI") == "true" {
-		return os.Getenv("ARTIFACT_DIR")
+		dir := os.Getenv("ARTIFACT_DIR")
+		if dir == "" {
+			panic("ARTIFACT_DIR must be set when running in OpenShift CI")
+		}
+		return dir
 	}
 	return "/tmp"
 }
