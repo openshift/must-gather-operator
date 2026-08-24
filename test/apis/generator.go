@@ -462,6 +462,9 @@ func getSuiteSpecTestVersion(suiteSpec SuiteSpec) (string, error) {
 		if len(crd.Spec.Versions) > 1 {
 			return "", fmt.Errorf("too many versions, specify one in the suite")
 		}
+		if len(crd.Spec.Versions) == 0 {
+			return "", fmt.Errorf("CRD %q declares no versions", file)
+		}
 		if len(version) == 0 {
 			version = crd.Spec.Versions[0].Name
 			continue
