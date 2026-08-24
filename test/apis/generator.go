@@ -129,7 +129,7 @@ func GenerateTestSuite(suiteSpec SuiteSpec) {
 
 			AfterEach(OncePerOrdered, func() {
 				Expect(envtest.UninstallCRDs(cfg, crdOptions)).ToNot(HaveOccurred())
-				Eventually(komega.Get(crd)).Should(Not(Succeed()))
+				Eventually(komega.Get(crd)).WithTimeout(eventuallyTimeout).WithPolling(eventuallyInterval).Should(Not(Succeed()))
 			})
 
 			generateOnCreateTable(suiteSpec.Tests.OnCreate)
@@ -237,7 +237,7 @@ func generateOnUpdateTable(onUpdateTests []OnUpdateTestSpec, crdFileName string)
 
 		Eventually(func() error {
 			return k8sClient.Create(ctx, initialObj)
-		}).Should(Succeed(), "initial object should create successfully")
+		}).WithTimeout(eventuallyTimeout).WithPolling(eventuallyInterval).Should(Succeed(), "initial object should create successfully")
 
 		if initialStatus != nil {
 			Expect(unstructured.SetNestedField(initialObj.Object, initialStatus, "status")).To(Succeed(), "should be able to restore initial status")
@@ -264,7 +264,7 @@ func generateOnUpdateTable(onUpdateTests []OnUpdateTestSpec, crdFileName string)
 				updatedObj.Object["sentinel"] = initialObj.GetUID() + "+restored"
 
 				return k8sClient.Update(ctx, updatedObj)
-			}).Should(Succeed(), "Sentinel should be persisted")
+			}).WithTimeout(eventuallyTimeout).WithPolling(eventuallyInterval).Should(Succeed(), "Sentinel should be persisted")
 
 			originalCRD.Spec = originalCRDSpec
 			Expect(k8sClient.Update(ctx, originalCRD)).To(Succeed())

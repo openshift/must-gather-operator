@@ -2,6 +2,7 @@ package apis
 
 import (
 	"context"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
@@ -10,6 +11,11 @@ import (
 )
 
 // Content taken from https://github.com/openshift/api/tree/master/tests
+
+const (
+	eventuallyTimeout  = 30 * time.Second
+	eventuallyInterval = 250 * time.Millisecond
+)
 
 var cfg *rest.Config
 var k8sClient client.Client
