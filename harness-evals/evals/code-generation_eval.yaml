@@ -1,17 +1,15 @@
 stage: code-generation
 template: null
 artifact: generated_code
-eval_count: 8
+eval_count: 9
 oape_commands:
   - api-implement
-  - api-generate-tests
-  - manual
 evals:
   - id: eval-r001-cg-001
     round: 1
     stage: code-generation
     oape_command: api-implement
-    source_issue_ids: [ISSUE-001]
+    source_issue_ids: [ISSUE-003]
     patterns: [PAT-003]
     prompt: |
       When implementing a function that processes user-provided path inputs for use in
@@ -66,12 +64,17 @@ evals:
          container's volume mount and assert they are equal when sharing a volume
       5. Include a test case where the shared mount parameter varies (e.g., user-provided
          vs generated path) to verify both containers track the same value
+      6. When reusing a shared volume for a secondary purpose (e.g., PVC-backed output
+         volume reused for upload in obfuscation mode), call the same source-of-truth
+         function (e.g., outputSubPath) rather than inlining the sanitization logic —
+         eliminating duplicate TrimSpace/Trim/path.Join sequences that can drift
     assertions:
       must_mention:
         - "SubPath"
         - "consistency"
         - "all containers"
         - "source of truth"
+        - "outputSubPath"
         - "test"
     scoring:
       method: weighted_checklist
@@ -81,8 +84,8 @@ evals:
     round: 1
     stage: code-generation
     oape_command: api-implement
-    source_issue_ids: [ISSUE-003]
-    patterns: [PAT-004, PAT-006]
+    source_issue_ids: [ISSUE-005]
+    patterns: [PAT-004]
     prompt: |
       When implementing environment variable lookup for required configuration values,
       does the generated code use presence-checking semantics and include missing-variable
@@ -94,11 +97,10 @@ evals:
          distinguish "not set" from "set to empty string"
       2. Return a descriptive error when a required environment variable is not present,
          including the variable name in the error message for debuggability
-      3. Log the error before returning it, following the repo's established error
-         reporting pattern (e.g., goerror.New with structured message)
-      4. Inject environment-variable-derived values conditionally — only when the
-         governing feature is enabled, not unconditionally for all reconciliation paths
-      5. Include unit tests for the missing-variable case: unset the env var, verify
+      3. Handle both failure modes: startup-required vars (e.g., DEFAULT_MUST_GATHER_IMAGE)
+         that exit the process on absence, and reconcile-time vars (e.g., OPERATOR_IMAGE)
+         that return an error to the controller
+      4. Include unit tests for the missing-variable case: unset the env var, verify
          the function returns an error, verify the error message identifies the
          variable name
     assertions:
@@ -106,7 +108,7 @@ evals:
         - "LookupEnv"
         - "presence"
         - "error"
-        - "environment variable"
+        - "variable name"
         - "test"
     scoring:
       method: weighted_checklist
@@ -116,7 +118,40 @@ evals:
     round: 1
     stage: code-generation
     oape_command: api-implement
-    source_issue_ids: [ISSUE-004]
+    source_issue_ids: [ISSUE-005]
+    patterns: [PAT-006]
+    prompt: |
+      When implementing environment variable injection into child pod container specs,
+      does the generated code apply conditional injection semantics that prevent injecting
+      empty or disabled values?
+
+      The code must:
+      1. Inject environment-variable-derived values conditionally — only when the
+         governing feature is enabled, not unconditionally for all reconciliation paths
+      2. For proxy variables: inject only when the value is non-empty, to avoid causing
+         the shell script to enter its proxy code path with a blank URL
+      3. For feature-gated variables (e.g., obfuscation config): inject only when the
+         feature is enabled in the CR spec
+      4. Use named constants for injected variable names (not inline string literals)
+         to prevent typos in the case mapping (e.g., uppercase read → lowercase inject)
+      5. Include unit tests verifying: (a) variables are present in container spec when
+         set/enabled, (b) variables are absent when unset/empty/disabled
+    assertions:
+      must_mention:
+        - "conditional"
+        - "non-empty"
+        - "inject"
+        - "container spec"
+        - "test"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-cg-005
+    round: 1
+    stage: code-generation
+    oape_command: api-implement
+    source_issue_ids: [ISSUE-006]
     patterns: [PAT-007]
     prompt: |
       When implementing a multi-mode feature where each mode has distinct container
@@ -150,11 +185,11 @@ evals:
       method: weighted_checklist
       pass_threshold: 80
 
-  - id: eval-r001-cg-005
+  - id: eval-r001-cg-006
     round: 1
     stage: code-generation
     oape_command: api-implement
-    source_issue_ids: [ISSUE-005]
+    source_issue_ids: [ISSUE-007]
     patterns: [PAT-008]
     prompt: |
       When implementing pre-flight validation that involves a layered protocol upgrade
@@ -189,11 +224,11 @@ evals:
       method: weighted_checklist
       pass_threshold: 80
 
-  - id: eval-r001-cg-006
+  - id: eval-r001-cg-007
     round: 1
     stage: code-generation
     oape_command: api-implement
-    source_issue_ids: [ISSUE-006]
+    source_issue_ids: [ISSUE-004, ISSUE-008]
     patterns: [PAT-005, PAT-009]
     prompt: |
       When implementing validation failure status reporting in a controller with an
@@ -226,11 +261,11 @@ evals:
       method: weighted_checklist
       pass_threshold: 80
 
-  - id: eval-r001-cg-007
+  - id: eval-r001-cg-008
     round: 1
     stage: code-generation
     oape_command: api-implement
-    source_issue_ids: [ISSUE-007]
+    source_issue_ids: [ISSUE-005]
     patterns: [PAT-011]
     prompt: |
       When implementing proxy environment variable injection from the operator process
@@ -265,11 +300,11 @@ evals:
       method: weighted_checklist
       pass_threshold: 80
 
-  - id: eval-r001-cg-008
+  - id: eval-r001-cg-009
     round: 1
     stage: code-generation
     oape_command: api-implement
-    source_issue_ids: [ISSUE-008]
+    source_issue_ids: [ISSUE-007]
     patterns: [PAT-008, PAT-011]
     prompt: |
       When implementing HTTP proxy tunneling for pre-flight validation (Go-side), does the

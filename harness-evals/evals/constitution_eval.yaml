@@ -1,12 +1,12 @@
 stage: constitution
-template: evals/refined-templates/constitution-template.md
+template: eval-generation/output-refined-templates/constitution-template.md
 artifact: constitution.md
 eval_count: 4
 evals:
   - id: eval-r001-con-001
     round: 1
     stage: constitution
-    source_issue_ids: [ISSUE-001, ISSUE-003]
+    source_issue_ids: [ISSUE-002, ISSUE-003]
     patterns: [PAT-002, PAT-003]
     prompt: |
       Does the constitution include a principle about multi-container pod consistency
@@ -36,15 +36,16 @@ evals:
     patterns: [PAT-006]
     prompt: |
       Does the constitution include a principle about environment variable handling
-      that distinguishes between presence-checked and deployment-set variables?
+      that distinguishes between startup-required and reconcile-time-required variables?
 
       The constitution must:
-      1. Include a principle about using os.LookupEnv for runtime-required env vars
+      1. Include a principle about using os.LookupEnv for all required env vars
          (not os.Getenv which cannot distinguish empty from unset)
       2. Require fail-fast error handling when critical env vars are absent
       3. Specify that conditional injection must be used for optional env vars (e.g.,
          proxy vars only when non-empty, obfuscation vars only when enabled)
-      4. Cite the OPERATOR_IMAGE lookup pattern in getJobFromInstance as evidence
+      4. Cite both DEFAULT_MUST_GATHER_IMAGE (main.go, os.Exit on absence) and
+         OPERATOR_IMAGE (controller error return) as evidence of the LookupEnv pattern
     assertions:
       must_mention:
         - "environment variable"
@@ -58,7 +59,7 @@ evals:
   - id: eval-r001-con-003
     round: 1
     stage: constitution
-    source_issue_ids: [ISSUE-004]
+    source_issue_ids: [ISSUE-008]
     patterns: [PAT-005]
     prompt: |
       Does the constitution include a principle about spec immutability and its
@@ -76,7 +77,8 @@ evals:
         - "immutable"
         - "terminal"
         - "no requeue"
-        - "ValidationFailed"
+        - "setValidationFailureStatus"
+        - "ReconcileError"
     scoring:
       method: weighted_checklist
       pass_threshold: 80

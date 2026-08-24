@@ -74,7 +74,7 @@ evals:
   - id: eval-r001-plan-003
     round: 1
     stage: plan
-    source_issue_ids: [ISSUE-003]
+    source_issue_ids: [ISSUE-005]
     patterns: [PAT-004, PAT-006]
     prompt: |
       When a feature introduces environment variable dependencies, does the plan
@@ -108,7 +108,7 @@ evals:
   - id: eval-r001-plan-004
     round: 1
     stage: plan
-    source_issue_ids: [ISSUE-004]
+    source_issue_ids: [ISSUE-006]
     patterns: [PAT-007]
     prompt: |
       When a feature has multiple operational modes that alter resource topology, does
@@ -141,7 +141,7 @@ evals:
   - id: eval-r001-plan-005
     round: 1
     stage: plan
-    source_issue_ids: [ISSUE-005]
+    source_issue_ids: [ISSUE-007, ISSUE-008]
     patterns: [PAT-008, PAT-009]
     prompt: |
       When a feature adds pre-flight validation with external I/O, does the plan include
@@ -177,7 +177,7 @@ evals:
   - id: eval-r001-plan-006
     round: 1
     stage: plan
-    source_issue_ids: [ISSUE-006]
+    source_issue_ids: [ISSUE-005, ISSUE-007]
     patterns: [PAT-008, PAT-011]
     prompt: |
       When a feature modifies proxy-dependent behavior that spans both the controller

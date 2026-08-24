@@ -1,5 +1,5 @@
 stage: implementation
-template: evals/refined-templates/implementation-template.md
+template: eval-generation/output-refined-templates/implementation-template.md
 artifact: implementation.md
 eval_count: 5
 evals:
@@ -34,7 +34,7 @@ evals:
   - id: eval-r001-impl-002
     round: 1
     stage: implementation
-    source_issue_ids: [ISSUE-001]
+    source_issue_ids: [ISSUE-001, ISSUE-002]
     patterns: [PAT-001, PAT-002]
     prompt: |
       When a task implements PVC volume mounts in a multi-container pod, does the
@@ -75,8 +75,9 @@ evals:
       2. Include test results for the missing-env-var case
       3. Show that conditional env var injection is used (e.g., proxy vars only
          added when non-empty, obfuscation vars only when enabled)
-      4. Document the difference between presence-checked vars (OPERATOR_IMAGE)
-         and deployment-set vars (DefaultMustGatherImage)
+      4. Document the difference in failure handling: startup vars
+         (DEFAULT_MUST_GATHER_IMAGE) exit the process via os.Exit, while
+         reconcile-time vars (OPERATOR_IMAGE) return an error to the controller
     assertions:
       must_mention:
         - "LookupEnv"
@@ -119,7 +120,7 @@ evals:
   - id: eval-r001-impl-005
     round: 1
     stage: implementation
-    source_issue_ids: [ISSUE-008]
+    source_issue_ids: [ISSUE-004, ISSUE-008]
     patterns: [PAT-009]
     prompt: |
       When a task implements controller-level validation (ServiceAccount, SFTP,

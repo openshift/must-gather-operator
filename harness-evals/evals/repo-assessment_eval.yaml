@@ -38,7 +38,7 @@ evals:
   - id: eval-r001-ra-002
     round: 1
     stage: repo-assessment
-    source_issue_ids: [ISSUE-002]
+    source_issue_ids: [ISSUE-004]
     patterns: [PAT-005]
     prompt: |
       When the operator uses status conditions to report reconciliation outcomes, does the
@@ -71,7 +71,7 @@ evals:
   - id: eval-r001-ra-003
     round: 1
     stage: repo-assessment
-    source_issue_ids: [ISSUE-003]
+    source_issue_ids: [ISSUE-002]
     patterns: [PAT-002]
     prompt: |
       When the operator uses multi-container pods with shared volumes, does the repo
@@ -104,7 +104,7 @@ evals:
   - id: eval-r001-ra-004
     round: 1
     stage: repo-assessment
-    source_issue_ids: [ISSUE-004]
+    source_issue_ids: [ISSUE-006]
     patterns: [PAT-007]
     prompt: |
       When a feature has multiple operational modes that change container composition or
@@ -135,7 +135,7 @@ evals:
   - id: eval-r001-ra-005
     round: 1
     stage: repo-assessment
-    source_issue_ids: [ISSUE-005]
+    source_issue_ids: [ISSUE-007, ISSUE-008]
     patterns: [PAT-008, PAT-009]
     prompt: |
       When the controller performs runtime validation before resource creation, does the
@@ -169,7 +169,7 @@ evals:
   - id: eval-r001-ra-006
     round: 1
     stage: repo-assessment
-    source_issue_ids: [ISSUE-006]
+    source_issue_ids: [ISSUE-005, ISSUE-007]
     patterns: [PAT-008, PAT-011]
     prompt: |
       When the operator propagates proxy configuration across execution boundaries (e.g.,

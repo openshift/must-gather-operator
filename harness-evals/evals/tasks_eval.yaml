@@ -6,7 +6,7 @@ evals:
   - id: eval-r001-tasks-001
     round: 1
     stage: tasks
-    source_issue_ids: [ISSUE-001]
+    source_issue_ids: [ISSUE-002]
     patterns: [PAT-002]
     prompt: |
       When tasks modify shared resources consumed by multiple containers in the same pod,
@@ -41,7 +41,7 @@ evals:
   - id: eval-r001-tasks-002
     round: 1
     stage: tasks
-    source_issue_ids: [ISSUE-002]
+    source_issue_ids: [ISSUE-003]
     patterns: [PAT-003]
     prompt: |
       When tasks process user-provided field inputs that are incorporated into resource
@@ -75,7 +75,7 @@ evals:
   - id: eval-r001-tasks-003
     round: 1
     stage: tasks
-    source_issue_ids: [ISSUE-003]
+    source_issue_ids: [ISSUE-006]
     patterns: [PAT-007]
     prompt: |
       When a feature has multiple operational modes with distinct resource topologies,
@@ -109,7 +109,7 @@ evals:
   - id: eval-r001-tasks-004
     round: 1
     stage: tasks
-    source_issue_ids: [ISSUE-004]
+    source_issue_ids: [ISSUE-004, ISSUE-008]
     patterns: [PAT-005, PAT-009]
     prompt: |
       When tasks add controller-side validation logic, do the acceptance criteria specify
@@ -144,7 +144,7 @@ evals:
   - id: eval-r001-tasks-005
     round: 1
     stage: tasks
-    source_issue_ids: [ISSUE-005]
+    source_issue_ids: [ISSUE-009]
     patterns: [PAT-010]
     prompt: |
       When tasks implement resource cleanup or deletion logic, do the acceptance criteria
@@ -179,7 +179,7 @@ evals:
   - id: eval-r001-tasks-006
     round: 1
     stage: tasks
-    source_issue_ids: [ISSUE-007]
+    source_issue_ids: [ISSUE-005, ISSUE-007]
     patterns: [PAT-008, PAT-011]
     prompt: |
       When tasks modify proxy-dependent behavior that spans both the controller process
