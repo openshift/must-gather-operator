@@ -1,7 +1,6 @@
 stage: constitution
 template: evals/refined-templates/constitution-template.md
 artifact: constitution.md
-version: 2
 eval_count: 4
 evals:
   - id: eval-r001-con-001
@@ -9,8 +8,6 @@ evals:
     stage: constitution
     source_issue_ids: [ISSUE-001, ISSUE-003]
     patterns: [PAT-002, PAT-003]
-    input_refs:
-      - evals/evals/outputs/epic-bug-analysis/rca-summary.md
     prompt: |
       Does the constitution include a principle about multi-container pod consistency
       that requires mount and env var configuration to be applied uniformly across all
@@ -37,8 +34,6 @@ evals:
     stage: constitution
     source_issue_ids: [ISSUE-005]
     patterns: [PAT-006]
-    input_refs:
-      - evals/evals/outputs/epic-bug-analysis/issue-taxonomy.json
     prompt: |
       Does the constitution include a principle about environment variable handling
       that distinguishes between presence-checked and deployment-set variables?
@@ -65,8 +60,6 @@ evals:
     stage: constitution
     source_issue_ids: [ISSUE-004]
     patterns: [PAT-005]
-    input_refs:
-      - evals/evals/outputs/epic-bug-analysis/issue-taxonomy.json
     prompt: |
       Does the constitution include a principle about spec immutability and its
       implications for validation failure handling?
@@ -93,8 +86,6 @@ evals:
     stage: constitution
     source_issue_ids: [ISSUE-009]
     patterns: [PAT-010]
-    input_refs:
-      - evals/evals/outputs/epic-bug-analysis/rca-summary.md
     prompt: |
       Does the constitution include a principle about resource ownership verification
       during cleanup operations?

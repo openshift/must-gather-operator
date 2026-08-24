@@ -1,7 +1,6 @@
 stage: tasks
 template: eval-generation/output-refined-templates/tasks-template.md
 artifact: tasks.md
-version: 1
 eval_count: 6
 evals:
   - id: eval-r001-tasks-001
@@ -9,9 +8,6 @@ evals:
     stage: tasks
     source_issue_ids: [ISSUE-001]
     patterns: [PAT-002]
-    input_refs:
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/rca-summary.md
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/pattern-analysis.md
     prompt: |
       When tasks modify shared resources consumed by multiple containers in the same pod,
       do the acceptance criteria cover ALL consumers of those resources?
@@ -47,9 +43,6 @@ evals:
     stage: tasks
     source_issue_ids: [ISSUE-002]
     patterns: [PAT-003]
-    input_refs:
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/rca-summary.md
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/pattern-analysis.md
     prompt: |
       When tasks process user-provided field inputs that are incorporated into resource
       specs, do the acceptance criteria enumerate specific edge cases?
@@ -84,9 +77,6 @@ evals:
     stage: tasks
     source_issue_ids: [ISSUE-003]
     patterns: [PAT-007]
-    input_refs:
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/rca-summary.md
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/pattern-analysis.md
     prompt: |
       When a feature has multiple operational modes with distinct resource topologies,
       are there mode-specific verification tasks or acceptance criteria?
@@ -121,9 +111,6 @@ evals:
     stage: tasks
     source_issue_ids: [ISSUE-004]
     patterns: [PAT-005, PAT-009]
-    input_refs:
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/rca-summary.md
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/pattern-analysis.md
     prompt: |
       When tasks add controller-side validation logic, do the acceptance criteria specify
       the expected status outcomes and return conventions?
@@ -159,9 +146,6 @@ evals:
     stage: tasks
     source_issue_ids: [ISSUE-005]
     patterns: [PAT-010]
-    input_refs:
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/rca-summary.md
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/pattern-analysis.md
     prompt: |
       When tasks implement resource cleanup or deletion logic, do the acceptance criteria
       include ownership verification before deletion?
@@ -197,9 +181,6 @@ evals:
     stage: tasks
     source_issue_ids: [ISSUE-007]
     patterns: [PAT-008, PAT-011]
-    input_refs:
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/rca-summary.md
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/pattern-analysis.md
     prompt: |
       When tasks modify proxy-dependent behavior that spans both the controller process
       (Go code) and a child pod's shell script, do the acceptance criteria require

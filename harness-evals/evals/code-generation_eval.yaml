@@ -1,7 +1,6 @@
 stage: code-generation
 template: null
 artifact: generated_code
-version: 1
 eval_count: 8
 oape_commands:
   - api-implement
@@ -14,9 +13,6 @@ evals:
     oape_command: api-implement
     source_issue_ids: [ISSUE-001]
     patterns: [PAT-003]
-    input_refs:
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/rca-summary.md
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/pattern-analysis.md
     prompt: |
       When implementing a function that processes user-provided path inputs for use in
       Kubernetes resource specs (e.g., volume mount SubPath), does the generated code
@@ -52,9 +48,6 @@ evals:
     oape_command: api-implement
     source_issue_ids: [ISSUE-002]
     patterns: [PAT-002]
-    input_refs:
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/rca-summary.md
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/pattern-analysis.md
     prompt: |
       When implementing multi-container pod configuration where containers share a
       volume, does the generated code apply mount configuration consistently to ALL
@@ -90,9 +83,6 @@ evals:
     oape_command: api-implement
     source_issue_ids: [ISSUE-003]
     patterns: [PAT-004, PAT-006]
-    input_refs:
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/rca-summary.md
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/pattern-analysis.md
     prompt: |
       When implementing environment variable lookup for required configuration values,
       does the generated code use presence-checking semantics and include missing-variable
@@ -128,9 +118,6 @@ evals:
     oape_command: api-implement
     source_issue_ids: [ISSUE-004]
     patterns: [PAT-007]
-    input_refs:
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/rca-summary.md
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/pattern-analysis.md
     prompt: |
       When implementing a multi-mode feature where each mode has distinct container
       composition and volume topology, does the generated code handle each mode's
@@ -169,9 +156,6 @@ evals:
     oape_command: api-implement
     source_issue_ids: [ISSUE-005]
     patterns: [PAT-008]
-    input_refs:
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/rca-summary.md
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/pattern-analysis.md
     prompt: |
       When implementing pre-flight validation that involves a layered protocol upgrade
       (e.g., transport → session → application layer), does the generated code follow
@@ -211,9 +195,6 @@ evals:
     oape_command: api-implement
     source_issue_ids: [ISSUE-006]
     patterns: [PAT-005, PAT-009]
-    input_refs:
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/rca-summary.md
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/pattern-analysis.md
     prompt: |
       When implementing validation failure status reporting in a controller with an
       immutable spec, does the generated code follow the consistent condition type +
@@ -251,9 +232,6 @@ evals:
     oape_command: api-implement
     source_issue_ids: [ISSUE-007]
     patterns: [PAT-011]
-    input_refs:
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/rca-summary.md
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/pattern-analysis.md
     prompt: |
       When implementing proxy environment variable injection from the operator process
       into a child pod's container spec, does the generated code correctly map variable
@@ -293,9 +271,6 @@ evals:
     oape_command: api-implement
     source_issue_ids: [ISSUE-008]
     patterns: [PAT-008, PAT-011]
-    input_refs:
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/rca-summary.md
-      - eval-generation/eval-generation-workflow/outputs/epic-bug-analysis/pattern-analysis.md
     prompt: |
       When implementing HTTP proxy tunneling for pre-flight validation (Go-side), does the
       generated code handle proxy authentication, HTTPS-vs-HTTP proxy distinction, and

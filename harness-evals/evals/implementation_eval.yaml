@@ -1,7 +1,6 @@
 stage: implementation
 template: evals/refined-templates/implementation-template.md
 artifact: implementation.md
-version: 2
 eval_count: 5
 evals:
   - id: eval-r001-impl-001
@@ -9,8 +8,6 @@ evals:
     stage: implementation
     source_issue_ids: [ISSUE-003]
     patterns: [PAT-003]
-    input_refs:
-      - evals/evals/outputs/epic-bug-analysis/rca-summary.md
     prompt: |
       When a task introduces a user-facing path field (e.g., SubPath for PVC storage),
       does the implementation log's Edge-Case & Input Validation Coverage table show
@@ -39,8 +36,6 @@ evals:
     stage: implementation
     source_issue_ids: [ISSUE-001]
     patterns: [PAT-001, PAT-002]
-    input_refs:
-      - evals/evals/outputs/epic-bug-analysis/rca-summary.md
     prompt: |
       When a task implements PVC volume mounts in a multi-container pod, does the
       implementation log show that BOTH containers (gather and upload) were updated
@@ -70,8 +65,6 @@ evals:
     stage: implementation
     source_issue_ids: [ISSUE-005]
     patterns: [PAT-006, PAT-004]
-    input_refs:
-      - evals/evals/outputs/epic-bug-analysis/issue-taxonomy.json
     prompt: |
       When a task implements env var lookup for required startup variables (e.g.,
       OPERATOR_IMAGE), does the implementation log show that the lookup uses
@@ -99,8 +92,6 @@ evals:
     stage: implementation
     source_issue_ids: [ISSUE-006]
     patterns: [PAT-007]
-    input_refs:
-      - evals/evals/outputs/epic-bug-analysis/issue-taxonomy.json
     prompt: |
       When a task implements obfuscation support, does the implementation log show
       correct handling of all three operational modes?
@@ -130,8 +121,6 @@ evals:
     stage: implementation
     source_issue_ids: [ISSUE-008]
     patterns: [PAT-009]
-    input_refs:
-      - evals/evals/outputs/epic-bug-analysis/rca-summary.md
     prompt: |
       When a task implements controller-level validation (ServiceAccount, SFTP,
       ImageStream), does the implementation log show consistent use of the
