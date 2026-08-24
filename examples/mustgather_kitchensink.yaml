@@ -2,7 +2,7 @@
 # Note: audit=true cannot be combined with imageStreamRef or custom command;
 # sinceTime and since are mutually exclusive; obfuscate.source is for
 # obfuscating an existing bundle (no gather) and is excluded here.
-apiVersion: operator.openshift.io/v1alpha1
+apiVersion: operator.openshift.io/v1
 kind: MustGather
 metadata:
   name: kitchen-sink-mustgather
