@@ -16,7 +16,7 @@ COPY . /src
 
 RUN make go-build
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.6-1760515502
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.8-1787647261
 ENV OPERATOR=/usr/local/bin/must-gather-operator \
     OPERATOR_BIN=must-gather-operator \
     USER_UID=1001 \
