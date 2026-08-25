@@ -3,7 +3,7 @@ package mustgather
 import (
 	"testing"
 
-	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
+	mustgatherv1 "github.com/openshift/must-gather-operator/api/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -107,8 +107,8 @@ func Test_isNameEquals(t *testing.T) {
 func Test_resourceGenerationOrFinalizerChangedPredicate(t *testing.T) {
 	p := resourceGenerationOrFinalizerChangedPredicate()
 
-	mg := func(gen int64, finalizers []string) *mustgatherv1alpha1.MustGather {
-		return &mustgatherv1alpha1.MustGather{
+	mg := func(gen int64, finalizers []string) *mustgatherv1.MustGather {
+		return &mustgatherv1.MustGather{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:       "test-mg",
 				Namespace:  "ns",

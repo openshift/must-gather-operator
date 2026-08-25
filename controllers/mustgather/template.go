@@ -13,9 +13,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/openshift/must-gather-operator/api/v1alpha1"
+	mustgatherv1 "github.com/openshift/must-gather-operator/api/v1"
 
 	"github.com/operator-framework/operator-lib/proxy"
+	"k8s.io/utils/ptr"
 )
 
 const (
@@ -57,12 +58,19 @@ const (
 	knownHostsFile = "/tmp/must-gather-operator/.ssh/known_hosts"
 )
 
-func outputSubPath(storage *v1alpha1.Storage, directoryName string) (string, bool) {
-	if storage == nil || storage.Type != v1alpha1.StorageTypePersistentVolume {
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func outputSubPath(storage *mustgatherv1.Storage, directoryName string) (string, bool) {
+	if storage == nil || storage.Type != mustgatherv1.StorageTypePersistentVolume {
 		return "", false
 	}
 
-	base := strings.TrimSpace(storage.PersistentVolume.SubPath)
+	base := strings.TrimSpace(derefString(storage.PersistentVolume.SubPath))
 	base = strings.Trim(base, "/")
 
 	return path.Join(base, directoryName), true
@@ -76,45 +84,45 @@ type GatherTimeFilter struct {
 	SinceTime *time.Time
 }
 
-func isObfuscateEnabled(obfuscate *v1alpha1.ObfuscateConfig) bool {
+func isObfuscateEnabled(obfuscate *mustgatherv1.ObfuscateConfig) bool {
 	return obfuscate != nil && obfuscate.Enabled != nil && *obfuscate.Enabled
 }
 
-func shouldAppendObfuscateChown(obfuscate *v1alpha1.ObfuscateConfig) bool {
+func shouldAppendObfuscateChown(obfuscate *mustgatherv1.ObfuscateConfig) bool {
 	return isObfuscateEnabled(obfuscate) && obfuscate.Source == nil
 }
 
-func hasSFTPUpload(mustGather v1alpha1.MustGather) bool {
-	if mustGather.Spec.UploadTarget == nil || mustGather.Spec.UploadTarget.Type != v1alpha1.UploadTypeSFTP {
+func hasSFTPUpload(mustGather mustgatherv1.MustGather) bool {
+	if mustGather.Spec.UploadTarget == nil || mustGather.Spec.UploadTarget.Type != mustgatherv1.UploadTypeSFTP {
 		return false
 	}
 	s := mustGather.Spec.UploadTarget.SFTP
 	return s != nil && s.CaseID != "" && s.CaseManagementAccountSecretRef.Name != ""
 }
 
-func getSftpSpec(mustGather v1alpha1.MustGather) *v1alpha1.SFTPSpec {
+func getSftpSpec(mustGather mustgatherv1.MustGather) *mustgatherv1.SFTPSpec {
 	if !hasSFTPUpload(mustGather) {
 		return nil
 	}
 	return mustGather.Spec.UploadTarget.SFTP
 }
 
-func shouldAddUploadContainer(mustGather v1alpha1.MustGather) bool {
+func shouldAddUploadContainer(mustGather mustgatherv1.MustGather) bool {
 	return isObfuscateEnabled(mustGather.Spec.Obfuscate) || hasSFTPUpload(mustGather)
 }
 
-func getObfuscateConfigMapRefName(obfuscate *v1alpha1.ObfuscateConfig) string {
+func getObfuscateConfigMapRefName(obfuscate *mustgatherv1.ObfuscateConfig) string {
 	if obfuscate != nil && obfuscate.ObfuscationConfigRef != nil {
 		return obfuscate.ObfuscationConfigRef.Name
 	}
 	return ""
 }
 
-func hasObfuscateSource(obfuscate *v1alpha1.ObfuscateConfig) bool {
+func hasObfuscateSource(obfuscate *mustgatherv1.ObfuscateConfig) bool {
 	return obfuscate != nil && obfuscate.Source != nil && obfuscate.Source.Claim.Name != ""
 }
 
-func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.MustGather, trustedCAConfigMapName string, directoryName string) *batchv1.Job {
+func getJobTemplate(image string, operatorImage string, mustGather mustgatherv1.MustGather, trustedCAConfigMapName string, directoryName string) *batchv1.Job {
 	job := initializeJobTemplate(
 		mustGather.Name,
 		mustGather.Namespace,
@@ -141,8 +149,8 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 	}
 
 	var audit bool
-	if mustGather.Spec.GatherSpec != nil {
-		audit = mustGather.Spec.GatherSpec.Audit
+	if mustGather.Spec.GatherSpec != nil && mustGather.Spec.GatherSpec.Audit != nil {
+		audit = *mustGather.Spec.GatherSpec.Audit
 	}
 
 	timeout := time.Duration(0)
@@ -195,7 +203,7 @@ func getJobTemplate(image string, operatorImage string, mustGather v1alpha1.Must
 	return job
 }
 
-func initializeJobTemplate(name string, namespace string, serviceAccountRef string, storage *v1alpha1.Storage, trustedCAConfigMapName string, obfuscate *v1alpha1.ObfuscateConfig) *batchv1.Job {
+func initializeJobTemplate(name string, namespace string, serviceAccountRef string, storage *mustgatherv1.Storage, trustedCAConfigMapName string, obfuscate *mustgatherv1.ObfuscateConfig) *batchv1.Job {
 	outputVolume := corev1.Volume{
 		Name:         outputVolumeName,
 		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
@@ -208,7 +216,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 				ReadOnly:  true,
 			},
 		}
-	} else if storage != nil && storage.Type == v1alpha1.StorageTypePersistentVolume {
+	} else if storage != nil && storage.Type == mustgatherv1.StorageTypePersistentVolume && storage.PersistentVolume.Claim.Name != "" {
 		outputVolume.VolumeSource = corev1.VolumeSource{
 			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
 				ClaimName: storage.PersistentVolume.Claim.Name,
@@ -293,7 +301,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 	}
 }
 
-func getGatherContainer(image string, audit bool, timeout time.Duration, storage *v1alpha1.Storage, trustedCAConfigMapName string, timeFilter *GatherTimeFilter, command []string, args []string, directoryName string, obfuscate *v1alpha1.ObfuscateConfig) corev1.Container {
+func getGatherContainer(image string, audit bool, timeout time.Duration, storage *mustgatherv1.Storage, trustedCAConfigMapName string, timeFilter *GatherTimeFilter, command []string, args []string, directoryName string, obfuscate *mustgatherv1.ObfuscateConfig) corev1.Container {
 	var commandBinary string
 	if audit {
 		commandBinary = gatherCommandBinaryAudit
@@ -380,13 +388,13 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 
 func getUploadContainer(
 	operatorImage string,
-	storage *v1alpha1.Storage,
+	storage *mustgatherv1.Storage,
 	httpProxy string,
 	httpsProxy string,
 	noProxy string,
 	shouldMountTrustedCAConfigMap bool,
-	sftp *v1alpha1.SFTPSpec,
-	obfuscate *v1alpha1.ObfuscateConfig,
+	sftp *mustgatherv1.SFTPSpec,
+	obfuscate *mustgatherv1.ObfuscateConfig,
 	directoryName string,
 ) corev1.Container {
 	uploadCmd := uploadCommand
@@ -404,7 +412,7 @@ func getUploadContainer(
 	}
 	if hasObfuscateSource(obfuscate) {
 		outputMount.ReadOnly = true
-		if subPath := strings.Trim(obfuscate.Source.SubPath, "/"); subPath != "" {
+		if subPath := strings.Trim(derefString(obfuscate.Source.SubPath), "/"); subPath != "" {
 			outputMount.SubPath = subPath
 		}
 	} else {
@@ -422,12 +430,12 @@ func getUploadContainer(
 	// the source PVC (read-only) and writes cleaned output to emptyDir.
 	// The upload script then tars and uploads from emptyDir.
 	if isObfuscateEnabled(obfuscate) && !hasObfuscateSource(obfuscate) &&
-		storage != nil && storage.Type == v1alpha1.StorageTypePersistentVolume {
+		storage != nil && storage.Type == mustgatherv1.StorageTypePersistentVolume {
 		// Gather mode with PVC: reuse the output volume (already PVC-backed)
 		// for the upload mount instead of creating a duplicate PVC Volume,
 		// which causes CSI multi-attach failures.
 		uploadMount.Name = outputVolumeName
-		base := strings.TrimSpace(storage.PersistentVolume.SubPath)
+		base := strings.TrimSpace(derefString(storage.PersistentVolume.SubPath))
 		base = strings.Trim(base, "/")
 		uploadMount.SubPath = path.Join(base, directoryName)
 	}
@@ -487,11 +495,11 @@ func getUploadContainer(
 			},
 			corev1.EnvVar{
 				Name:  uploadEnvHost,
-				Value: sftp.Host,
+				Value: derefString(sftp.Host),
 			},
 			corev1.EnvVar{
 				Name:  uploadEnvInternalUser,
-				Value: strconv.FormatBool(sftp.InternalUser),
+				Value: strconv.FormatBool(ptr.Deref(sftp.InternalUser, false)),
 			},
 		)
 	}

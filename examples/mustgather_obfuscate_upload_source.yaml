@@ -1,5 +1,5 @@
 # Mode 3: Obfuscate + Upload (existing bundle on PVC, no gather)
-apiVersion: operator.openshift.io/v1alpha1
+apiVersion: operator.openshift.io/v1
 kind: MustGather
 metadata:
   name: obfuscate-and-upload
