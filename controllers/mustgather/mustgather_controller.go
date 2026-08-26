@@ -36,10 +36,12 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -87,6 +89,10 @@ var errImageValidation = goerror.New("image validation failed")
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch
 //+kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;delete
 // ServiceAccount read access needed for pre-flight validation before Job creation
+//+kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicies,verbs=create
+//+kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicies,resourceNames=block-mustgather-restricted-namespaces,verbs=get;list;watch;update;patch
+//+kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicybindings,verbs=create
+//+kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingadmissionpolicybindings,resourceNames=block-mustgather-restricted-namespaces,verbs=get;list;watch;update;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -161,11 +167,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	if instance.Namespace == r.OperatorNamespace && saName == r.OperatorServiceAccountName {
 		validationErr := fmt.Errorf("serviceAccountName %q is not allowed in namespace %q: the operator's own service account cannot be used for must-gather jobs", saName, instance.Namespace)
 		reqLogger.Error(validationErr, "operator service account usage rejected", "name", saName, "namespace", instance.Namespace, "operatorNamespace", r.OperatorNamespace)
-		result, statusErr := r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationServiceAccount, validationErr)
-		if statusErr != nil {
-			return result, statusErr
-		}
-		return result, nil
+		return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationServiceAccount, validationErr)
 	}
 
 	// perform CA config map copy, iff set in caller
@@ -267,7 +269,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 				reqLogger,
 				string(username),
 				string(password),
-				instance.Spec.UploadTarget.SFTP.Host,
+				derefString(instance.Spec.UploadTarget.SFTP.Host),
 			)
 			if validationErr != nil {
 				reqLogger.Error(validationErr, "SFTP credential validation failed")
@@ -318,9 +320,12 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 }
 
 func (r *MustGatherReconciler) handleJobCompletion(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1.MustGather, status string, reason string) (reconcile.Result, error) {
-	instance.Status.Status = status
-	instance.Status.Completed = true
-	instance.Status.Reason = reason
+	if instance.Status == nil {
+		instance.Status = &mustgatherv1.MustGatherStatus{}
+	}
+	instance.Status.Status = ptr.To(status)
+	instance.Status.Completed = ptr.To(true)
+	instance.Status.Reason = ptr.To(reason)
 	err := r.GetClient().Status().Update(ctx, instance)
 	if err != nil {
 		reqLogger.Error(err, "unable to update instance", "instance", instance.Name)
@@ -338,7 +343,10 @@ func (r *MustGatherReconciler) handleJobCompletion(ctx context.Context, reqLogge
 }
 
 func (r *MustGatherReconciler) updateStatus(ctx context.Context, instance *mustgatherv1.MustGather, job *batchv1.Job) (reconcile.Result, error) {
-	instance.Status.Completed = !job.Status.CompletionTime.IsZero()
+	if instance.Status == nil {
+		instance.Status = &mustgatherv1.MustGatherStatus{}
+	}
+	instance.Status.Completed = ptr.To(!job.Status.CompletionTime.IsZero())
 
 	return r.ManageSuccess(ctx, instance)
 }
@@ -355,10 +363,14 @@ func (r *MustGatherReconciler) setValidationFailureStatus(
 ) (reconcile.Result, error) {
 	errorMessage := fmt.Sprintf("%s validation failed: %v", validationType, validationErr)
 
-	instance.Status.Status = "Failed"
-	instance.Status.Completed = true
-	instance.Status.Reason = errorMessage
-	instance.Status.LastUpdate = metav1.Now()
+	if instance.Status == nil {
+		instance.Status = &mustgatherv1.MustGatherStatus{}
+	}
+	instance.Status.Status = ptr.To("Failed")
+	instance.Status.Completed = ptr.To(true)
+	instance.Status.Reason = ptr.To(errorMessage)
+	now := metav1.Now()
+	instance.Status.LastUpdate = &now
 
 	apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
 		Type:               "ReconcileError",
@@ -386,6 +398,12 @@ func (r *MustGatherReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	if r.TrustedCAConfigMap != "" {
 		b = b.Owns(&corev1.ConfigMap{}, builder.WithPredicates(isNameEquals(r.TrustedCAConfigMap)))
+	}
+
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		return r.ensureAdmissionPolicy(ctx, mgr.GetClient(), mgr.GetAPIReader())
+	})); err != nil {
+		return fmt.Errorf("failed to add admission policy runnable: %w", err)
 	}
 
 	return b.Complete(r)
@@ -685,4 +703,3 @@ func (r *MustGatherReconciler) cleanupTrustedCAConfigMap(ctx context.Context, re
 		"configMapName", r.TrustedCAConfigMap, "remainingNumOwners", len(updatedOwnerRefs))
 	return nil
 }
-

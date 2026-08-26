@@ -7,6 +7,24 @@ boilerplate-update:
 	@boilerplate/update
 
 
+##@ Kube API Linter
+##
+## kube-api-linter (sigs.k8s.io/kube-api-linter) is not part of the boilerplate
+## golangci-lint config, so it's built and run as a separate golangci-lint
+## plugin binary via a custom-gcl build. Chained onto `lint` below so `make lint`
+## (as run in CI) always includes it.
+
+bin/golangci-lint-kube-api-linter: .custom-gcl.yml
+	${CONVENTION_DIR}/ensure.sh golangci-lint
+	golangci-lint custom
+
+.PHONY: kube-api-lint
+kube-api-lint: bin/golangci-lint-kube-api-linter ## Run kube-api-linter against the API types
+	${GOENV} GOLANGCI_LINT_CACHE=${GOLANGCI_LINT_CACHE} ./bin/golangci-lint-kube-api-linter run -c .golangci.yml ./...
+
+lint: kube-api-lint
+
+
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
 E2E_TIMEOUT ?= 1h
 .PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up.
