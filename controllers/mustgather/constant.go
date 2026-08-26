@@ -8,6 +8,12 @@ const (
 	// ProtocolSFTP represents the SFTP (SSH File Transfer Protocol)
 	ProtocolSFTP = "SFTP"
 
+	// sftpValidationFailedUserMessage is written to MustGather status and events
+	// when SFTP connection validation fails. Network-level details must not
+	// appear in CR status because they can be used as a reachability oracle
+	// against CR-supplied hosts.
+	sftpValidationFailedUserMessage = "unable to connect to the SFTP server"
+
 	// ProtocolTCP represents the TCP protocol
 	ProtocolTCP = "tcp"
 
