@@ -1927,18 +1927,19 @@ func TestSFTPCredentialValidation(t *testing.T) {
 	_ = batchv1.AddToScheme(s)
 
 	tests := []struct {
-		name                     string
-		secret                   *corev1.Secret
-		mustgather               *mustgatherv1.MustGather
-		mockSFTPDialFunc         func(ctx context.Context, username, password, host string) error
-		expectError              bool
-		expectedStatus           string
-		expectedCompleted        bool
-		expectedReasonContains   string
-		checkLastUpdate          bool
-		checkCondition           bool
-		expectedConditionReason  string
-		expectedConditionMessage string
+		name                      string
+		secret                    *corev1.Secret
+		mustgather                *mustgatherv1.MustGather
+		mockSFTPDialFunc          func(ctx context.Context, username, password, host string) error
+		expectError               bool
+		expectedStatus            string
+		expectedCompleted         bool
+		expectedReasonContains    string
+		forbiddenReasonSubstrings []string
+		checkLastUpdate           bool
+		checkCondition            bool
+		expectedConditionReason   string
+		expectedConditionMessage  string
 	}{
 		{
 			name: "missing username field in secret",
@@ -2131,14 +2132,58 @@ func TestSFTPCredentialValidation(t *testing.T) {
 			mockSFTPDialFunc: func(ctx context.Context, username, password, host string) error {
 				return errors.New("SFTP connection failed: authentication failed")
 			},
-			expectError:              false,
-			expectedStatus:           "Failed",
-			expectedCompleted:        true,
-			expectedReasonContains:   "SFTP validation failed",
-			checkLastUpdate:          true,
-			checkCondition:           true,
-			expectedConditionReason:  "ValidationFailed",
-			expectedConditionMessage: "SFTP validation failed",
+			expectError:               false,
+			expectedStatus:            "Failed",
+			expectedCompleted:         true,
+			expectedReasonContains:    "SFTP validation failed: " + sftpValidationFailedUserMessage,
+			forbiddenReasonSubstrings: []string{"authentication failed", "SFTP connection failed"},
+			checkLastUpdate:           true,
+			checkCondition:            true,
+			expectedConditionReason:   "ValidationFailed",
+			expectedConditionMessage:  "SFTP validation failed: " + sftpValidationFailedUserMessage,
+		},
+		{
+			name: "SFTP connection refused does not leak host reachability in status",
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-secret",
+					Namespace: "test-ns",
+				},
+				Data: map[string][]byte{
+					"username": []byte("testuser"),
+					"password": []byte("password123"),
+				},
+			},
+			mustgather: &mustgatherv1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test-mg",
+					Namespace:  "test-ns",
+					Finalizers: []string{mustGatherFinalizer},
+				},
+				Spec: mustgatherv1.MustGatherSpec{
+					ServiceAccountName: "default",
+					UploadTarget: &mustgatherv1.UploadTargetSpec{
+						Type: mustgatherv1.UploadTypeSFTP,
+						SFTP: &mustgatherv1.SFTPSpec{
+							CaseID:                         "12345678",
+							CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "test-secret"},
+							Host:                           ptr.To("sftp.example.com"),
+						},
+					},
+				},
+			},
+			mockSFTPDialFunc: func(ctx context.Context, username, password, host string) error {
+				return errors.New("Connection refused: SFTP server is not running or port is blocked: dial tcp 10.0.0.1:22: connect: connection refused")
+			},
+			expectError:               false,
+			expectedStatus:            "Failed",
+			expectedCompleted:         true,
+			expectedReasonContains:    "SFTP validation failed: " + sftpValidationFailedUserMessage,
+			forbiddenReasonSubstrings: []string{"connection refused", "10.0.0.1", "SFTP server is not running", "port is blocked"},
+			checkLastUpdate:           true,
+			checkCondition:            true,
+			expectedConditionReason:   "ValidationFailed",
+			expectedConditionMessage:  "SFTP validation failed: " + sftpValidationFailedUserMessage,
 		},
 		{
 			name: "SFTP validation transient error exhausts retries",
@@ -2175,14 +2220,15 @@ func TestSFTPCredentialValidation(t *testing.T) {
 				// Local retry will exhaust all attempts and then fail
 				return context.DeadlineExceeded
 			},
-			expectError:              false,
-			expectedStatus:           "Failed",
-			expectedCompleted:        true,
-			expectedReasonContains:   "validation timed out after",
-			checkLastUpdate:          true,
-			checkCondition:           true,
-			expectedConditionReason:  "ValidationFailed",
-			expectedConditionMessage: "SFTP validation failed",
+			expectError:               false,
+			expectedStatus:            "Failed",
+			expectedCompleted:         true,
+			expectedReasonContains:    "SFTP validation failed: " + sftpValidationFailedUserMessage,
+			forbiddenReasonSubstrings: []string{"timed out", "DeadlineExceeded", "deadline exceeded"},
+			checkLastUpdate:           true,
+			checkCondition:            true,
+			expectedConditionReason:   "ValidationFailed",
+			expectedConditionMessage:  "SFTP validation failed: " + sftpValidationFailedUserMessage,
 		},
 		{
 			name: "valid credentials and successful SFTP validation",
@@ -2301,6 +2347,13 @@ func TestSFTPCredentialValidation(t *testing.T) {
 				}
 			}
 
+			reason := ptr.Deref(updatedMG.Status.Reason, "")
+			for _, forbidden := range tt.forbiddenReasonSubstrings {
+				if strings.Contains(strings.ToLower(reason), strings.ToLower(forbidden)) {
+					t.Errorf("status reason must not contain %q, got %q", forbidden, reason)
+				}
+			}
+
 			// Check LastUpdate was set
 			if tt.checkLastUpdate {
 				if updatedMG.Status.LastUpdate == nil || updatedMG.Status.LastUpdate.IsZero() {
@@ -2331,6 +2384,11 @@ func TestSFTPCredentialValidation(t *testing.T) {
 						}
 						if tt.expectedConditionMessage != "" && !strings.Contains(foundCondition.Message, tt.expectedConditionMessage) {
 							t.Errorf("expected condition message to contain %q, got %q", tt.expectedConditionMessage, foundCondition.Message)
+						}
+						for _, forbidden := range tt.forbiddenReasonSubstrings {
+							if strings.Contains(strings.ToLower(foundCondition.Message), strings.ToLower(forbidden)) {
+								t.Errorf("condition message must not contain %q, got %q", forbidden, foundCondition.Message)
+							}
 						}
 					}
 				}
