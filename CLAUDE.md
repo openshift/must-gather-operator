@@ -45,7 +45,7 @@ make coverage
 To run the operator locally:
 
 1. Install dependencies: `go mod download`
-2. Apply the CRD: `oc apply -f deploy/crds/operator.openshift.io_mustgathers_crd.yaml`
+2. Apply the CRD: `oc apply -f deploy/crds/operator.openshift.io_mustgathers.yaml`
 3. Create the namespace: `oc new-project must-gather-operator`
 4. Set the environment variable: `export DEFAULT_MUST_GATHER_IMAGE='quay.io/openshift/origin-must-gather:latest'`
 5. Run with operator-sdk: `OPERATOR_NAME=must-gather-operator operator-sdk run --verbose --local --namespace ''`
@@ -58,30 +58,31 @@ Note: The `OPERATOR_IMAGE` environment variable must be set in the deployment or
 # Run unit tests
 make go-test
 
-# Apply a test MustGather CR
-oc apply -f ./test/must-gather.yaml
+# Apply an example MustGather CR
+oc apply -f ./examples/mustgather_basic.yaml
 ```
 
 ## Architecture
 
 ### Core Components
 
-**API Types** (`api/v1alpha1/mustgather_types.go`):
+**API Types** (`api/v1/mustgather_types.go`, primary; `api/v1alpha1/` deprecated):
 - `MustGather` CR defines the specification for must-gather collection jobs
-- Key fields: `caseID`, `caseManagementAccountSecretRef`, `serviceAccountRef`, `audit`, `mustGatherTimeout`, `internalUser`
+- Key fields: `serviceAccountName`, `uploadTarget` (with nested `caseID`, `caseManagementAccountSecretRef`), `gatherSpec` (with nested `audit`), `mustGatherTimeout`, `retainResourcesOnCompletion`
 - Status tracking with conditions and completion state
 
 **Controller** (`controllers/mustgather/mustgather_controller.go`):
 - Main reconciliation loop that manages MustGather lifecycle
-- Creates Kubernetes Jobs with two containers: gather and upload
-- Handles finalizers for proper cleanup of secrets, jobs, and pods
-- Automatic garbage collection ~6 hours after completion
+- Creates Kubernetes Jobs with a gather container and a conditional upload container (added only when uploadTarget is configured)
+- Handles finalizers for proper cleanup of jobs, pods, and trusted CA ConfigMaps
+- Cleanup runs in the same reconciliation after Job success or failure when `retainResourcesOnCompletion` is unset or false
+- On CR deletion, the finalizer performs this cleanup only when retention is disabled
 - Uses predicates to filter events (only reconciles on generation or finalizer changes)
 
 **Job Template** (`controllers/mustgather/template.go`):
-- Generates Job specs with two containers:
+- Generates Job specs with a gather container (always) and a conditional upload container (added only when `uploadTarget` is configured):
   1. **Gather container**: Runs must-gather collection (with or without audit logs)
-  2. **Upload container**: Waits for gather to complete, then compresses and uploads to Red Hat SFTP
+  2. **Upload container** (conditional): Waits for gather to complete, then compresses and uploads to Red Hat SFTP
 - Configures shared volumes, proxy settings, timeouts, and node affinity for infra nodes
 - Uses `ShareProcessNamespace` to allow upload container to detect when gather completes
 
@@ -93,24 +94,23 @@ oc apply -f ./test/must-gather.yaml
 
 ### Reconciliation Flow
 
-1. Fetch MustGather instance
-2. Initialize defaults (ServiceAccountRef from cluster)
-3. Handle deletion via finalizer:
-   - Delete secret from operator namespace
-   - Delete job and associated pods
+1. Fetch MustGather instance (NotFound → done)
+2. Handle deletion via finalizer:
+   - Clean up Job, Pods, and trusted CA ConfigMap ownerReferences (unless `retainResourcesOnCompletion`)
    - Remove finalizer
+3. Add finalizer if missing
 4. Create Job if it doesn't exist:
-   - Copy case management credentials secret to operator namespace
-   - Create Job with gather and upload containers
+   - Validate ServiceAccount exists, SFTP credentials (in-place via SecretKeyRef), and SFTP connectivity
+   - Create Job with gather container and conditional upload container
    - Increment Prometheus metrics
 5. Monitor Job status:
-   - Requeue for deletion when Job succeeds or fails
+   - On success or failure: update status, run cleanup in same reconciliation (unless `retainResourcesOnCompletion`)
    - Update MustGather status based on Job completion
 
 ### Key Design Decisions
 
 - **Operator runs in a single namespace** (default: `must-gather-operator`) but watches MustGather CRs cluster-wide
-- **Secret replication**: Copies user-provided case management secrets from CR namespace to operator namespace for job access
+- **No secret replication**: Secrets are referenced directly via SecretKeyRef from the CR namespace; only trusted CA ConfigMaps are replicated to the CR namespace
 - **Two-container approach**: Separate containers for gathering and uploading allows gather to run with cluster permissions while upload runs with limited permissions
 - **Process namespace sharing**: Enables upload container to detect gather completion via `pgrep`
 - **Infra node affinity**: Jobs prefer infra nodes (with tolerations) to avoid impacting application workloads
@@ -137,7 +137,7 @@ Optional:
 
 ### API Group Migration
 
-The operator previously used a different API group. The current API group is `operator.openshift.io/v1alpha1`. When working with manifests, ensure you're using the correct group.
+The user-facing API version is `operator.openshift.io/v1` (promoted from `v1alpha1` in release 5.0). The CRD serves both versions for backward compatibility, but new CRs should use `v1`. The primary Go package is `api/v1/` (storage version); `api/v1alpha1/` is retained for backward compatibility but is deprecated.
 
 ### Boilerplate System
 
@@ -147,7 +147,7 @@ This project uses the openshift-eng boilerplate convention system. The actual Ma
 
 ### Adding New Fields to MustGather CR
 
-1. Update `api/v1alpha1/mustgather_types.go` with new field and kubebuilder markers
+1. Update `api/v1/mustgather_types.go` with new field and kubebuilder markers (also update `api/v1alpha1/` if the field must be served on both versions)
 2. Run `make generate` to update generated code
 3. Run `make manifests` to update CRD YAML
 4. Update controller logic in `controllers/mustgather/mustgather_controller.go`
@@ -165,8 +165,8 @@ When changing the Job specification in `template.go`:
 ### Working with Finalizers
 
 The operator uses `finalizer.mustgathers.operator.openshift.io` to ensure cleanup. When modifying finalizer logic:
-- Ensure proper deletion of secrets in operator namespace
-- Clean up job and pods before removing finalizer
+- Clean up owned Job and Pods before removing finalizer
+- Remove ownerReference from trusted CA ConfigMap (delete ConfigMap if sole owner)
 - Handle errors gracefully (don't block deletion on transient errors)
 
 ### Metrics
