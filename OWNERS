@@ -1,6 +1,5 @@
 reviewers:
 - bng0y
-- devppratik
 - dustman9000
 - srep-functional-team-hulk
 - shivprakashmuley
@@ -8,7 +7,6 @@ reviewers:
 - TrilokGeer
 approvers:
 - bng0y
-- devppratik
 - dustman9000
 - srep-functional-leads
 - srep-team-leads
