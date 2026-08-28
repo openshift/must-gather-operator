@@ -3,6 +3,7 @@ module github.com/openshift/must-gather-operator
 go 1.26.0
 
 require (
+	github.com/ghodss/yaml v1.0.0
 	github.com/go-logr/logr v1.4.2
 	github.com/onsi/ginkgo/v2 v2.22.0
 	github.com/onsi/gomega v1.36.1
@@ -14,9 +15,11 @@ require (
 	github.com/prometheus/client_golang v1.22.0
 	github.com/redhat-cop/operator-utils v1.3.7
 	github.com/stretchr/testify v1.11.1
+	github.com/vmware-archive/yaml-patch v0.0.11
 	golang.org/x/crypto v0.54.0
 	golang.org/x/net v0.57.0
 	k8s.io/api v0.33.3
+	k8s.io/apiextensions-apiserver v0.33.0
 	k8s.io/apimachinery v0.33.3
 	k8s.io/client-go v0.33.3
 	k8s.io/klog/v2 v2.130.1
@@ -31,6 +34,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.2.1 // indirect
 	github.com/Masterminds/sprig/v3 v3.2.3 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
@@ -57,6 +61,7 @@ require (
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kr/fs v0.1.0 // indirect
+	github.com/krishicks/yaml-patch v0.0.10 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mitchellh/copystructure v1.0.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.0 // indirect
@@ -91,7 +96,6 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiextensions-apiserver v0.33.0 // indirect
 	k8s.io/cli-runtime v0.28.2 // indirect
 	k8s.io/kubectl v0.28.2 // indirect
 	sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3 // indirect

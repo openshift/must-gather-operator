@@ -1,0 +1,653 @@
+apiVersion: apiextensions.k8s.io/v1 # Hack because controller-gen complains otherwise
+name: "MustGather v1"
+crdName: mustgathers.operator.openshift.io
+version: v1
+tests:
+  onCreate:
+    # ── Positive tests ──────────────────────────────────────────────────
+    - name: "Should allow a minimal valid CR with SFTP upload"
+      resourceName: valid-basic
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expected: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          retainResourcesOnCompletion: false
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+              internalUser: false
+              host: sftp.access.redhat.com
+
+    - name: "Should allow audit with default image"
+      resourceName: valid-audit
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          gatherSpec:
+            audit: true
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expected: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          retainResourcesOnCompletion: false
+          gatherSpec:
+            audit: true
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+              internalUser: false
+              host: sftp.access.redhat.com
+
+    - name: "Should allow custom image without audit"
+      resourceName: valid-custom-img
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          imageStreamRef:
+            name: my-custom-must-gather
+            tag: latest
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expected: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          retainResourcesOnCompletion: false
+          imageStreamRef:
+            name: my-custom-must-gather
+            tag: latest
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+              internalUser: false
+              host: sftp.access.redhat.com
+
+    - name: "Should allow custom command without audit"
+      resourceName: valid-custom-cmd
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          gatherSpec:
+            command:
+              - /usr/bin/gather
+            args:
+              - --node-logs
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expected: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          retainResourcesOnCompletion: false
+          gatherSpec:
+            command:
+              - /usr/bin/gather
+            args:
+              - --node-logs
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+              internalUser: false
+              host: sftp.access.redhat.com
+
+    - name: "Should allow since filter"
+      resourceName: valid-since
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          gatherSpec:
+            since: 30m
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expected: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          retainResourcesOnCompletion: false
+          gatherSpec:
+            since: 30m
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+              internalUser: false
+              host: sftp.access.redhat.com
+
+    - name: "Should allow sinceTime filter"
+      resourceName: valid-sincetime
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          gatherSpec:
+            sinceTime: "2026-02-02T00:00:00Z"
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expected: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          retainResourcesOnCompletion: false
+          gatherSpec:
+            sinceTime: "2026-02-02T00:00:00Z"
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+              internalUser: false
+              host: sftp.access.redhat.com
+
+    - name: "Should allow obfuscate with upload"
+      resourceName: valid-obfuscate-upload
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          obfuscate:
+            enabled: true
+            obfuscationConfigRef:
+              name: my-obfuscation-rules
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expected: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          retainResourcesOnCompletion: false
+          obfuscate:
+            enabled: true
+            obfuscationConfigRef:
+              name: my-obfuscation-rules
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+              internalUser: false
+              host: sftp.access.redhat.com
+
+    - name: "Should allow obfuscate with PVC storage"
+      resourceName: valid-obfuscate-pvc
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          obfuscate:
+            enabled: true
+          storage:
+            type: PersistentVolume
+            persistentVolume:
+              claim:
+                name: must-gather-pvc
+              subPath: collections
+      expected: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          retainResourcesOnCompletion: false
+          obfuscate:
+            enabled: true
+          storage:
+            type: PersistentVolume
+            persistentVolume:
+              claim:
+                name: must-gather-pvc
+              subPath: collections
+
+    - name: "Should allow obfuscate source with upload"
+      resourceName: valid-obfuscate-src
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          obfuscate:
+            enabled: true
+            source:
+              claim:
+                name: must-gather-pvc
+              subPath: must-gather-data
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expected: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          retainResourcesOnCompletion: false
+          obfuscate:
+            enabled: true
+            source:
+              claim:
+                name: must-gather-pvc
+              subPath: must-gather-data
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+              internalUser: false
+              host: sftp.access.redhat.com
+
+    - name: "Should allow PVC with subPath"
+      resourceName: valid-pvc-subpath
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          storage:
+            type: PersistentVolume
+            persistentVolume:
+              claim:
+                name: must-gather-pvc
+              subPath: collections/run-1
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expected: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          retainResourcesOnCompletion: false
+          storage:
+            type: PersistentVolume
+            persistentVolume:
+              claim:
+                name: must-gather-pvc
+              subPath: collections/run-1
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+              internalUser: false
+              host: sftp.access.redhat.com
+
+    - name: "Should allow retainResourcesOnCompletion"
+      resourceName: valid-retain
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          retainResourcesOnCompletion: true
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expected: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          retainResourcesOnCompletion: true
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+              internalUser: false
+              host: sftp.access.redhat.com
+
+    - name: "Should allow non-internal user with custom host"
+      resourceName: valid-non-internal
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+              internalUser: false
+              host: sftp.access.redhat.com
+      expected: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          retainResourcesOnCompletion: false
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+              internalUser: false
+              host: sftp.access.redhat.com
+
+    # ── Negative tests ──────────────────────────────────────────────────
+    - name: "Should reject audit with imageStreamRef"
+      resourceName: invalid-audit-img
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          imageStreamRef:
+            name: my-custom-must-gather
+            tag: latest
+          gatherSpec:
+            audit: true
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expectedError: "audit mode is only supported with the default must-gather image"
+
+    - name: "Should reject audit with custom command"
+      resourceName: invalid-audit-cmd
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          gatherSpec:
+            audit: true
+            command:
+              - /usr/bin/gather
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expectedError: "audit mode cannot be combined with custom gather commands"
+
+    - name: "Should reject obfuscate without target"
+      resourceName: invalid-obf-notgt
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          obfuscate:
+            enabled: true
+      expectedError: "obfuscate.enabled requires uploadTarget, obfuscate.source, or storage"
+
+    - name: "Should reject obfuscate source without enabled"
+      resourceName: invalid-src-noten
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          obfuscate:
+            enabled: false
+            source:
+              claim:
+                name: must-gather-pvc
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expectedError: "obfuscate.source requires obfuscate.enabled"
+
+    - name: "Should reject obfuscate source without uploadTarget"
+      resourceName: invalid-src-noul
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          obfuscate:
+            enabled: true
+            source:
+              claim:
+                name: must-gather-pvc
+      expectedError: "obfuscate.source requires uploadTarget"
+
+    - name: "Should reject obfuscate source with imageStreamRef"
+      resourceName: invalid-src-img
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          imageStreamRef:
+            name: my-custom-must-gather
+            tag: latest
+          obfuscate:
+            enabled: true
+            source:
+              claim:
+                name: must-gather-pvc
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expectedError: "obfuscate.source cannot be combined with imageStreamRef"
+
+    - name: "Should reject obfuscate source with custom command"
+      resourceName: invalid-src-cmd
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          gatherSpec:
+            command:
+              - /usr/bin/gather
+          obfuscate:
+            enabled: true
+            source:
+              claim:
+                name: must-gather-pvc
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expectedError: "obfuscate.source cannot be combined with imageStreamRef"
+
+    - name: "Should reject since and sinceTime together"
+      resourceName: invalid-since-both
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          gatherSpec:
+            since: 30m
+            sinceTime: "2026-02-02T00:00:00Z"
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expectedError: "only one of since or sinceTime may be specified"
+
+    - name: "Should reject empty caseID"
+      resourceName: invalid-empty-case
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: ""
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expectedError: "caseID must not be empty"
+
+    - name: "Should reject empty caseManagementAccountSecretRef name"
+      resourceName: invalid-empty-sec
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: ""
+      expectedError: "caseManagementAccountSecretRef.name must not be empty"
+
+    - name: "Should reject subPath with path traversal"
+      resourceName: invalid-subpath
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          storage:
+            type: PersistentVolume
+            persistentVolume:
+              claim:
+                name: must-gather-pvc
+              subPath: "../escape"
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expectedError: "subPath must not contain '..'"
+
+    - name: "Should reject empty obfuscationConfigRef name"
+      resourceName: invalid-empty-obf
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          obfuscate:
+            enabled: true
+            obfuscationConfigRef:
+              name: ""
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expectedError: "obfuscationConfigRef.name must not be empty"
+
+  onUpdate:
+    - name: "Should reject spec changes (immutability)"
+      resourceName: immutable-spec
+      initial: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "02527285"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      updated: |
+        apiVersion: operator.openshift.io/v1
+        kind: MustGather
+        spec:
+          serviceAccountName: must-gather-admin
+          uploadTarget:
+            type: SFTP
+            sftp:
+              caseID: "99999999"
+              caseManagementAccountSecretRef:
+                name: case-management-creds
+      expectedError: "spec values are immutable once set"

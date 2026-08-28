@@ -1,0 +1,98 @@
+package apis
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	"sigs.k8s.io/controller-runtime/pkg/envtest/komega"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	operatorv1 "github.com/openshift/must-gather-operator/api/v1"
+	operatorv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
+)
+
+func getTestDir() string {
+	if os.Getenv("OPENSHIFT_CI") == "true" {
+		dir := os.Getenv("ARTIFACT_DIR")
+		if dir == "" {
+			panic("ARTIFACT_DIR must be set when running in OpenShift CI")
+		}
+		return dir
+	}
+	return "/tmp"
+}
+
+func TestAPIs(t *testing.T) {
+	RegisterFailHandler(Fail)
+
+	g := NewGomegaWithT(t)
+
+	var err error
+	suites, err = LoadTestSuiteSpecs(filepath.Join("..", "..", "api"))
+	g.Expect(err).ToNot(HaveOccurred())
+
+	suiteConfig, reportConfig := GinkgoConfiguration()
+	testDir := getTestDir()
+	reportConfig.JUnitReport = filepath.Join(testDir, "junit_api_integration.xml")
+
+	RunSpecs(t, "API Integration Suite", suiteConfig, reportConfig)
+}
+
+var _ = BeforeSuite(func() {
+	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+
+	By("bootstrapping test environment")
+	testEnv = &envtest.Environment{}
+
+	var err error
+	cfg, err = testEnv.Start()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(cfg).NotTo(BeNil())
+
+	testScheme = scheme.Scheme
+	Expect(operatorv1.AddToScheme(testScheme)).To(Succeed())
+	Expect(operatorv1alpha1.AddToScheme(testScheme)).To(Succeed())
+
+	k8sClient, err = client.New(cfg, client.Options{Scheme: testScheme})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(k8sClient).NotTo(BeNil())
+
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
+	Expect(err).ToNot(HaveOccurred())
+
+	serverVersion, err := discoveryClient.ServerVersion()
+	Expect(err).ToNot(HaveOccurred())
+
+	Expect(serverVersion.Major).To(Equal("1"))
+
+	minorInt, err := strconv.Atoi(strings.Split(serverVersion.Minor, "+")[0])
+	Expect(err).ToNot(HaveOccurred())
+	Expect(minorInt).To(BeNumerically(">=", 25), fmt.Sprintf("This test suite requires a Kube API server of at least version 1.25, current version is 1.%s", serverVersion.Minor))
+
+	komega.SetClient(k8sClient)
+	komega.SetContext(ctx)
+})
+
+var _ = AfterSuite(func() {
+	By("tearing down the test environment")
+	err := testEnv.Stop()
+	Expect(err).NotTo(HaveOccurred())
+})
+
+var _ = Describe("API Integration Tests", Ordered, ContinueOnFailure, func() {
+	for _, suite := range suites {
+		GenerateTestSuite(suite)
+	}
+})

@@ -1,6 +1,10 @@
 FIPS_ENABLED=true
+TESTTARGETS := $(shell ${GOENV} go list -e ./... | grep -E -v "/(vendor)/" | grep -E -v "/(test/e2e)")
 
 include boilerplate/generated-includes.mk
+
+# CRD uses CEL format() library (Kube 1.31+), so we need a newer envtest than the boilerplate default.
+ENVTEST_K8S_VERSION = 1.35.0
 
 .PHONY: boilerplate-update
 boilerplate-update:
@@ -22,7 +26,14 @@ bin/golangci-lint-kube-api-linter: .custom-gcl.yml
 kube-api-lint: bin/golangci-lint-kube-api-linter ## Run kube-api-linter against the API types
 	${GOENV} GOLANGCI_LINT_CACHE=${GOLANGCI_LINT_CACHE} ./bin/golangci-lint-kube-api-linter run -c .golangci.yml ./...
 
-lint: kube-api-lint
+##@ OLM Bundle
+
+.PHONY: bundle
+bundle: generate ## Sync generated CRD into the OLM bundle directory.
+	cp deploy/crds/operator.openshift.io_mustgathers.yaml bundle/manifests/stable/operator.openshift.io_mustgathers.yaml
+
+.PHONY: lint
+lint: kube-api-lint olm-deploy-yaml-validate go-check
 
 
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
