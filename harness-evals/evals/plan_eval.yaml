@@ -1,0 +1,219 @@
+stage: plan
+template: eval-generation/output-refined-templates/plan-template.md
+artifact: technical_plan.md
+eval_count: 6
+evals:
+  - id: eval-r001-plan-001
+    round: 1
+    stage: plan
+    source_issue_ids: [ISSUE-001]
+    patterns: [PAT-001]
+    prompt: |
+      When a feature adds persistent volume storage for operator output, does the plan
+      analyze the per-invocation isolation mechanism without assuming a specific
+      Kubernetes volume mount API?
+
+      The plan must:
+      1. In §1 (architectural strategy), describe the isolation approach using the
+         operator's documented mechanism from the repo assessment — not assume an
+         alternative API (e.g., subPathExpr vs static SubPath)
+      2. In §2 (persistence & state), specify which Kubernetes objects are source-of-truth
+         for the isolation key and where the key is computed (operator reconcile time vs
+         pod scheduling time)
+      3. In §5 (implementation phases), include a verification step that confirms the
+         chosen API is the one documented in the repo assessment — not a different
+         mechanism that achieves a similar goal
+      4. Address the user-facing field sanitization requirements in the relevant phase,
+         including edge-case handling for the storage path input
+      5. In §7 (risks), flag the risk of API misidentification and include a mitigation
+         that references the repo assessment's documented mechanism
+    assertions:
+      must_mention:
+        - "isolation"
+        - "repo assessment"
+        - "sanitization"
+        - "persistence"
+        - "verification"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-plan-002
+    round: 1
+    stage: plan
+    source_issue_ids: [ISSUE-002]
+    patterns: [PAT-002]
+    prompt: |
+      When a feature modifies multi-container pod configuration with shared resources,
+      does the plan require configuration consistency across all containers sharing
+      those resources?
+
+      The plan must:
+      1. In §1 (architectural strategy), identify all containers that share volumes or
+         other resources and document the consistency requirement
+      2. In §3 (interfaces & contracts), define the single source-of-truth for shared
+         resource parameters and mandate that all consuming containers reference it
+      3. In §5 (implementation phases), include a phase or step that explicitly verifies
+         all containers sharing a resource use the same computed configuration
+      4. In §6 (verification matrix), include a test that detects mount configuration
+         drift between containers (e.g., one container updated but another left with
+         stale configuration)
+      5. In §7 (risks), flag the silent data path mismatch risk where one container's
+         configuration is updated but another's is not
+    assertions:
+      must_mention:
+        - "consistency"
+        - "shared"
+        - "all containers"
+        - "source of truth"
+        - "mismatch"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-plan-003
+    round: 1
+    stage: plan
+    source_issue_ids: [ISSUE-005]
+    patterns: [PAT-004, PAT-006]
+    prompt: |
+      When a feature introduces environment variable dependencies, does the plan
+      distinguish presence-checked variables from value-assigned variables and specify
+      the correct validation pattern for each?
+
+      The plan must:
+      1. In §2 (persistence & state), classify each new environment variable as
+         presence-required (must be set, even if empty) vs value-required (must be
+         set to a non-empty value) and document the validation function for each
+      2. In §3 (interfaces & contracts), specify the error semantics: presence-checked
+         variables must return a distinct error for "not set" vs "set to empty",
+         while value-assigned variables may treat both as equivalent
+      3. In §5 (implementation phases), include the env var validation pattern as a
+         constraint — not leave it to the implementer's discretion
+      4. In §6 (verification matrix), include test cases for both the "not set" and
+         "set to empty" scenarios for presence-required variables
+      5. Address conditional injection: env vars that should only be injected when
+         their governing feature is enabled
+    assertions:
+      must_mention:
+        - "presence"
+        - "value"
+        - "not set"
+        - "empty"
+        - "conditional"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-plan-004
+    round: 1
+    stage: plan
+    source_issue_ids: [ISSUE-006]
+    patterns: [PAT-007]
+    prompt: |
+      When a feature has multiple operational modes that alter resource topology, does
+      the plan define each mode's container composition and volume topology before
+      proceeding to implementation phases?
+
+      The plan must:
+      1. In §1 (architectural strategy), enumerate every operational mode and describe
+         how each mode differs in container composition, volume topology, and command
+         construction
+      2. In §2 (persistence & state), document mode-specific volume reuse requirements
+         and flag cross-mode resource conflicts (e.g., volume reuse vs duplicate creation)
+      3. In §5 (implementation phases), require mode-specific implementation paths —
+         not treat the feature as a binary toggle
+      4. In §6 (verification matrix), require mode-specific test coverage: each mode's
+         unique container composition and volume topology must be independently verifiable
+      5. In §7 (risks), flag the risk of treating a multi-mode feature as a single toggle,
+         which creates partial implementations that fail silently for uncovered modes
+    assertions:
+      must_mention:
+        - "mode"
+        - "container composition"
+        - "volume topology"
+        - "mode-specific"
+        - "toggle"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-plan-005
+    round: 1
+    stage: plan
+    source_issue_ids: [ISSUE-007, ISSUE-008]
+    patterns: [PAT-008, PAT-009]
+    prompt: |
+      When a feature adds pre-flight validation with external I/O, does the plan include
+      an error classification strategy, testability design, and alignment with the spec's
+      mutability model?
+
+      The plan must:
+      1. In §1 (architectural strategy), describe the validation pipeline design,
+         including the layered protocol upgrade pattern if the validation involves
+         multi-stage connectivity checks
+      2. In §3 (interfaces & contracts), define the error classification taxonomy:
+         which errors are terminal (no requeue), which are transient (retry eligible),
+         and the retry boundary semantics
+      3. In §5 (implementation phases), include dependency injection as an explicit
+         design constraint for external I/O — to enable unit testing without live
+         external services
+      4. In §5 (implementation phases), require the validation failure status to align
+         with the spec's mutability model: immutable specs require terminal failure
+         with no requeue; mutable specs may allow retry
+      5. In §6 (verification matrix), include test cases for each error class (terminal
+         auth failure, transient timeout, protocol upgrade failure at each layer)
+    assertions:
+      must_mention:
+        - "error classification"
+        - "terminal"
+        - "transient"
+        - "dependency injection"
+        - "immutable"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-plan-006
+    round: 1
+    stage: plan
+    source_issue_ids: [ISSUE-005, ISSUE-007]
+    patterns: [PAT-008, PAT-011]
+    prompt: |
+      When a feature modifies proxy-dependent behavior that spans both the controller
+      process and a child pod's shell script, does the plan require dual-path proxy
+      consistency verification?
+
+      The plan must:
+      1. In §1 (architectural strategy), identify both proxy consumption paths and document
+         that any proxy-related change must be verified against both: the Go-side path
+         (controller-level validation using httpproxy.FromEnvironment and HTTP CONNECT
+         tunnel) and the shell-side path (upload script using nc/socat for tunneling)
+      2. In §2 (persistence & state), document the proxy environment variable lifecycle:
+         operator reads uppercase vars from its own environment via proxy.ReadProxyVarsFromEnv,
+         maps them to lowercase constants (uploadEnvHttpProxy, uploadEnvHttpsProxy,
+         uploadEnvNoProxy), and injects them into the container spec — and note which env
+         var casing each consumer expects
+      3. In §3 (interfaces & contracts), define the proxy authentication contract: both
+         paths must parse proxy URLs in the format http://[user:pass@]host:port identically,
+         including edge cases where the password contains URL-special characters (@, :, %)
+         — and specify which parsing library or method each path uses
+      4. In §6 (verification matrix), include a test scenario for proxy NO_PROXY bypass
+         consistency: verify that when the target host is excluded by NO_PROXY, both the
+         Go-side pre-flight check and the shell-side upload script bypass the proxy (or
+         document the known inconsistency and its operational impact)
+      5. In §7 (risks), flag the HTTPS-vs-HTTP proxy mechanism divergence: the Go-side
+         uses the same CONNECT tunnel for both, while the shell-side uses different tools
+         (nc for HTTP, socat for HTTPS) — and assess whether this divergence can cause
+         behavioral differences under specific proxy configurations
+    assertions:
+      must_mention:
+        - "dual-path"
+        - "uppercase"
+        - "lowercase"
+        - "NO_PROXY"
+        - "authentication"
+        - "CONNECT"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80

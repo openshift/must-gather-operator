@@ -1,0 +1,345 @@
+stage: code-generation
+template: null
+artifact: generated_code
+eval_count: 9
+oape_commands:
+  - api-implement
+evals:
+  - id: eval-r001-cg-001
+    round: 1
+    stage: code-generation
+    oape_command: api-implement
+    source_issue_ids: [ISSUE-003]
+    patterns: [PAT-003]
+    prompt: |
+      When implementing a function that processes user-provided path inputs for use in
+      Kubernetes resource specs (e.g., volume mount SubPath), does the generated code
+      include two-stage sanitization with explicit edge-case handling?
+
+      The code must:
+      1. Apply whitespace trimming as the first sanitization stage (e.g., TrimSpace) to
+         handle leading/trailing whitespace in user input
+      2. Apply separator trimming as the second stage (e.g., Trim with path separator
+         characters) to normalize path-like inputs
+      3. Handle edge cases that arise from the two-stage sanitization: empty string input
+         (produces empty base), whitespace-only input (TrimSpace reduces to empty),
+         separator-only input (Trim reduces to empty after whitespace trim)
+      4. Combine the sanitized user input with generated components using path-safe
+         joining (e.g., path.Join) that correctly handles empty segments
+      5. Include table-driven unit tests with one row per edge case: empty string,
+         whitespace-only, separator-only (single and multiple), normal input, and
+         input with mixed whitespace and separators
+    assertions:
+      must_mention:
+        - "TrimSpace"
+        - "Trim"
+        - "empty"
+        - "table-driven"
+        - "edge case"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-cg-002
+    round: 1
+    stage: code-generation
+    oape_command: api-implement
+    source_issue_ids: [ISSUE-002]
+    patterns: [PAT-002]
+    prompt: |
+      When implementing multi-container pod configuration where containers share a
+      volume, does the generated code apply mount configuration consistently to ALL
+      containers sharing that volume?
+
+      The code must:
+      1. Use a single source-of-truth function to compute shared mount parameters
+         (e.g., SubPath, mount path) — both the primary and secondary containers must
+         call this function rather than computing the value independently
+      2. Apply the same SubPath value to every container that mounts the shared volume —
+         any divergence creates a silent data path mismatch where containers read/write
+         to different directories
+      3. When the shared volume configuration changes (e.g., PVC mode vs emptyDir mode),
+         update ALL container mount specs, not just the primary container
+      4. Include unit tests that verify mount consistency: extract the SubPath from each
+         container's volume mount and assert they are equal when sharing a volume
+      5. Include a test case where the shared mount parameter varies (e.g., user-provided
+         vs generated path) to verify both containers track the same value
+      6. When reusing a shared volume for a secondary purpose (e.g., PVC-backed output
+         volume reused for upload in obfuscation mode), call the same source-of-truth
+         function (e.g., outputSubPath) rather than inlining the sanitization logic —
+         eliminating duplicate TrimSpace/Trim/path.Join sequences that can drift
+    assertions:
+      must_mention:
+        - "SubPath"
+        - "consistency"
+        - "all containers"
+        - "source of truth"
+        - "outputSubPath"
+        - "test"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-cg-003
+    round: 1
+    stage: code-generation
+    oape_command: api-implement
+    source_issue_ids: [ISSUE-005]
+    patterns: [PAT-004]
+    prompt: |
+      When implementing environment variable lookup for required configuration values,
+      does the generated code use presence-checking semantics and include missing-variable
+      test cases?
+
+      The code must:
+      1. Use a presence-checking function (e.g., os.LookupEnv) for required environment
+         variables — not a value-retrieval function (e.g., os.Getenv) that cannot
+         distinguish "not set" from "set to empty string"
+      2. Return a descriptive error when a required environment variable is not present,
+         including the variable name in the error message for debuggability
+      3. Handle both failure modes: startup-required vars (e.g., DEFAULT_MUST_GATHER_IMAGE)
+         that exit the process on absence, and reconcile-time vars (e.g., OPERATOR_IMAGE)
+         that return an error to the controller
+      4. Include unit tests for the missing-variable case: unset the env var, verify
+         the function returns an error, verify the error message identifies the
+         variable name
+    assertions:
+      must_mention:
+        - "LookupEnv"
+        - "presence"
+        - "error"
+        - "variable name"
+        - "test"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-cg-004
+    round: 1
+    stage: code-generation
+    oape_command: api-implement
+    source_issue_ids: [ISSUE-005]
+    patterns: [PAT-006]
+    prompt: |
+      When implementing environment variable injection into child pod container specs,
+      does the generated code apply conditional injection semantics that prevent injecting
+      empty or disabled values?
+
+      The code must:
+      1. Inject environment-variable-derived values conditionally — only when the
+         governing feature is enabled, not unconditionally for all reconciliation paths
+      2. For proxy variables: inject only when the value is non-empty, to avoid causing
+         the shell script to enter its proxy code path with a blank URL
+      3. For feature-gated variables (e.g., obfuscation config): inject only when the
+         feature is enabled in the CR spec
+      4. Use named constants for injected variable names (not inline string literals)
+         to prevent typos in the case mapping (e.g., uppercase read → lowercase inject)
+      5. Include unit tests verifying: (a) variables are present in container spec when
+         set/enabled, (b) variables are absent when unset/empty/disabled
+    assertions:
+      must_mention:
+        - "conditional"
+        - "non-empty"
+        - "inject"
+        - "container spec"
+        - "test"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-cg-005
+    round: 1
+    stage: code-generation
+    oape_command: api-implement
+    source_issue_ids: [ISSUE-006]
+    patterns: [PAT-007]
+    prompt: |
+      When implementing a multi-mode feature where each mode has distinct container
+      composition and volume topology, does the generated code handle each mode's
+      resource layout independently?
+
+      The code must:
+      1. Implement distinct code paths for each operational mode's container composition:
+         modes that include all containers, modes that omit specific containers, and
+         modes that add auxiliary containers
+      2. Handle mode-specific volume topology: volume reuse in modes where a single
+         volume serves multiple purposes (avoiding duplicate volume creation that causes
+         storage multi-attach errors) vs separate volumes in other modes
+      3. Apply mode-specific command construction: different command arguments, process
+         coordination mechanisms (e.g., polling vs direct invocation), and ownership
+         transfer requirements per mode
+      4. Include mode-specific helper functions with clear naming that indicates the
+         mode decision they encode (e.g., shouldAddContainer, hasExternalSource,
+         isFeatureEnabled)
+      5. Include unit tests for each mode's unique behavior: container count, volume
+         count, command arguments, access mode (read-only vs read-write), and process
+         coordination mechanism
+    assertions:
+      must_mention:
+        - "mode"
+        - "container composition"
+        - "volume"
+        - "read-only"
+        - "helper function"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-cg-006
+    round: 1
+    stage: code-generation
+    oape_command: api-implement
+    source_issue_ids: [ISSUE-007]
+    patterns: [PAT-008]
+    prompt: |
+      When implementing pre-flight validation that involves a layered protocol upgrade
+      (e.g., transport → session → application layer), does the generated code follow
+      proper resource cleanup, retry semantics, and testability patterns?
+
+      The code must:
+      1. Follow the layered protocol upgrade pattern: establish the transport connection
+         first, then upgrade to session-level handshake, then verify application-layer
+         functionality — with explicit error handling at each transition
+      2. Close resources from prior layers on failure at any layer — if layer N fails,
+         resources from layers 1 through N-1 must be cleaned up (e.g., close the
+         transport connection if the session handshake fails)
+      3. Implement retry logic that distinguishes transient errors (timeout, deadline
+         exceeded) from non-transient errors (authentication failure, connection
+         refused) — retry only transient errors, return immediately for non-transient
+      4. Support proxy tunneling when proxy environment variables are present, using
+         the appropriate tunneling mechanism for the proxy protocol
+      5. Use dependency injection via package-level variables or interfaces for each
+         layer's dial/connect function, enabling unit tests to mock external I/O
+      6. Classify errors into user-friendly messages via a dedicated error classification
+         function that maps protocol-specific errors to actionable descriptions
+    assertions:
+      must_mention:
+        - "layered"
+        - "cleanup"
+        - "retry"
+        - "transient"
+        - "dependency injection"
+        - "classify"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-cg-007
+    round: 1
+    stage: code-generation
+    oape_command: api-implement
+    source_issue_ids: [ISSUE-004, ISSUE-008]
+    patterns: [PAT-005, PAT-009]
+    prompt: |
+      When implementing validation failure status reporting in a controller with an
+      immutable spec, does the generated code follow the consistent condition type +
+      reason pattern with terminal return convention?
+
+      The code must:
+      1. Set the resource status to a terminal state (e.g., Status=Failed, Completed=true)
+         for validation errors — indicating no further reconciliation will occur
+      2. Use a single, repo-consistent condition type for all validation failures (e.g.,
+         a general reconcile-error type) with a specific reason value (e.g.,
+         ValidationFailed) — NOT distinct condition types per failure category
+      3. Include the validation category string in the condition message for
+         debuggability — allowing operators to distinguish different validation failures
+         from the status output without needing to check logs
+      4. Emit an observable event (Warning-level) via the event recorder for each
+         validation failure, providing an additional observability channel beyond status
+         conditions
+      5. Return a terminal reconcile result (no requeue) because the spec is immutable
+         and retrying with the same input is pointless — fall through to error
+         management only if the status update itself fails
+    assertions:
+      must_mention:
+        - "condition type"
+        - "reason"
+        - "terminal"
+        - "event"
+        - "no requeue"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-cg-008
+    round: 1
+    stage: code-generation
+    oape_command: api-implement
+    source_issue_ids: [ISSUE-005]
+    patterns: [PAT-011]
+    prompt: |
+      When implementing proxy environment variable injection from the operator process
+      into a child pod's container spec, does the generated code correctly map variable
+      casing and conditionally inject only when values are non-empty?
+
+      The code must:
+      1. Read proxy variables from the operator's own environment using the canonical
+         library function (e.g., proxy.ReadProxyVarsFromEnv from operator-lib) which
+         returns uppercase-named variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY)
+      2. Map each uppercase variable to the lowercase constant used by the container's
+         shell script (http_proxy, https_proxy, no_proxy) — using named constants, not
+         inline string literals, to prevent typos in the case mapping
+      3. Inject each proxy env var into the container spec conditionally — only when the
+         value is non-empty — to avoid injecting empty-string proxy vars that could cause
+         the shell script to enter its proxy code path with a blank URL
+      4. Include unit tests that verify the conditional injection: when proxy vars are set
+         in the operator's environment, they appear in the container spec with the correct
+         lowercase names; when they are unset or empty, they are absent from the container
+         spec entirely
+      5. Include a test case verifying that NO_PROXY is injected with the lowercase name
+         no_proxy (not NO_PROXY) to match the shell script's expected variable name
+    assertions:
+      must_mention:
+        - "uppercase"
+        - "lowercase"
+        - "conditional"
+        - "non-empty"
+        - "container spec"
+        - "test"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-cg-009
+    round: 1
+    stage: code-generation
+    oape_command: api-implement
+    source_issue_ids: [ISSUE-007]
+    patterns: [PAT-008, PAT-011]
+    prompt: |
+      When implementing HTTP proxy tunneling for pre-flight validation (Go-side), does the
+      generated code handle proxy authentication, HTTPS-vs-HTTP proxy distinction, and
+      NO_PROXY bypass consistently with the shell-side upload script?
+
+      The code must:
+      1. Read proxy configuration per-call using the standard httpproxy library (e.g.,
+         httpproxy.FromEnvironment().ProxyFunc()) which correctly handles HTTP_PROXY,
+         HTTPS_PROXY, and NO_PROXY — including NO_PROXY exclusion rules that match CIDR
+         ranges and domain suffixes
+      2. Implement HTTP CONNECT tunneling that sends Proxy-Authorization headers when the
+         proxy URL contains userinfo (user:password@host) — extracting credentials via
+         url.URL.User to match standard Go URL parsing behavior
+      3. Apply default proxy ports when the proxy URL omits a port: use 3128 for HTTP
+         proxies and 3129 for HTTPS proxies — and document that these defaults may differ
+         from the shell-side script which relies on nc/socat defaults
+      4. Handle the case where NO_PROXY excludes the target host: the proxy function
+         returns nil, and the code falls through to direct dialing — ensuring pre-flight
+         validation does not use a proxy for hosts the operator's NO_PROXY configuration
+         excludes
+      5. Use dependency injection (package-level variable for the proxy resolution function)
+         to enable unit tests that simulate proxied and non-proxied environments without
+         modifying real environment variables
+      6. Include unit tests for: (a) proxy auth credentials with special characters,
+         (b) NO_PROXY bypass, (c) HTTPS proxy vs HTTP proxy selection, (d) missing port
+         default behavior
+    assertions:
+      must_mention:
+        - "CONNECT"
+        - "Proxy-Authorization"
+        - "NO_PROXY"
+        - "default port"
+        - "dependency injection"
+        - "test"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
