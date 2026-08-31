@@ -272,7 +272,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			)
 			if validationErr != nil {
 				reqLogger.Error(validationErr, "SFTP credential validation failed")
-				return r.setValidationFailureStatus(ctx, reqLogger, instance, ProtocolSFTP, validationErr)
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, ProtocolSFTP, goerror.New(sftpValidationFailedUserMessage))
 			}
 
 			reqLogger.Info("SFTP credentials validated successfully")
@@ -353,6 +353,8 @@ func (r *MustGatherReconciler) updateStatus(ctx context.Context, instance *mustg
 // setValidationFailureStatus updates the MustGather status to indicate a validation failure.
 // It sets the status to Failed, marks it as completed, updates the reason with the validation type, and sets the timestamp.
 // validationType should describe what kind of validation failed (e.g., "SFTP", "Service Account", "Secret").
+// Callers must pass a user-safe validationErr: network-level details in SFTP connection
+// failures are a reachability oracle and must not be written to status or events.
 func (r *MustGatherReconciler) setValidationFailureStatus(
 	ctx context.Context,
 	reqLogger logr.Logger,
