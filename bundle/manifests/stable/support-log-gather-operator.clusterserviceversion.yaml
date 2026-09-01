@@ -214,6 +214,42 @@ spec:
                 - get
                 - list
                 - watch
+            - apiGroups:
+                - admissionregistration.k8s.io
+              resources:
+                - validatingadmissionpolicies
+              verbs:
+                - create
+            - apiGroups:
+                - admissionregistration.k8s.io
+              resources:
+                - validatingadmissionpolicies
+              resourceNames:
+                - block-mustgather-restricted-namespaces
+              verbs:
+                - get
+                - list
+                - watch
+                - update
+                - patch
+            - apiGroups:
+                - admissionregistration.k8s.io
+              resources:
+                - validatingadmissionpolicybindings
+              verbs:
+                - create
+            - apiGroups:
+                - admissionregistration.k8s.io
+              resources:
+                - validatingadmissionpolicybindings
+              resourceNames:
+                - block-mustgather-restricted-namespaces
+              verbs:
+                - get
+                - list
+                - watch
+                - update
+                - patch
       deployments:
         - name: must-gather-operator
           spec:

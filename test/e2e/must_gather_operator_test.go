@@ -28,6 +28,7 @@ import (
 	mustgatherv1 "github.com/openshift/must-gather-operator/api/v1"
 	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -138,6 +139,7 @@ var (
 
 func init() {
 	testScheme = k8sruntime.NewScheme()
+	utilruntime.Must(admissionregistrationv1.AddToScheme(testScheme))
 	utilruntime.Must(mustgatherv1.AddToScheme(testScheme))
 	utilruntime.Must(mustgatherv1alpha1.AddToScheme(testScheme))
 	utilruntime.Must(appsv1.AddToScheme(testScheme))
@@ -3397,6 +3399,257 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		})
 	})
 
+	ginkgo.Context("Namespace Restriction Tests", ginkgo.Ordered, func() {
+		const (
+			vapName     = "block-mustgather-restricted-namespaces"
+			vapBindName = "block-mustgather-restricted-namespaces"
+		)
+
+		var mustGatherName string
+
+		ginkgo.BeforeAll(func() {
+			ginkgo.By("Waiting for ValidatingAdmissionPolicy to be deployed by the operator")
+			vap := &admissionregistrationv1.ValidatingAdmissionPolicy{}
+			Eventually(func() error {
+				return adminClient.Get(testCtx, client.ObjectKey{Name: vapName}, vap)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+				"ValidatingAdmissionPolicy %q should be created by the operator", vapName)
+
+			ginkgo.By("Waiting for ValidatingAdmissionPolicyBinding to be deployed by the operator")
+			binding := &admissionregistrationv1.ValidatingAdmissionPolicyBinding{}
+			Eventually(func() error {
+				return adminClient.Get(testCtx, client.ObjectKey{Name: vapBindName}, binding)
+			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(Succeed(),
+				"ValidatingAdmissionPolicyBinding %q should be created by the operator", vapBindName)
+		})
+
+		ginkgo.BeforeEach(func() {
+			mustGatherName = fmt.Sprintf("vap-ns-restrict-%d", time.Now().UnixNano())
+		})
+
+		assertRejectedWithNoWorkloads := func(namespace, expectedErrSubstring string, createErr error) {
+			Expect(createErr).To(HaveOccurred(), "VAP should reject MustGather in namespace %q", namespace)
+			Expect(apierrors.IsForbidden(createErr) || apierrors.IsInvalid(createErr)).To(BeTrue(),
+				"expected Forbidden or Invalid from VAP denial, got: %v", createErr)
+			Expect(createErr.Error()).To(ContainSubstring(expectedErrSubstring),
+				"error should mention the restricted namespace %q", expectedErrSubstring)
+
+			ginkgo.By(fmt.Sprintf("Verifying MustGather CR was not persisted in %s", namespace))
+			mgErr := adminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: namespace}, &mustgatherv1.MustGather{})
+			Expect(apierrors.IsNotFound(mgErr)).To(BeTrue(),
+				"MustGather CR should not exist after VAP rejection in %s, got: %v", namespace, mgErr)
+
+			ginkgo.By(fmt.Sprintf("Verifying no Job was created in %s", namespace))
+			Consistently(func() bool {
+				jobErr := adminClient.Get(testCtx, client.ObjectKey{Name: mustGatherName, Namespace: namespace}, &batchv1.Job{})
+				return apierrors.IsNotFound(jobErr)
+			}).WithTimeout(30*time.Second).WithPolling(5*time.Second).Should(BeTrue(),
+				"Job should not be created after VAP rejection in %s", namespace)
+
+			ginkgo.By(fmt.Sprintf("Verifying no Pods were created for rejected MustGather in %s", namespace))
+			podList := &corev1.PodList{}
+			Expect(adminClient.List(testCtx, podList,
+				client.InNamespace(namespace),
+				client.MatchingLabels{jobNameLabelKey: mustGatherName})).To(Succeed())
+			Expect(podList.Items).To(BeEmpty(),
+				"no pods should exist for rejected MustGather %s in %s", mustGatherName, namespace)
+		}
+
+		ginkgo.It("should verify ValidatingAdmissionPolicy and binding are deployed", func() {
+			ginkgo.By("Checking that the ValidatingAdmissionPolicy exists")
+			vap := &admissionregistrationv1.ValidatingAdmissionPolicy{}
+			err := adminClient.Get(testCtx, client.ObjectKey{Name: vapName}, vap)
+			Expect(err).NotTo(HaveOccurred(), "ValidatingAdmissionPolicy %q should exist", vapName)
+			Expect(vap.Spec.MatchConstraints).NotTo(BeNil(), "VAP should have matchConstraints")
+			Expect(vap.Spec.FailurePolicy).NotTo(BeNil(), "VAP should set failurePolicy")
+			Expect(*vap.Spec.FailurePolicy).To(Equal(admissionregistrationv1.Fail),
+				"VAP failurePolicy should be Fail")
+			Expect(vap.Spec.Validations).To(HaveLen(6), "VAP should have 6 validation expressions")
+
+			expressions := make([]string, 0, len(vap.Spec.Validations))
+			for _, validation := range vap.Spec.Validations {
+				expressions = append(expressions, validation.Expression)
+			}
+			Expect(expressions).To(ContainElements(
+				"object.metadata.namespace != 'openshift'",
+				"!object.metadata.namespace.startsWith('openshift-')",
+				"object.metadata.namespace != 'kube'",
+				"!object.metadata.namespace.startsWith('kube-')",
+				"object.metadata.namespace != 'hypershift'",
+				"!object.metadata.namespace.startsWith('hypershift-')",
+			), "VAP should include the expected namespace restriction expressions")
+
+			Expect(vap.Spec.MatchConstraints.ResourceRules).NotTo(BeEmpty(), "VAP should have resourceRules")
+			rule := vap.Spec.MatchConstraints.ResourceRules[0]
+			Expect(rule.APIGroups).To(ContainElement("operator.openshift.io"))
+			Expect(rule.APIVersions).To(ContainElements("v1alpha1", "v1"))
+			Expect(rule.Resources).To(ContainElement("mustgathers"))
+			Expect(rule.Operations).To(ContainElement(admissionregistrationv1.Create))
+
+			ginkgo.By("Checking that the ValidatingAdmissionPolicyBinding exists")
+			binding := &admissionregistrationv1.ValidatingAdmissionPolicyBinding{}
+			err = adminClient.Get(testCtx, client.ObjectKey{Name: vapBindName}, binding)
+			Expect(err).NotTo(HaveOccurred(), "ValidatingAdmissionPolicyBinding %q should exist", vapBindName)
+			Expect(binding.Spec.PolicyName).To(Equal(vapName), "Binding should reference the correct policy")
+			Expect(binding.Spec.ValidationActions).To(ContainElement(admissionregistrationv1.Deny),
+				"Binding should deny violating requests")
+		})
+
+		ginkgo.It("should reject MustGather creation in openshift-* namespaces", func() {
+			ginkgo.By("Attempting to create a MustGather CR in openshift-monitoring")
+			mg := &mustgatherv1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: "openshift-monitoring",
+				},
+				Spec: mustgatherv1.MustGatherSpec{
+					ServiceAccountName: "default",
+				},
+			}
+			assertRejectedWithNoWorkloads("openshift-monitoring", "openshift-", adminClient.Create(testCtx, mg))
+		})
+
+		ginkgo.It("should reject MustGather creation in kube-* namespaces", func() {
+			ginkgo.By("Attempting to create a MustGather CR in kube-system")
+			mg := &mustgatherv1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: "kube-system",
+				},
+				Spec: mustgatherv1.MustGatherSpec{
+					ServiceAccountName: "default",
+				},
+			}
+			assertRejectedWithNoWorkloads("kube-system", "kube-", adminClient.Create(testCtx, mg))
+		})
+
+		ginkgo.It("should reject MustGather creation in hypershift-* namespaces", func() {
+			hypershiftNs := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "hypershift-e2e-test",
+				},
+			}
+
+			ginkgo.By("Creating hypershift-e2e-test namespace")
+			err := adminClient.Create(testCtx, hypershiftNs)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred(), "Failed to create hypershift test namespace")
+			}
+			defer func() {
+				_ = adminClient.Delete(testCtx, hypershiftNs)
+			}()
+
+			ginkgo.By("Attempting to create a MustGather CR in hypershift-e2e-test")
+			mg := &mustgatherv1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: "hypershift-e2e-test",
+				},
+				Spec: mustgatherv1.MustGatherSpec{
+					ServiceAccountName: "default",
+				},
+			}
+			assertRejectedWithNoWorkloads("hypershift-e2e-test", "hypershift-", adminClient.Create(testCtx, mg))
+		})
+
+		ginkgo.It("should reject MustGather creation in bare openshift namespace", func() {
+			openshiftNs := &corev1.Namespace{}
+			nsCreated := false
+
+			ginkgo.By("Ensuring the openshift namespace exists")
+			err := adminClient.Get(testCtx, client.ObjectKey{Name: "openshift"}, openshiftNs)
+			if apierrors.IsNotFound(err) {
+				openshiftNs = &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{Name: "openshift"},
+				}
+				Expect(adminClient.Create(testCtx, openshiftNs)).To(Succeed())
+				nsCreated = true
+			}
+			defer func() {
+				if nsCreated {
+					_ = adminClient.Delete(testCtx, openshiftNs)
+				}
+			}()
+
+			ginkgo.By("Attempting to create a MustGather CR in the bare openshift namespace")
+			mg := &mustgatherv1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: "openshift",
+				},
+				Spec: mustgatherv1.MustGatherSpec{
+					ServiceAccountName: "default",
+				},
+			}
+			assertRejectedWithNoWorkloads("openshift", "openshift", adminClient.Create(testCtx, mg))
+		})
+
+		ginkgo.It("should reject MustGather creation in bare kube namespace", func() {
+			kubeNs := &corev1.Namespace{}
+			nsCreated := false
+
+			ginkgo.By("Ensuring the kube namespace exists")
+			err := adminClient.Get(testCtx, client.ObjectKey{Name: "kube"}, kubeNs)
+			if apierrors.IsNotFound(err) {
+				kubeNs = &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{Name: "kube"},
+				}
+				Expect(adminClient.Create(testCtx, kubeNs)).To(Succeed())
+				nsCreated = true
+			}
+			defer func() {
+				if nsCreated {
+					_ = adminClient.Delete(testCtx, kubeNs)
+				}
+			}()
+
+			ginkgo.By("Attempting to create a MustGather CR in the bare kube namespace")
+			mg := &mustgatherv1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: "kube",
+				},
+				Spec: mustgatherv1.MustGatherSpec{
+					ServiceAccountName: "default",
+				},
+			}
+			assertRejectedWithNoWorkloads("kube", "kube", adminClient.Create(testCtx, mg))
+		})
+
+		ginkgo.It("should reject MustGather creation in bare hypershift namespace", func() {
+			hypershiftNs := &corev1.Namespace{}
+			nsCreated := false
+
+			ginkgo.By("Ensuring the hypershift namespace exists")
+			err := adminClient.Get(testCtx, client.ObjectKey{Name: "hypershift"}, hypershiftNs)
+			if apierrors.IsNotFound(err) {
+				hypershiftNs = &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{Name: "hypershift"},
+				}
+				Expect(adminClient.Create(testCtx, hypershiftNs)).To(Succeed())
+				nsCreated = true
+			}
+			defer func() {
+				if nsCreated {
+					_ = adminClient.Delete(testCtx, hypershiftNs)
+				}
+			}()
+
+			ginkgo.By("Attempting to create a MustGather CR in the bare hypershift namespace")
+			mg := &mustgatherv1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mustGatherName,
+					Namespace: "hypershift",
+				},
+				Spec: mustgatherv1.MustGatherSpec{
+					ServiceAccountName: "default",
+				},
+			}
+			assertRejectedWithNoWorkloads("hypershift", "hypershift", adminClient.Create(testCtx, mg))
+		})
+
+	})
+
 	ginkgo.Context("Directory Naming Convention Tests", func() {
 		var mustGatherName string
 		var mustGatherCR *mustgatherv1.MustGather
@@ -3902,14 +4155,14 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 
 	ginkgo.Context("Obfuscation CRD Validation Tests", func() {
 		ginkgo.It("should reject obfuscate.enabled without uploadTarget, source, or storage", func() {
-			mg := &mustgatherv1alpha1.MustGather{
+			mg := &mustgatherv1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      fmt.Sprintf("obf-val-no-target-%d", time.Now().UnixNano()),
 					Namespace: ns.Name,
 				},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
+				Spec: mustgatherv1.MustGatherSpec{
 					ServiceAccountName: serviceAccount,
-					Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
+					Obfuscate: &mustgatherv1.ObfuscateConfig{
 						Enabled: func() *bool { b := true; return &b }(),
 					},
 				},
@@ -3920,16 +4173,16 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		})
 
 		ginkgo.It("should reject obfuscate.source without enabled", func() {
-			mg := &mustgatherv1alpha1.MustGather{
+			mg := &mustgatherv1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      fmt.Sprintf("obf-val-src-no-en-%d", time.Now().UnixNano()),
 					Namespace: ns.Name,
 				},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
+				Spec: mustgatherv1.MustGatherSpec{
 					ServiceAccountName: serviceAccount,
-					Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
-						Source: &mustgatherv1alpha1.PersistentVolumeConfig{
-							Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
+					Obfuscate: &mustgatherv1.ObfuscateConfig{
+						Source: &mustgatherv1.PersistentVolumeConfig{
+							Claim: mustgatherv1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
 						},
 					},
 				},
@@ -3940,17 +4193,17 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		})
 
 		ginkgo.It("should reject obfuscate.source without uploadTarget", func() {
-			mg := &mustgatherv1alpha1.MustGather{
+			mg := &mustgatherv1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      fmt.Sprintf("obf-val-src-no-upload-%d", time.Now().UnixNano()),
 					Namespace: ns.Name,
 				},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
+				Spec: mustgatherv1.MustGatherSpec{
 					ServiceAccountName: serviceAccount,
-					Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
+					Obfuscate: &mustgatherv1.ObfuscateConfig{
 						Enabled: func() *bool { b := true; return &b }(),
-						Source: &mustgatherv1alpha1.PersistentVolumeConfig{
-							Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
+						Source: &mustgatherv1.PersistentVolumeConfig{
+							Claim: mustgatherv1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
 						},
 					},
 				},
@@ -3961,18 +4214,18 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		})
 
 		ginkgo.It("should reject obfuscate.source combined with imageStreamRef", func() {
-			mg := &mustgatherv1alpha1.MustGather{
+			mg := &mustgatherv1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      fmt.Sprintf("obf-val-src-imgref-%d", time.Now().UnixNano()),
 					Namespace: ns.Name,
 				},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
+				Spec: mustgatherv1.MustGatherSpec{
 					ServiceAccountName: serviceAccount,
-					ImageStreamRef:     &mustgatherv1alpha1.ImageStreamTagRef{Name: "some-is", Tag: "latest"},
-					Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
+					ImageStreamRef:     &mustgatherv1.ImageStreamTagRef{Name: "some-is", Tag: "latest"},
+					Obfuscate: &mustgatherv1.ObfuscateConfig{
 						Enabled: func() *bool { b := true; return &b }(),
-						Source: &mustgatherv1alpha1.PersistentVolumeConfig{
-							Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
+						Source: &mustgatherv1.PersistentVolumeConfig{
+							Claim: mustgatherv1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
 						},
 					},
 				},
@@ -3983,20 +4236,20 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		})
 
 		ginkgo.It("should reject empty obfuscationConfigRef.name", func() {
-			mg := &mustgatherv1alpha1.MustGather{
+			mg := &mustgatherv1.MustGather{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      fmt.Sprintf("obf-val-empty-cfgref-%d", time.Now().UnixNano()),
 					Namespace: ns.Name,
 				},
-				Spec: mustgatherv1alpha1.MustGatherSpec{
+				Spec: mustgatherv1.MustGatherSpec{
 					ServiceAccountName: serviceAccount,
-					Storage: &mustgatherv1alpha1.Storage{
-						Type: mustgatherv1alpha1.StorageTypePersistentVolume,
-						PersistentVolume: mustgatherv1alpha1.PersistentVolumeConfig{
-							Claim: mustgatherv1alpha1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
+					Storage: &mustgatherv1.Storage{
+						Type: mustgatherv1.StorageTypePersistentVolume,
+						PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+							Claim: mustgatherv1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
 						},
 					},
-					Obfuscate: &mustgatherv1alpha1.ObfuscateConfig{
+					Obfuscate: &mustgatherv1.ObfuscateConfig{
 						Enabled:              func() *bool { b := true; return &b }(),
 						ObfuscationConfigRef: &corev1.LocalObjectReference{Name: ""},
 					},
