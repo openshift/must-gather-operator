@@ -1,0 +1,212 @@
+stage: repo-assessment
+template: eval-generation/output-refined-templates/repo-assessment-template.md
+artifact: repo_assessment.md
+eval_count: 6
+evals:
+  - id: eval-r001-ra-001
+    round: 1
+    stage: repo-assessment
+    source_issue_ids: [ISSUE-001]
+    patterns: [PAT-001, PAT-002]
+    prompt: |
+      When the feature introduces persistent volume storage for operator output, does the
+      repo assessment identify the per-invocation isolation mechanism and distinguish it
+      from alternative Kubernetes volume mount APIs?
+
+      The assessment must:
+      1. Document the specific isolation strategy (e.g., static SubPath with a generated
+         directory name vs subPathExpr with downward API interpolation) in §4.1 or §1.4
+      2. Identify which function or utility computes the isolation key and where it is
+         called in the reconciliation flow (§4.2)
+      3. Note the user-facing field that controls the storage path and document its
+         sanitization chain (§4.1 configuration surface)
+      4. Flag the shared-volume consistency requirement — that all containers sharing the
+         volume must use the same computed path (§6 guardrails or §11 risks)
+      5. Distinguish the operator-time computation from pod-scheduling-time computation
+         to prevent Kubernetes API misidentification
+    assertions:
+      must_mention:
+        - "isolation"
+        - "SubPath"
+        - "directory name"
+        - "sanitization"
+        - "shared volume"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-ra-002
+    round: 1
+    stage: repo-assessment
+    source_issue_ids: [ISSUE-004]
+    patterns: [PAT-005]
+    prompt: |
+      When the operator uses status conditions to report reconciliation outcomes, does the
+      repo assessment document the condition naming convention and distinguish between
+      single-type-with-varying-reason vs distinct-type-per-failure patterns?
+
+      The assessment must:
+      1. Document the condition type(s) used for error reporting in §4.4 (status/health
+         reporting) — including whether the operator uses one broad condition type with
+         varying reasons or separate condition types per failure category
+      2. Identify the condition reason values and how the failure category is encoded
+         (e.g., in the reason field vs the message string)
+      3. Document the terminal vs retryable semantics of each condition — what controller
+         return behavior follows each condition type/reason combination
+      4. Note any consistency requirement: if new validation types are added, they must
+         follow the existing convention (§6 guardrails)
+      5. Flag anti-patterns that would violate the convention (e.g., creating new condition
+         types when the repo uses a single type with distinct reasons)
+    assertions:
+      must_mention:
+        - "condition type"
+        - "reason"
+        - "terminal"
+        - "convention"
+        - "validation"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-ra-003
+    round: 1
+    stage: repo-assessment
+    source_issue_ids: [ISSUE-002]
+    patterns: [PAT-002]
+    prompt: |
+      When the operator uses multi-container pods with shared volumes, does the repo
+      assessment document the mount consistency requirements across all containers?
+
+      The assessment must:
+      1. Identify all containers that share each volume and document their mount paths
+         in §1.4 (runtime data/control flow) or §4.2 (processing flow)
+      2. Document the single source-of-truth function or utility that computes shared
+         mount parameters (e.g., SubPath, mount path) and note that all containers must
+         use it (§5 reusable assets)
+      3. Flag the silent data path mismatch risk — if one container's mount configuration
+         is updated without updating the other, data flow breaks without an obvious error
+         (§6 guardrails or §11 risks)
+      4. Document the inter-container coordination mechanism (e.g., shared process
+         namespace, polling, signaling) in §1.4
+      5. Note that any feature modifying container configuration must update ALL containers
+         sharing the affected resource (§7 change cascade checklist)
+    assertions:
+      must_mention:
+        - "mount"
+        - "consistency"
+        - "shared"
+        - "container"
+        - "cascade"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-ra-004
+    round: 1
+    stage: repo-assessment
+    source_issue_ids: [ISSUE-006]
+    patterns: [PAT-007]
+    prompt: |
+      When a feature has multiple operational modes that change container composition or
+      volume topology, does the repo assessment document each mode's resource topology
+      distinctly?
+
+      The assessment must:
+      1. Enumerate every operational mode of the feature and describe how each mode
+         differs in container composition (which containers are present/absent) in §4.2
+      2. Document the volume mount topology for each mode — which volumes exist, which
+         containers mount them, and with what access mode (read-only vs read-write)
+      3. Identify mode-selection logic in the controller and document how mode is
+         determined from CR spec fields (§4.1 or §4.2)
+      4. Flag cross-mode resource conflicts (e.g., a volume reuse requirement in one mode
+         that would cause multi-attach errors if treated as a new volume) in §11 risks
+      5. Note mode-specific command construction differences in §1.4 or §4.2
+    assertions:
+      must_mention:
+        - "mode"
+        - "topology"
+        - "container composition"
+        - "volume"
+        - "resource conflict"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-ra-005
+    round: 1
+    stage: repo-assessment
+    source_issue_ids: [ISSUE-007, ISSUE-008]
+    patterns: [PAT-008, PAT-009]
+    prompt: |
+      When the controller performs runtime validation before resource creation, does the
+      repo assessment document the error classification system and controller return
+      conventions?
+
+      The assessment must:
+      1. Document the validation pipeline structure — what validations are performed,
+         in what order, and at what stage of reconciliation (§4.2 processing flow)
+      2. Describe the error classification strategy: which errors are terminal (no
+         requeue) vs transient (retry eligible), and how this maps to the spec's
+         mutability characteristics (§4.4 status reporting)
+      3. Document the controller return convention for validation failures — what
+         status fields are set, what events are emitted, and what reconcile result
+         is returned (§4.4 + §6 guardrails)
+      4. Note the dependency injection or testability pattern used for external I/O
+         during validation (§5 reusable assets or §8 test reference)
+      5. Flag that immutable-spec operators must treat validation failures as terminal
+         because retrying with the same input is pointless (§6 guardrails)
+    assertions:
+      must_mention:
+        - "error classification"
+        - "terminal"
+        - "transient"
+        - "return convention"
+        - "immutable"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-ra-006
+    round: 1
+    stage: repo-assessment
+    source_issue_ids: [ISSUE-005, ISSUE-007]
+    patterns: [PAT-008, PAT-011]
+    prompt: |
+      When the operator propagates proxy configuration across execution boundaries (e.g.,
+      from the operator process to a child pod's shell script), does the repo assessment
+      document both proxy consumption paths and their consistency requirements?
+
+      The assessment must:
+      1. Identify the two distinct proxy consumption paths in §1.4 or §4.2: the Go-side
+         path (used during controller-level pre-flight validation) and the shell-side path
+         (used by the upload script inside the pod at runtime)
+      2. Document the environment variable case mapping — the operator reads uppercase
+         variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY) from its own environment and injects
+         lowercase variables (http_proxy, https_proxy, no_proxy) into the container spec.
+         Note which library or function performs the uppercase read and which constants
+         define the lowercase injection (§4.1 configuration surface)
+      3. Document the proxy tunneling mechanism difference between paths: the Go-side uses
+         HTTP CONNECT tunnel via a custom dialer function, while the shell-side uses
+         external tools (nc/netcat for HTTP proxies, socat-based script for HTTPS proxies)
+         — and flag that different mechanisms may behave differently with proxy auth
+         credentials containing special characters (§11 risks or §6 guardrails)
+      4. Flag the NO_PROXY inconsistency risk: the Go-side honors NO_PROXY via the
+         standard httpproxy library, but the shell-side script may not check the no_proxy
+         variable before establishing the proxy tunnel — leading to a scenario where
+         pre-flight validation bypasses the proxy for excluded hosts but the actual upload
+         still uses the proxy (§11 risks)
+      5. Document the proxy authentication parsing difference: Go uses url.URL.User
+         (standard URL userinfo parsing) while the shell script parses manually with
+         sed/cut — and note which special characters in passwords (e.g., @, :, %) would
+         produce different parse results between the two paths (§6 guardrails)
+    assertions:
+      must_mention:
+        - "proxy"
+        - "uppercase"
+        - "lowercase"
+        - "CONNECT"
+        - "NO_PROXY"
+        - "authentication"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80

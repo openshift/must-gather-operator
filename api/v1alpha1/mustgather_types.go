@@ -25,22 +25,29 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // MustGatherSpec defines the desired state of MustGather
-// +kubebuilder:validation:XValidation:rule="!(has(self.gatherSpec) && ((has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0) || (has(self.gatherSpec.args) && size(self.gatherSpec.args) > 0))) || has(self.imageStreamRef)",message="command and args in gatherSpec can only be set when imageStreamRef is specified"
+// +kubebuilder:validation:XValidation:rule="!(has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.audit) && self.gatherSpec.audit)",message="audit mode is only supported with the default must-gather image"
+// +kubebuilder:validation:XValidation:rule="!(!has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.command) && size(self.gatherSpec.command) > 0 && has(self.gatherSpec.audit) && self.gatherSpec.audit)",message="audit mode cannot be combined with custom gather commands"
+// +kubebuilder:validation:XValidation:rule="!(has(self.obfuscate) && has(self.obfuscate.enabled) && self.obfuscate.enabled && !(has(self.uploadTarget) || has(self.obfuscate.source) || has(self.storage)))",message="obfuscate.enabled requires uploadTarget, obfuscate.source, or storage"
+// +kubebuilder:validation:XValidation:rule="!(has(self.obfuscate) && has(self.obfuscate.source) && (!has(self.obfuscate.enabled) || !self.obfuscate.enabled))",message="obfuscate.source requires obfuscate.enabled"
+// +kubebuilder:validation:XValidation:rule="!(has(self.obfuscate) && has(self.obfuscate.source) && !has(self.uploadTarget))",message="obfuscate.source requires uploadTarget (obfuscated output is uploaded, not persisted on PVC)"
+// +kubebuilder:validation:XValidation:rule="!(has(self.obfuscate) && has(self.obfuscate.source) && (has(self.imageStreamRef) || (has(self.gatherSpec) && (has(self.gatherSpec.command) || has(self.gatherSpec.audit) && self.gatherSpec.audit))))",message="obfuscate.source cannot be combined with imageStreamRef or gatherSpec.command/audit (gather is skipped)"
 type MustGatherSpec struct {
-	// the service account to use to run the must gather job pod, defaults to default
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:="default"
-	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+	// ServiceAccountName is the name of the ServiceAccount to use for running the must-gather Job.
+	// This field is required and must reference a ServiceAccount with sufficient RBAC permissions
+	// to collect cluster data. The operator will verify the ServiceAccount exists before creating the Job.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	ServiceAccountName string `json:"serviceAccountName"`
 
 	// ImageStreamRef specifies a custom image from the allowlist to be used for the
 	// must-gather run.
 	// +kubebuilder:validation:Optional
 	ImageStreamRef *ImageStreamTagRef `json:"imageStreamRef,omitempty"`
 
-	// GatherSpec allows overriding the command and/or arguments for the custom must-gather image
-	// and configures time-based collection filters.
-	// The command and args fields are only honored when ImageStreamRef is specified.
-	// Time-based filters (since, sinceTime) and audit apply regardless of ImageStreamRef.
+	// GatherSpec allows overriding the command and/or arguments for the must-gather container
+	// (default or custom image from imageStreamRef) and configures time-based collection filters.
+	// Time-based filters (since, sinceTime) apply regardless of imageStreamRef.
+	// Audit is only allowed with the default image and default gather command (see CRD validation rules).
 	// +kubebuilder:validation:Optional
 	GatherSpec *GatherSpec `json:"gatherSpec,omitempty"`
 
@@ -66,27 +73,36 @@ type MustGatherSpec struct {
 	// the tar archive on the cluster.
 	// +optional
 	Storage *Storage `json:"storage,omitempty"`
+
+	// obfuscate configures post-gather obfuscation of sensitive data
+	// (IPs, MACs, Secrets, ConfigMaps) before upload using must-gather-clean.
+	// When obfuscate.enabled is true, the operator runs obfuscation on the
+	// collected or referenced bundle before tarring and uploading.
+	// Supported operational modes:
+	//   - Gather + Obfuscate + Upload: enabled with uploadTarget (full pipeline)
+	//   - Gather + Obfuscate + PVC: enabled with storage (cleaned output persisted, no upload)
+	//   - Obfuscate + Upload: enabled with source and uploadTarget (redact existing bundle and upload)
+	// +optional
+	Obfuscate *ObfuscateConfig `json:"obfuscate,omitempty"`
 }
 
 // GatherSpec allows specifying the execution details for a must-gather run and the collection behavior.
 // +kubebuilder:validation:XValidation:rule="!(has(self.since) && has(self.sinceTime))",message="only one of since or sinceTime may be specified"
 type GatherSpec struct {
 	// +kubebuilder:validation:Optional
-	// Audit specifies whether to collect audit logs. This is translated to a signal
-	// or command that can be respected by the default image
-	// or any custom image designed to do so.
+	// Audit requests audit log collection via the default gather entrypoint.
+	// It must be false when imageStreamRef is set or when gatherSpec.command is set without imageStreamRef.
 	Audit bool `json:"audit,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	// Command is a string array representing the entrypoint for the custom image.
-	// This field is only honored when a custom image IS specified via imageStreamRef.
+	// Command is a string array representing the container entrypoint.
+	// When set, it replaces the default gather wrapper for both the default must-gather image and custom images.
 	// +kubebuilder:validation:MaxItems=256
 	// +kubebuilder:validation:Items:MaxLength=256
 	Command []string `json:"command,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	// Args is a string array of arguments passed to the custom image's command.
-	// This field is only honored when a custom image IS specified via imageStreamRef.
+	// Args is a string array of arguments passed to the container command.
 	// +kubebuilder:validation:MaxItems=256
 	// +kubebuilder:validation:Items:MaxLength=256
 	Args []string `json:"args,omitempty"`
@@ -187,6 +203,7 @@ type Storage struct {
 }
 
 // PersistentVolumeConfig defines the configuration for a PersistentVolume.
+// +kubebuilder:validation:XValidation:rule="!has(self.subPath) || !self.subPath.contains('..')",message="subPath must not contain '..'"
 type PersistentVolumeConfig struct {
 	// claim defines the PersistentVolumeClaim to use.
 	// +required
@@ -204,6 +221,36 @@ type PersistentVolumeClaimReference struct {
 	// +kubebuilder:validation:XValidation:rule="!format.dns1123Subdomain().validate(self).hasValue()",message="a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character."
 	// +required
 	Name string `json:"name"`
+}
+
+// ObfuscateConfig configures the obfuscation behavior for a MustGather run.
+// +kubebuilder:validation:XValidation:rule="!has(self.obfuscationConfigRef) || size(self.obfuscationConfigRef.name) > 0",message="obfuscationConfigRef.name must not be empty"
+type ObfuscateConfig struct {
+	// enabled activates obfuscation of the must-gather bundle.
+	// When true, the operator runs obfuscation on the collected or
+	// referenced bundle before tarring and uploading.
+	// +kubebuilder:default:=false
+	// +optional
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// obfuscationConfigRef references a ConfigMap in the same namespace as
+	// the MustGather CR containing a must-gather-clean configuration file.
+	// The ConfigMap must have a key named "config.yaml" whose value is a
+	// valid must-gather-clean obfuscation config.
+	// If omitted, the operator uses the built-in default config which
+	// consistently replaces IPs and MACs, and omits Secrets and ConfigMaps.
+	// +optional
+	ObfuscationConfigRef *corev1.LocalObjectReference `json:"obfuscationConfigRef,omitempty"`
+
+	// source references an existing must-gather bundle on a PVC
+	// for obfuscation without running a new gather.
+	// When set, the operator skips the gather step and runs obfuscation
+	// directly on the referenced PVC contents (mounted read-only).
+	// The obfuscated output is written to a temporary volume and uploaded
+	// via SFTP. Requires uploadTarget to be set.
+	// The PVC must be in the same namespace as the MustGather CR.
+	// +optional
+	Source *PersistentVolumeConfig `json:"source,omitempty"`
 }
 
 // MustGatherStatus defines the observed state of MustGather
@@ -225,6 +272,7 @@ func (m *MustGather) SetConditions(conditions []metav1.Condition) {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:deprecatedversion:warning="operator.openshift.io/v1alpha1 MustGather is deprecated; use operator.openshift.io/v1 MustGather"
 
 // MustGather is the Schema for the mustgathers API
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec) || self.spec == oldSelf.spec",message="spec values are immutable once set"
@@ -232,7 +280,8 @@ type MustGather struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   MustGatherSpec   `json:"spec,omitempty"`
+	// +kubebuilder:validation:Required
+	Spec   MustGatherSpec   `json:"spec"`
 	Status MustGatherStatus `json:"status,omitempty"`
 }
 

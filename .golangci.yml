@@ -1,0 +1,23 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - kubeapilinter
+
+  settings:
+    custom:
+      kubeapilinter:
+        type: module
+        description: Kube API Linter lints Kube like APIs based on API conventions and best practices.
+        settings:
+          linters: {}
+          lintersConfig: {}
+
+  exclusions:
+    rules:
+      - linters:
+          - kubeapilinter
+        # Only lint api/v1; api/v1alpha1 is excluded intentionally to avoid breaking API changes.
+        # Users with stable version of operator use v1 ONLY.
+        path-except: api/v1/

@@ -44,10 +44,12 @@ import (
 
 	v1 "github.com/openshift/api/config/v1"
 	imagev1 "github.com/openshift/api/image/v1"
-	managedv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
+	mustgatherv1 "github.com/openshift/must-gather-operator/api/v1"
+	mustgatherv1alpha1 "github.com/openshift/must-gather-operator/api/v1alpha1"
 	"github.com/openshift/must-gather-operator/controllers/mustgather"
 	"github.com/openshift/must-gather-operator/pkg/k8sutil"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
+	"github.com/openshift/must-gather-operator/pkg/mustgatherutil"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	//+kubebuilder:scaffold:imports
 )
@@ -73,21 +75,26 @@ var (
 var log = logf.Log.WithName("cmd")
 
 func printVersion() {
-	log.Info(fmt.Sprintf("Operator Version: %s", version.Version))
-	log.Info(fmt.Sprintf("Go Version: %s", runtime.Version()))
-	log.Info(fmt.Sprintf("Go OS/Arch: %s/%s", runtime.GOOS, runtime.GOARCH))
-	log.Info(fmt.Sprintf("Version of operator-sdk: %v", version.SDKVersion))
+	log.Info("Operator Version", "version", version.Version)
+	log.Info("Go Version", "goVersion", runtime.Version())
+	log.Info("Go OS/Arch", "goOS", runtime.GOOS, "goArch", runtime.GOARCH)
+	log.Info("SDK Version", "sdkVersion", version.SDKVersion)
 }
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1.AddToScheme(scheme))
 	utilruntime.Must(imagev1.AddToScheme(scheme))
-	utilruntime.Must(managedv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(mustgatherv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(mustgatherv1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "obfuscate" {
+		os.Exit(mustgatherutil.RunObfuscate(os.Args[2:]))
+	}
+
 	// var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
@@ -159,11 +166,26 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Discover the operator's service account name via the Downward API
+	// (OPERATOR_SERVICE_ACCOUNT env var set from spec.serviceAccountName).
+	// Falls back to config.OperatorName in local mode only.
+	operatorSAName := os.Getenv("OPERATOR_SERVICE_ACCOUNT")
+	if operatorSAName == "" {
+		if strings.ToLower(os.Getenv(ForceRunModeEnv)) == LocalRunMode {
+			operatorSAName = config.OperatorName
+		} else {
+			setupLog.Error(fmt.Errorf("OPERATOR_SERVICE_ACCOUNT environment variable not set"), "unable to discover operator service account")
+			os.Exit(1)
+		}
+	}
+	setupLog.Info("operator service account", "name", operatorSAName)
+
 	if err = (&mustgather.MustGatherReconciler{
-		ReconcilerBase:         util.NewReconcilerBase(mgr.GetClient(), mgr.GetScheme(), mgr.GetConfig(), mgr.GetEventRecorderFor("must-gather-controller"), mgr.GetAPIReader()),
-		TrustedCAConfigMap:     trustedCAConfigMapName,
-		OperatorNamespace:      operatorNamespace,
-		DefaultMustGatherImage: defaultMustGatherImage,
+		ReconcilerBase:             util.NewReconcilerBase(mgr.GetClient(), mgr.GetScheme(), mgr.GetConfig(), mgr.GetEventRecorderFor("must-gather-controller"), mgr.GetAPIReader()),
+		TrustedCAConfigMap:         trustedCAConfigMapName,
+		OperatorNamespace:          operatorNamespace,
+		DefaultMustGatherImage:     defaultMustGatherImage,
+		OperatorServiceAccountName: operatorSAName,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MustGather")
 		os.Exit(1)

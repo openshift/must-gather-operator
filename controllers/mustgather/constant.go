@@ -8,6 +8,12 @@ const (
 	// ProtocolSFTP represents the SFTP (SSH File Transfer Protocol)
 	ProtocolSFTP = "SFTP"
 
+	// sftpValidationFailedUserMessage is written to MustGather status and events
+	// when SFTP connection validation fails. Network-level details must not
+	// appear in CR status because they can be used as a reachability oracle
+	// against CR-supplied hosts.
+	sftpValidationFailedUserMessage = "unable to connect to the SFTP server"
+
 	// ProtocolTCP represents the TCP protocol
 	ProtocolTCP = "tcp"
 
@@ -23,6 +29,17 @@ const (
 	// DefaultMustGatherImageEnv represents the environment variable for the default must-gather image
 	DefaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"
 
-	// podNameEnvVar is the environment variable name for the current pod's name
-	podNameEnvVar = "POD_NAME"
+	// Obfuscation env vars consumed by build/bin/upload.
+	obfuscateEnvEnabled = "obfuscate"
+	obfuscateEnvConfig  = "obfuscate_config"
+
+	// Obfuscation custom ConfigMap volume/mount paths.
+	obfuscateConfigVolumeName = "obfuscate-config"
+	obfuscateConfigMountPath  = "/etc/must-gather-clean/custom-config/config.yaml"
+	obfuscateConfigMapKey     = "config.yaml"
+
+	// obfuscateChownSuffix transfers gather output ownership to the upload container UID (65534).
+	// Captures the gather exit status first, runs chown (|| true so non-root images don't
+	// cause retries), then exits with the original status so gather failures propagate.
+	obfuscateChownSuffix = "gather_rc=$?; chown -R 65534:65534 /must-gather || true; exit $gather_rc"
 )

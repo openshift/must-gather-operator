@@ -1,0 +1,827 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.4
+  name: mustgathers.operator.openshift.io
+spec:
+  group: operator.openshift.io
+  names:
+    kind: MustGather
+    listKind: MustGatherList
+    plural: mustgathers
+    singular: mustgather
+  scope: Namespaced
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        description: MustGather is the Schema for the mustgathers API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: MustGatherSpec defines the desired state of MustGather
+            properties:
+              gatherSpec:
+                description: |-
+                  GatherSpec allows overriding the command and/or arguments for the must-gather container
+                  (default or custom image from imageStreamRef) and configures time-based collection filters.
+                  Time-based filters (since, sinceTime) apply regardless of imageStreamRef.
+                  Audit is only allowed with the default image and default gather command (see CRD validation rules).
+                properties:
+                  args:
+                    description: Args is a string array of arguments passed to the
+                      container command.
+                    items:
+                      type: string
+                    maxItems: 256
+                    type: array
+                  audit:
+                    description: |-
+                      Audit requests audit log collection via the default gather entrypoint.
+                      It must be false when imageStreamRef is set or when gatherSpec.command is set without imageStreamRef.
+                    type: boolean
+                  command:
+                    description: |-
+                      Command is a string array representing the container entrypoint.
+                      When set, it replaces the default gather wrapper for both the default must-gather image and custom images.
+                    items:
+                      type: string
+                    maxItems: 256
+                    type: array
+                  since:
+                    description: |-
+                      Since only returns logs newer than a relative duration like "2h" or "30m".
+                      This is passed to the must-gather script to filter log collection.
+                      Only one of since or sinceTime may be specified.
+                    format: duration
+                    type: string
+                  sinceTime:
+                    description: |-
+                      SinceTime only returns logs after a specific date/time (RFC3339 format).
+                      This is passed to the must-gather script to filter log collection.
+                      Only one of since or sinceTime may be specified.
+                    format: date-time
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: only one of since or sinceTime may be specified
+                  rule: '!(has(self.since) && has(self.sinceTime))'
+              imageStreamRef:
+                description: |-
+                  ImageStreamRef specifies a custom image from the allowlist to be used for the
+                  must-gather run.
+                properties:
+                  name:
+                    description: Name is the name of the ImageStream resource in the
+                      operator's namespace.
+                    type: string
+                  tag:
+                    description: Tag is the name of the tag within the ImageStream.
+                    type: string
+                required:
+                - name
+                - tag
+                type: object
+              mustGatherTimeout:
+                description: |-
+                  A time limit for gather command to complete a floating point number with a suffix:
+                  "s" for seconds, "m" for minutes, "h" for hours.
+                  Will default to no time limit.
+                format: duration
+                type: string
+              obfuscate:
+                description: |-
+                  obfuscate configures post-gather obfuscation of sensitive data
+                  (IPs, MACs, Secrets, ConfigMaps) before upload using must-gather-clean.
+                  When obfuscate.enabled is true, the operator runs obfuscation on the
+                  collected or referenced bundle before tarring and uploading.
+                  Supported operational modes:
+                    - Gather + Obfuscate + Upload: enabled with uploadTarget (full pipeline)
+                    - Gather + Obfuscate + PVC: enabled with storage (cleaned output persisted, no upload)
+                    - Obfuscate + Upload: enabled with source and uploadTarget (redact existing bundle and upload)
+                properties:
+                  enabled:
+                    default: false
+                    description: |-
+                      enabled activates obfuscation of the must-gather bundle.
+                      When true, the operator runs obfuscation on the collected or
+                      referenced bundle before tarring and uploading.
+                    type: boolean
+                  obfuscationConfigRef:
+                    description: |-
+                      obfuscationConfigRef references a ConfigMap in the same namespace as
+                      the MustGather CR containing a must-gather-clean configuration file.
+                      The ConfigMap must have a key named "config.yaml" whose value is a
+                      valid must-gather-clean obfuscation config.
+                      If omitted, the operator uses the built-in default config which
+                      consistently replaces IPs and MACs, and omits Secrets and ConfigMaps.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  source:
+                    description: |-
+                      source references an existing must-gather bundle on a PVC
+                      for obfuscation without running a new gather.
+                      When set, the operator skips the gather step and runs obfuscation
+                      directly on the referenced PVC contents (mounted read-only).
+                      The obfuscated output is written to a temporary volume and uploaded
+                      via SFTP. Requires uploadTarget to be set.
+                      The PVC must be in the same namespace as the MustGather CR.
+                    properties:
+                      claim:
+                        description: claim defines the PersistentVolumeClaim to use.
+                        properties:
+                          name:
+                            description: |-
+                              name defines the PersistentVolumeClaim to use,
+                              should be already present in the same namespace.
+                            maxLength: 253
+                            type: string
+                            x-kubernetes-validations:
+                            - message: a lowercase RFC 1123 subdomain must consist
+                                of lower case alphanumeric characters, '-' or '.',
+                                and must start and end with an alphanumeric character.
+                              rule: '!format.dns1123Subdomain().validate(self).hasValue()'
+                        required:
+                        - name
+                        type: object
+                      subPath:
+                        description: subPath defines the path to a sub directory within
+                          the PersistentVolume to use.
+                        type: string
+                    required:
+                    - claim
+                    type: object
+                    x-kubernetes-validations:
+                    - message: subPath must not contain '..'
+                      rule: '!has(self.subPath) || !self.subPath.contains(''..'')'
+                type: object
+                x-kubernetes-validations:
+                - message: obfuscationConfigRef.name must not be empty
+                  rule: '!has(self.obfuscationConfigRef) || size(self.obfuscationConfigRef.name)
+                    > 0'
+              retainResourcesOnCompletion:
+                default: false
+                description: |-
+                  A flag to specify if resources (secret, job, pods) should be retained when the MustGather completes.
+                  If set to true, resources will be retained. If false or not set, resources will be deleted (default behavior).
+                type: boolean
+              serviceAccountName:
+                description: |-
+                  ServiceAccountName is the name of the ServiceAccount to use for running the must-gather Job.
+                  This field is required and must reference a ServiceAccount with sufficient RBAC permissions
+                  to collect cluster data. The operator will verify the ServiceAccount exists before creating the Job.
+                minLength: 1
+                type: string
+              storage:
+                description: |-
+                  The storage configuration for persisting the collected must-gather tar archive.
+                  If not specified, an ephemeral volume is used which will not persist
+                  the tar archive on the cluster.
+                properties:
+                  persistentVolume:
+                    description: persistentVolume defines the configuration for a
+                      PersistentVolume.
+                    properties:
+                      claim:
+                        description: claim defines the PersistentVolumeClaim to use.
+                        properties:
+                          name:
+                            description: |-
+                              name defines the PersistentVolumeClaim to use,
+                              should be already present in the same namespace.
+                            maxLength: 253
+                            type: string
+                            x-kubernetes-validations:
+                            - message: a lowercase RFC 1123 subdomain must consist
+                                of lower case alphanumeric characters, '-' or '.',
+                                and must start and end with an alphanumeric character.
+                              rule: '!format.dns1123Subdomain().validate(self).hasValue()'
+                        required:
+                        - name
+                        type: object
+                      subPath:
+                        description: subPath defines the path to a sub directory within
+                          the PersistentVolume to use.
+                        type: string
+                    required:
+                    - claim
+                    type: object
+                    x-kubernetes-validations:
+                    - message: subPath must not contain '..'
+                      rule: '!has(self.subPath) || !self.subPath.contains(''..'')'
+                  type:
+                    description: |-
+                      type defines the type of storage to use.
+                      Available storage types are PersistentVolume only.
+                    enum:
+                    - PersistentVolume
+                    type: string
+                required:
+                - persistentVolume
+                - type
+                type: object
+              uploadTarget:
+                description: |-
+                  The target location for the must-gather bundle to be uploaded to.
+                  If not specified, the bundle will not be uploaded.
+                properties:
+                  sftp:
+                    description: SFTP details for the upload.
+                    properties:
+                      caseID:
+                        description: The ID of the case this must gather will be uploaded
+                          to
+                        type: string
+                      caseManagementAccountSecretRef:
+                        description: the secret container a username and password
+                          field to be used to authenticate with red hat case management
+                          systems
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      host:
+                        default: sftp.access.redhat.com
+                        description: |-
+                          host specifies the SFTP server hostname.
+                          The host name of the SFTP server
+                        type: string
+                      internalUser:
+                        default: false
+                        description: |-
+                          A flag to specify if the upload user provided in the caseManagementAccountSecret is a RH internal user.
+                          See documentation for further information.
+                        type: boolean
+                    required:
+                    - caseID
+                    - caseManagementAccountSecretRef
+                    type: object
+                    x-kubernetes-validations:
+                    - message: caseID must not be empty
+                      rule: size(self.caseID) > 0
+                    - message: caseManagementAccountSecretRef.name must not be empty
+                      rule: size(self.caseManagementAccountSecretRef.name) > 0
+                  type:
+                    description: type defines the method used for uploading to a specific
+                      target.
+                    enum:
+                    - SFTP
+                    type: string
+                required:
+                - type
+                type: object
+                x-kubernetes-validations:
+                - message: sftp upload target config is required when upload type
+                    is SFTP, and forbidden otherwise
+                  rule: 'has(self.type) && self.type == ''SFTP'' ? has(self.sftp)
+                    : !has(self.sftp)'
+            required:
+            - serviceAccountName
+            type: object
+            x-kubernetes-validations:
+            - message: audit mode is only supported with the default must-gather image
+              rule: '!(has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.audit)
+                && self.gatherSpec.audit)'
+            - message: audit mode cannot be combined with custom gather commands
+              rule: '!(!has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.command)
+                && size(self.gatherSpec.command) > 0 && has(self.gatherSpec.audit)
+                && self.gatherSpec.audit)'
+            - message: obfuscate.enabled requires uploadTarget, obfuscate.source,
+                or storage
+              rule: '!(has(self.obfuscate) && has(self.obfuscate.enabled) && self.obfuscate.enabled
+                && !(has(self.uploadTarget) || has(self.obfuscate.source) || has(self.storage)))'
+            - message: obfuscate.source requires obfuscate.enabled
+              rule: '!(has(self.obfuscate) && has(self.obfuscate.source) && (!has(self.obfuscate.enabled)
+                || !self.obfuscate.enabled))'
+            - message: obfuscate.source requires uploadTarget (obfuscated output is
+                uploaded, not persisted on PVC)
+              rule: '!(has(self.obfuscate) && has(self.obfuscate.source) && !has(self.uploadTarget))'
+            - message: obfuscate.source cannot be combined with imageStreamRef or
+                gatherSpec.command/audit (gather is skipped)
+              rule: '!(has(self.obfuscate) && has(self.obfuscate.source) && (has(self.imageStreamRef)
+                || (has(self.gatherSpec) && (has(self.gatherSpec.command) || has(self.gatherSpec.audit)
+                && self.gatherSpec.audit))))'
+          status:
+            description: MustGatherStatus defines the observed state of MustGather
+            properties:
+              completed:
+                type: boolean
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastUpdate:
+                format: date-time
+                type: string
+              reason:
+                type: string
+              status:
+                type: string
+            required:
+            - completed
+            type: object
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: spec values are immutable once set
+          rule: '!has(oldSelf.spec) || self.spec == oldSelf.spec'
+    served: true
+    storage: true
+    subresources:
+      status: {}
+  - deprecated: true
+    deprecationWarning: operator.openshift.io/v1alpha1 MustGather is deprecated; use
+      operator.openshift.io/v1 MustGather
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: MustGather is the Schema for the mustgathers API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: MustGatherSpec defines the desired state of MustGather
+            properties:
+              gatherSpec:
+                description: |-
+                  GatherSpec allows overriding the command and/or arguments for the must-gather container
+                  (default or custom image from imageStreamRef) and configures time-based collection filters.
+                  Time-based filters (since, sinceTime) apply regardless of imageStreamRef.
+                  Audit is only allowed with the default image and default gather command (see CRD validation rules).
+                properties:
+                  args:
+                    description: Args is a string array of arguments passed to the
+                      container command.
+                    items:
+                      type: string
+                    maxItems: 256
+                    type: array
+                  audit:
+                    description: |-
+                      Audit requests audit log collection via the default gather entrypoint.
+                      It must be false when imageStreamRef is set or when gatherSpec.command is set without imageStreamRef.
+                    type: boolean
+                  command:
+                    description: |-
+                      Command is a string array representing the container entrypoint.
+                      When set, it replaces the default gather wrapper for both the default must-gather image and custom images.
+                    items:
+                      type: string
+                    maxItems: 256
+                    type: array
+                  since:
+                    description: |-
+                      Since only returns logs newer than a relative duration like "2h" or "30m".
+                      This is passed to the must-gather script to filter log collection.
+                      Only one of since or sinceTime may be specified.
+                    format: duration
+                    type: string
+                  sinceTime:
+                    description: |-
+                      SinceTime only returns logs after a specific date/time (RFC3339 format).
+                      This is passed to the must-gather script to filter log collection.
+                      Only one of since or sinceTime may be specified.
+                    format: date-time
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: only one of since or sinceTime may be specified
+                  rule: '!(has(self.since) && has(self.sinceTime))'
+              imageStreamRef:
+                description: |-
+                  ImageStreamRef specifies a custom image from the allowlist to be used for the
+                  must-gather run.
+                properties:
+                  name:
+                    description: Name is the name of the ImageStream resource in the
+                      operator's namespace.
+                    type: string
+                  tag:
+                    description: Tag is the name of the tag within the ImageStream.
+                    type: string
+                required:
+                - name
+                - tag
+                type: object
+              mustGatherTimeout:
+                description: |-
+                  A time limit for gather command to complete a floating point number with a suffix:
+                  "s" for seconds, "m" for minutes, "h" for hours.
+                  Will default to no time limit.
+                format: duration
+                type: string
+              obfuscate:
+                description: |-
+                  obfuscate configures post-gather obfuscation of sensitive data
+                  (IPs, MACs, Secrets, ConfigMaps) before upload using must-gather-clean.
+                  When obfuscate.enabled is true, the operator runs obfuscation on the
+                  collected or referenced bundle before tarring and uploading.
+                  Supported operational modes:
+                    - Gather + Obfuscate + Upload: enabled with uploadTarget (full pipeline)
+                    - Gather + Obfuscate + PVC: enabled with storage (cleaned output persisted, no upload)
+                    - Obfuscate + Upload: enabled with source and uploadTarget (redact existing bundle and upload)
+                properties:
+                  enabled:
+                    default: false
+                    description: |-
+                      enabled activates obfuscation of the must-gather bundle.
+                      When true, the operator runs obfuscation on the collected or
+                      referenced bundle before tarring and uploading.
+                    type: boolean
+                  obfuscationConfigRef:
+                    description: |-
+                      obfuscationConfigRef references a ConfigMap in the same namespace as
+                      the MustGather CR containing a must-gather-clean configuration file.
+                      The ConfigMap must have a key named "config.yaml" whose value is a
+                      valid must-gather-clean obfuscation config.
+                      If omitted, the operator uses the built-in default config which
+                      consistently replaces IPs and MACs, and omits Secrets and ConfigMaps.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  source:
+                    description: |-
+                      source references an existing must-gather bundle on a PVC
+                      for obfuscation without running a new gather.
+                      When set, the operator skips the gather step and runs obfuscation
+                      directly on the referenced PVC contents (mounted read-only).
+                      The obfuscated output is written to a temporary volume and uploaded
+                      via SFTP. Requires uploadTarget to be set.
+                      The PVC must be in the same namespace as the MustGather CR.
+                    properties:
+                      claim:
+                        description: claim defines the PersistentVolumeClaim to use.
+                        properties:
+                          name:
+                            description: |-
+                              name defines the PersistentVolumeClaim to use,
+                              should be already present in the same namespace.
+                            maxLength: 253
+                            type: string
+                            x-kubernetes-validations:
+                            - message: a lowercase RFC 1123 subdomain must consist
+                                of lower case alphanumeric characters, '-' or '.',
+                                and must start and end with an alphanumeric character.
+                              rule: '!format.dns1123Subdomain().validate(self).hasValue()'
+                        required:
+                        - name
+                        type: object
+                      subPath:
+                        description: subPath defines the path to a sub directory within
+                          the PersistentVolume to use.
+                        type: string
+                    required:
+                    - claim
+                    type: object
+                    x-kubernetes-validations:
+                    - message: subPath must not contain '..'
+                      rule: '!has(self.subPath) || !self.subPath.contains(''..'')'
+                type: object
+                x-kubernetes-validations:
+                - message: obfuscationConfigRef.name must not be empty
+                  rule: '!has(self.obfuscationConfigRef) || size(self.obfuscationConfigRef.name)
+                    > 0'
+              retainResourcesOnCompletion:
+                default: false
+                description: |-
+                  A flag to specify if resources (secret, job, pods) should be retained when the MustGather completes.
+                  If set to true, resources will be retained. If false or not set, resources will be deleted (default behavior).
+                type: boolean
+              serviceAccountName:
+                description: |-
+                  ServiceAccountName is the name of the ServiceAccount to use for running the must-gather Job.
+                  This field is required and must reference a ServiceAccount with sufficient RBAC permissions
+                  to collect cluster data. The operator will verify the ServiceAccount exists before creating the Job.
+                minLength: 1
+                type: string
+              storage:
+                description: |-
+                  The storage configuration for persisting the collected must-gather tar archive.
+                  If not specified, an ephemeral volume is used which will not persist
+                  the tar archive on the cluster.
+                properties:
+                  persistentVolume:
+                    description: persistentVolume defines the configuration for a
+                      PersistentVolume.
+                    properties:
+                      claim:
+                        description: claim defines the PersistentVolumeClaim to use.
+                        properties:
+                          name:
+                            description: |-
+                              name defines the PersistentVolumeClaim to use,
+                              should be already present in the same namespace.
+                            maxLength: 253
+                            type: string
+                            x-kubernetes-validations:
+                            - message: a lowercase RFC 1123 subdomain must consist
+                                of lower case alphanumeric characters, '-' or '.',
+                                and must start and end with an alphanumeric character.
+                              rule: '!format.dns1123Subdomain().validate(self).hasValue()'
+                        required:
+                        - name
+                        type: object
+                      subPath:
+                        description: subPath defines the path to a sub directory within
+                          the PersistentVolume to use.
+                        type: string
+                    required:
+                    - claim
+                    type: object
+                    x-kubernetes-validations:
+                    - message: subPath must not contain '..'
+                      rule: '!has(self.subPath) || !self.subPath.contains(''..'')'
+                  type:
+                    description: |-
+                      type defines the type of storage to use.
+                      Available storage types are PersistentVolume only.
+                    enum:
+                    - PersistentVolume
+                    type: string
+                required:
+                - persistentVolume
+                - type
+                type: object
+              uploadTarget:
+                description: |-
+                  The target location for the must-gather bundle to be uploaded to.
+                  If not specified, the bundle will not be uploaded.
+                properties:
+                  sftp:
+                    description: SFTP details for the upload.
+                    properties:
+                      caseID:
+                        description: The ID of the case this must gather will be uploaded
+                          to
+                        type: string
+                      caseManagementAccountSecretRef:
+                        description: the secret container a username and password
+                          field to be used to authenticate with red hat case management
+                          systems
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      host:
+                        default: sftp.access.redhat.com
+                        description: |-
+                          host specifies the SFTP server hostname.
+                          The host name of the SFTP server
+                        type: string
+                      internalUser:
+                        default: false
+                        description: |-
+                          A flag to specify if the upload user provided in the caseManagementAccountSecret is a RH internal user.
+                          See documentation for further information.
+                        type: boolean
+                    required:
+                    - caseID
+                    - caseManagementAccountSecretRef
+                    type: object
+                    x-kubernetes-validations:
+                    - message: caseID must not be empty
+                      rule: size(self.caseID) > 0
+                    - message: caseManagementAccountSecretRef.name must not be empty
+                      rule: size(self.caseManagementAccountSecretRef.name) > 0
+                  type:
+                    description: type defines the method used for uploading to a specific
+                      target.
+                    enum:
+                    - SFTP
+                    type: string
+                required:
+                - type
+                type: object
+                x-kubernetes-validations:
+                - message: sftp upload target config is required when upload type
+                    is SFTP, and forbidden otherwise
+                  rule: 'has(self.type) && self.type == ''SFTP'' ? has(self.sftp)
+                    : !has(self.sftp)'
+            required:
+            - serviceAccountName
+            type: object
+            x-kubernetes-validations:
+            - message: audit mode is only supported with the default must-gather image
+              rule: '!(has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.audit)
+                && self.gatherSpec.audit)'
+            - message: audit mode cannot be combined with custom gather commands
+              rule: '!(!has(self.imageStreamRef) && has(self.gatherSpec) && has(self.gatherSpec.command)
+                && size(self.gatherSpec.command) > 0 && has(self.gatherSpec.audit)
+                && self.gatherSpec.audit)'
+            - message: obfuscate.enabled requires uploadTarget, obfuscate.source,
+                or storage
+              rule: '!(has(self.obfuscate) && has(self.obfuscate.enabled) && self.obfuscate.enabled
+                && !(has(self.uploadTarget) || has(self.obfuscate.source) || has(self.storage)))'
+            - message: obfuscate.source requires obfuscate.enabled
+              rule: '!(has(self.obfuscate) && has(self.obfuscate.source) && (!has(self.obfuscate.enabled)
+                || !self.obfuscate.enabled))'
+            - message: obfuscate.source requires uploadTarget (obfuscated output is
+                uploaded, not persisted on PVC)
+              rule: '!(has(self.obfuscate) && has(self.obfuscate.source) && !has(self.uploadTarget))'
+            - message: obfuscate.source cannot be combined with imageStreamRef or
+                gatherSpec.command/audit (gather is skipped)
+              rule: '!(has(self.obfuscate) && has(self.obfuscate.source) && (has(self.imageStreamRef)
+                || (has(self.gatherSpec) && (has(self.gatherSpec.command) || has(self.gatherSpec.audit)
+                && self.gatherSpec.audit))))'
+          status:
+            description: MustGatherStatus defines the observed state of MustGather
+            properties:
+              completed:
+                type: boolean
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastUpdate:
+                format: date-time
+                type: string
+              reason:
+                type: string
+              status:
+                type: string
+            required:
+            - completed
+            type: object
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: spec values are immutable once set
+          rule: '!has(oldSelf.spec) || self.spec == oldSelf.spec'
+    served: true
+    storage: false
+    subresources:
+      status: {}

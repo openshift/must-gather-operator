@@ -1,0 +1,221 @@
+stage: tasks
+template: eval-generation/output-refined-templates/tasks-template.md
+artifact: tasks.md
+eval_count: 6
+evals:
+  - id: eval-r001-tasks-001
+    round: 1
+    stage: tasks
+    source_issue_ids: [ISSUE-002]
+    patterns: [PAT-002]
+    prompt: |
+      When tasks modify shared resources consumed by multiple containers in the same pod,
+      do the acceptance criteria cover ALL consumers of those resources?
+
+      The tasks must:
+      1. In §4 (task payloads), any task that modifies a shared volume mount, SubPath,
+         or environment variable configuration must list ALL containers that consume
+         the shared resource in its acceptance criteria — not just the primary container
+      2. In §4 acceptance criteria, include a mount consistency check that verifies the
+         same computed path or configuration value is applied to every container sharing
+         the resource
+      3. In §3 (task manifest), if one task modifies a shared resource producer (e.g., a
+         path computation function), downstream tasks that configure individual containers
+         must declare a dependency on it
+      4. In §4 (non-goals / forbidden edits), explicitly forbid modifying one container's
+         mount configuration without updating all containers sharing the same volume
+      5. In §5 (orchestration notes), flag shared-resource tasks as merge conflict
+         hotspots since multiple container configuration changes may touch the same
+         function
+    assertions:
+      must_mention:
+        - "all containers"
+        - "mount consistency"
+        - "shared resource"
+        - "acceptance criteria"
+        - "dependency"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-tasks-002
+    round: 1
+    stage: tasks
+    source_issue_ids: [ISSUE-003]
+    patterns: [PAT-003]
+    prompt: |
+      When tasks process user-provided field inputs that are incorporated into resource
+      specs, do the acceptance criteria enumerate specific edge cases?
+
+      The tasks must:
+      1. In §4 (task payloads), any task implementing user-input sanitization must
+         enumerate explicit edge-case scenarios: empty string, whitespace-only,
+         separator-only (e.g., "/" or "//"), and normal input
+      2. In §4 acceptance criteria, require table-driven tests with one row per edge
+         case — not a single generic "handles edge cases" assertion
+      3. In §4 (implementation notes), specify the sanitization order (e.g., trim
+         whitespace first, then trim separators) since different orderings produce
+         different results for combined edge cases
+      4. In §4 acceptance criteria, verify that each edge case produces a valid output
+         that does not cause downstream resource creation failures (e.g., a Kubernetes
+         volume mount with an empty SubPath)
+      5. In §3 (task manifest), assign appropriate complexity to input sanitization
+         tasks — edge-case coverage with table-driven tests is not trivial
+    assertions:
+      must_mention:
+        - "edge case"
+        - "empty"
+        - "whitespace"
+        - "table-driven"
+        - "sanitization"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-tasks-003
+    round: 1
+    stage: tasks
+    source_issue_ids: [ISSUE-006]
+    patterns: [PAT-007]
+    prompt: |
+      When a feature has multiple operational modes with distinct resource topologies,
+      are there mode-specific verification tasks or acceptance criteria?
+
+      The tasks must:
+      1. In §3 (task manifest), include distinct task rows or acceptance criteria
+         branches for each operational mode — not a single task that covers all modes
+         with a generic "supports multiple modes" assertion
+      2. In §4 (task payloads), each mode-specific task or acceptance criterion must
+         specify the expected container composition (which containers are present or
+         absent) and volume topology (which volumes exist, access modes)
+      3. In §4 acceptance criteria, include mode-specific test scenarios that verify
+         the unique behavior of each mode (e.g., command construction differences,
+         container presence/absence, volume reuse vs creation)
+      4. In §4 (implementation notes), document mode-selection logic and the CR spec
+         field combination that triggers each mode
+      5. In §0 (input coverage checklist), confirm that every operational mode is
+         covered by at least one task ID
+    assertions:
+      must_mention:
+        - "mode-specific"
+        - "container composition"
+        - "volume topology"
+        - "acceptance criteria"
+        - "each mode"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-tasks-004
+    round: 1
+    stage: tasks
+    source_issue_ids: [ISSUE-004, ISSUE-008]
+    patterns: [PAT-005, PAT-009]
+    prompt: |
+      When tasks add controller-side validation logic, do the acceptance criteria specify
+      the expected status outcomes and return conventions?
+
+      The tasks must:
+      1. In §4 (task payloads), any task implementing validation must specify the exact
+         status condition type, reason, and message pattern to use — consistent with
+         the repo's existing condition naming convention
+      2. In §4 acceptance criteria, include the expected controller return value for
+         validation failures: whether to requeue, what reconcile result to return, and
+         how the return convention aligns with the spec's mutability model
+      3. In §4 acceptance criteria, require that validation failures emit observable
+         signals (events, metrics, or log entries) for debuggability
+      4. In §4 (implementation notes), distinguish terminal validation failures (no
+         requeue because spec is immutable) from retryable validation failures, and
+         mandate the correct return convention for each
+      5. In §4 acceptance criteria, include test cases for the status update path —
+         verifying that condition type, reason, status fields, and events are set
+         correctly on validation failure
+    assertions:
+      must_mention:
+        - "condition type"
+        - "reason"
+        - "return convention"
+        - "terminal"
+        - "event"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-tasks-005
+    round: 1
+    stage: tasks
+    source_issue_ids: [ISSUE-009]
+    patterns: [PAT-010]
+    prompt: |
+      When tasks implement resource cleanup or deletion logic, do the acceptance criteria
+      include ownership verification before deletion?
+
+      The tasks must:
+      1. In §4 (task payloads), any task implementing cleanup must include ownership
+         verification in its acceptance criteria — verifying that the resource's
+         OwnerReferences contain the expected controller's UID before deletion
+      2. In §4 acceptance criteria, include a test case for the name collision scenario:
+         a resource with the expected name exists but belongs to a different controller
+         or CR instance, and cleanup must NOT delete it
+      3. In §4 (implementation notes), distinguish single-owner resources (delete on
+         owner removal) from multi-owner resources (remove owner reference first,
+         delete only if last owner)
+      4. In §4 acceptance criteria, verify that cleanup handles the "resource already
+         deleted" case gracefully (idempotency) — the resource may have been cleaned up
+         by another reconciliation cycle
+      5. In §4 (non-goals / forbidden edits), forbid name-based deletion without
+         ownership verification
+    assertions:
+      must_mention:
+        - "ownership"
+        - "OwnerReferences"
+        - "name collision"
+        - "multi-owner"
+        - "idempotent"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
+
+  - id: eval-r001-tasks-006
+    round: 1
+    stage: tasks
+    source_issue_ids: [ISSUE-005, ISSUE-007]
+    patterns: [PAT-008, PAT-011]
+    prompt: |
+      When tasks modify proxy-dependent behavior that spans both the controller process
+      (Go code) and a child pod's shell script, do the acceptance criteria require
+      dual-path consistency verification?
+
+      The tasks must:
+      1. In §4 (task payloads), any task that modifies proxy handling on one side (Go
+         validation or shell upload) must include acceptance criteria that verify the
+         other side is consistent — e.g., if the Go-side adds support for a new proxy
+         protocol, the shell-side script must also handle it, and the task must verify both
+      2. In §4 acceptance criteria, include a proxy environment variable casing test:
+         verify that the operator reads uppercase proxy vars (HTTP_PROXY, HTTPS_PROXY,
+         NO_PROXY) from its own environment and injects them as lowercase vars
+         (http_proxy, https_proxy, no_proxy) into the container spec — matching the
+         shell script's expected variable names
+      3. In §4 acceptance criteria, include a proxy authentication parity test: verify
+         that a proxy URL with credentials containing special characters (@, :, %)
+         produces the same effective authentication on both the Go-side (url.URL.User
+         parsing + Base64 Proxy-Authorization header) and the shell-side (sed/cut manual
+         parsing + nc --proxy-auth or socat export)
+      4. In §4 acceptance criteria, include a NO_PROXY bypass consistency test: verify
+         that when the target host is in the NO_PROXY list, the Go-side pre-flight check
+         bypasses the proxy (via httpproxy library) and document whether the shell-side
+         script also honors no_proxy or has a known divergence
+      5. In §3 (task manifest), if a proxy-related task modifies the Go-side validation
+         path, include a separate task or dependency for auditing the shell-side upload
+         script for the same change — and vice versa
+    assertions:
+      must_mention:
+        - "dual-path"
+        - "uppercase"
+        - "lowercase"
+        - "NO_PROXY"
+        - "authentication"
+        - "shell script"
+    scoring:
+      method: weighted_checklist
+      pass_threshold: 80
