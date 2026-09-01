@@ -292,12 +292,12 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	// Check status of job and update any metric counts
 	if existingJob.Status.Active > 0 {
-		reqLogger.Info("mustgather Job pods are still running")
+		reqLogger.Info("mustgather Job pods are still running", "age", getJobAge(existingJob))
 	} else {
 		// if the job has been marked as Succeeded or Failed but instance has no DeletionTimestamp,
 		// requeue instance to handle resource clean-up (delete secret, job, and MustGather)
 		if existingJob.Status.Succeeded > 0 {
-			reqLogger.Info("mustgather Job pods succeeded")
+			reqLogger.Info("mustgather Job pods succeeded", "age", getJobAge(existingJob))
 			return r.handleJobCompletion(ctx, reqLogger, instance, "Completed", "MustGather Job pods succeeded")
 		}
 		backoffLimit := int32(0)
@@ -305,7 +305,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			backoffLimit = *existingJob.Spec.BackoffLimit
 		}
 		if existingJob.Status.Failed > backoffLimit {
-			reqLogger.Info("MustGather Job pods failed")
+			reqLogger.Info("MustGather Job pods failed", "age", getJobAge(existingJob))
 			localmetrics.MetricMustGatherErrors.Inc()
 			return r.handleJobCompletion(ctx, reqLogger, instance, "Failed", "MustGather Job pods failed")
 		}
@@ -556,7 +556,7 @@ func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, r
 		}
 	}
 
-	reqLogger.V(4).Info("successfully cleaned up mustgather resources")
+	logCleanupSummary(reqLogger, tmpJob.Name, len(podList.Items), instance.Namespace)
 	return nil
 }
 
@@ -705,3 +705,33 @@ func (r *MustGatherReconciler) cleanupTrustedCAConfigMap(ctx context.Context, re
 		"configMapName", r.TrustedCAConfigMap, "remainingNumOwners", len(updatedOwnerRefs))
 	return nil
 }
+
+// getJobAge returns a human-readable string describing how long ago the job was created.
+func getJobAge(job *batchv1.Job) string {
+	age := time.Since(job.CreationTimestamp.Time)
+	if age < 0 {
+		return "0s"
+	}
+	age = age.Truncate(time.Second)
+	if age < time.Minute {
+		return fmt.Sprintf("%ds", int(age.Seconds()))
+	} else if age < time.Hour {
+		minutes := int(age.Minutes())
+		seconds := int(age.Seconds()) % 60
+		return fmt.Sprintf("%dm%ds", minutes, seconds)
+	} else {
+		hours := int(age.Hours())
+		minutes := int(age.Minutes()) % 60
+		return fmt.Sprintf("%dh%dm", hours, minutes)
+	}
+}
+
+// logCleanupSummary logs a summary of the resources that were cleaned up.
+func logCleanupSummary(reqLogger logr.Logger, jobName string, podCount int, namespace string) {
+	if podCount == 0 {
+		reqLogger.V(4).Info("cleanup complete", "job", jobName, "namespace", namespace, "podsDeleted", podCount)
+		return
+	}
+	reqLogger.Info("cleanup complete", "job", jobName, "namespace", namespace, "podsDeleted", podCount)
+}
+
