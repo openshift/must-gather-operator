@@ -38,8 +38,8 @@ const (
 	obfuscateConfigMountPath  = "/etc/must-gather-clean/custom-config/config.yaml"
 	obfuscateConfigMapKey     = "config.yaml"
 
-	// obfuscateChownSuffix transfers gather output ownership to the upload container UID (65534).
-	// Captures the gather exit status first, runs chown (|| true so non-root images don't
-	// cause retries), then exits with the original status so gather failures propagate.
-	obfuscateChownSuffix = "gather_rc=$?; chown -R 65534:65534 /must-gather || true; exit $gather_rc"
+	// obfuscateChownSuffix transfers gather output ownership to the upload container UID (65534)
+	// so the obfuscation binary can read the files. Uses || true so non-root images don't
+	// cause retries. Exit-code propagation is handled by gatherCommand itself.
+	obfuscateChownSuffix = "chown -R 65534:65534 /must-gather || true"
 )
