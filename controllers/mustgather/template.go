@@ -50,7 +50,7 @@ const (
 	uploadEnvMustGatherOutput = "must_gather_output"
 	uploadEnvMustGatherUpload = "must_gather_upload"
 	uploadEnvFilenamePrefix   = "FILENAME_PREFIX"
-	uploadCommand             = "count=0\nuntil [ $count -gt 4 ]\ndo\n  while `pgrep -a gather > /dev/null`\n  do\n    echo \"waiting for gathers to complete ...\"\n    sleep 120\n    count=0\n  done\n  echo \"no gather is running ($count / 4)\"\n  ((count++))\n  sleep 30\ndone\ngather_rc_file=\"/must-gather/.gather-exit-code\"\nif [ ! -f \"$gather_rc_file\" ]; then\n  echo \"Error: gather exit code file not found. Gather may have crashed. Skipping upload.\"\n  exit 1\nfi\ngather_rc=$(cat \"$gather_rc_file\")\nif [ \"$gather_rc\" != \"0\" ]; then\n  echo \"Error: gather failed with exit code $gather_rc. Skipping upload.\"\n  exit 1\nfi\n/usr/local/bin/upload"
+	uploadCommand             = "count=0\nuntil [ $count -gt 4 ]\ndo\n  while `pgrep -a gather > /dev/null`\n  do\n    echo \"waiting for gathers to complete ...\"\n    sleep 120\n    count=0\n  done\n  echo \"no gather is running ($count / 4)\"\n  ((count++))\n  sleep 30\ndone\ngather_rc_file=\"" + gatherExitCodeFile + "\"\nif [ ! -f \"$gather_rc_file\" ]; then\n  echo \"Error: gather exit code file not found. Gather may have crashed. Skipping upload.\"\n  exit 1\nfi\ngather_rc=$(cat \"$gather_rc_file\")\nif [ \"$gather_rc\" != \"0\" ]; then\n  echo \"Error: gather failed with exit code $gather_rc. Skipping upload.\"\n  exit 1\nfi\n/usr/local/bin/upload"
 	uploadCommandDirect       = "/usr/local/bin/upload"
 
 	// SSH directory and known hosts file
@@ -90,6 +90,13 @@ func isObfuscateEnabled(obfuscate *mustgatherv1.ObfuscateConfig) bool {
 
 func shouldAppendObfuscateChown(obfuscate *mustgatherv1.ObfuscateConfig) bool {
 	return isObfuscateEnabled(obfuscate) && obfuscate.Source == nil
+}
+
+func gatherSuffix(obfuscate *mustgatherv1.ObfuscateConfig) string {
+	if shouldAppendObfuscateChown(obfuscate) {
+		return obfuscateChownSuffix
+	}
+	return gatherExitSuffix
 }
 
 func hasSFTPUpload(mustGather mustgatherv1.MustGather) bool {
@@ -340,12 +347,7 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 	if len(command) > 0 {
 		needsWrap := shouldAppendObfuscateChown(obfuscate) || writeExitMarker
 		if needsWrap {
-			suffix := "\ngather_rc=$?"
-			if shouldAppendObfuscateChown(obfuscate) {
-				suffix += obfuscateChownSuffix
-			} else {
-				suffix += gatherExitSuffix
-			}
+			suffix := "\ngather_rc=$?" + gatherSuffix(obfuscate)
 			wrappedCmd := "\"$@\"" + suffix
 			container.Command = []string{"/bin/bash", "-c", wrappedCmd, "--"}
 			allArgs := make([]string, 0, len(command)+len(args))
@@ -360,11 +362,9 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 		}
 	} else {
 		gatherCmd := fmt.Sprintf(gatherCommand, math.Ceil(timeout.Seconds()), commandBinary)
-		if shouldAppendObfuscateChown(obfuscate) {
-			gatherCmd += obfuscateChownSuffix
-		} else {
-			gatherCmd += gatherExitSuffix
-		}
+		// Always appended: exit $gather_rc is needed for correct exit code propagation
+		// regardless of writeExitMarker; the marker file is harmless without an upload container.
+		gatherCmd += gatherSuffix(obfuscate)
 		container.Command = []string{
 			"/bin/bash",
 			"-c",
