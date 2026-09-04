@@ -38,8 +38,19 @@ const (
 	obfuscateConfigMountPath  = "/etc/must-gather-clean/custom-config/config.yaml"
 	obfuscateConfigMapKey     = "config.yaml"
 
+	// gatherExitCodeFile is the marker file the gather container writes its exit
+	// code to. The upload container reads it to decide whether to proceed.
+	gatherExitCodeFile = "/must-gather/.gather-exit-code"
+
+	// gatherExitSuffix writes the gather exit code to the marker file and exits.
+	// Appended to gatherCommand (default path) or custom-command wrappers
+	// when an upload container is present.
+	// Expects $gather_rc to be set by the preceding script.
+	gatherExitSuffix = "\necho $gather_rc > " + gatherExitCodeFile + "\nexit $gather_rc"
+
 	// obfuscateChownSuffix transfers gather output ownership to the upload container UID (65534).
-	// Captures the gather exit status first, runs chown (|| true so non-root images don't
+	// Writes the exit code marker, runs chown (|| true so non-root images don't
 	// cause retries), then exits with the original status so gather failures propagate.
-	obfuscateChownSuffix = "gather_rc=$?; chown -R 65534:65534 /must-gather || true; exit $gather_rc"
+	// Expects $gather_rc to be set by the preceding script.
+	obfuscateChownSuffix = "\necho $gather_rc > " + gatherExitCodeFile + "\nchown -R 65534:65534 /must-gather || true\nexit $gather_rc"
 )

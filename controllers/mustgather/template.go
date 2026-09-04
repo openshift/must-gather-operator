@@ -30,7 +30,7 @@ const (
 
 	gatherCommandBinaryAudit   = "gather_audit_logs"
 	gatherCommandBinaryNoAudit = "gather"
-	gatherCommand              = "timeout %v bash -x -c -- '/usr/bin/%v' 2>&1 | tee /must-gather/must-gather.log\n\nstatus=$?\nif [[ $status -eq 124 || $status -eq 137 ]]; then\n  echo \"Gather timed out.\"\n  exit 0\nfi | tee -a /must-gather/must-gather.log"
+	gatherCommand              = "set -o pipefail\ntimeout %v bash -x -c -- '/usr/bin/%v' 2>&1 | tee /must-gather/must-gather.log\ngather_rc=$?\nif [[ $gather_rc -eq 124 || $gather_rc -eq 137 ]]; then\n  echo \"Gather timed out.\" | tee -a /must-gather/must-gather.log\n  gather_rc=0\nfi"
 	gatherContainerName        = "gather"
 
 	// Environment variables for time-based log filtering
@@ -50,7 +50,7 @@ const (
 	uploadEnvMustGatherOutput = "must_gather_output"
 	uploadEnvMustGatherUpload = "must_gather_upload"
 	uploadEnvFilenamePrefix   = "FILENAME_PREFIX"
-	uploadCommand             = "count=0\nuntil [ $count -gt 4 ]\ndo\n  while `pgrep -a gather > /dev/null`\n  do\n    echo \"waiting for gathers to complete ...\"\n    sleep 120\n    count=0\n  done\n  echo \"no gather is running ($count / 4)\"\n  ((count++))\n  sleep 30\ndone\n/usr/local/bin/upload"
+	uploadCommand             = "count=0\nuntil [ $count -gt 4 ]\ndo\n  while `pgrep -a gather > /dev/null`\n  do\n    echo \"waiting for gathers to complete ...\"\n    sleep 120\n    count=0\n  done\n  echo \"no gather is running ($count / 4)\"\n  ((count++))\n  sleep 30\ndone\ngather_rc_file=\"" + gatherExitCodeFile + "\"\nif [ ! -f \"$gather_rc_file\" ]; then\n  echo \"Error: gather exit code file not found. Gather may have crashed. Skipping upload.\"\n  exit 1\nfi\ngather_rc=$(cat \"$gather_rc_file\")\nif [ \"$gather_rc\" != \"0\" ]; then\n  echo \"Error: gather failed with exit code $gather_rc. Skipping upload.\"\n  exit 1\nfi\n/usr/local/bin/upload"
 	uploadCommandDirect       = "/usr/local/bin/upload"
 
 	// SSH directory and known hosts file
@@ -90,6 +90,13 @@ func isObfuscateEnabled(obfuscate *mustgatherv1.ObfuscateConfig) bool {
 
 func shouldAppendObfuscateChown(obfuscate *mustgatherv1.ObfuscateConfig) bool {
 	return isObfuscateEnabled(obfuscate) && obfuscate.Source == nil
+}
+
+func gatherSuffix(obfuscate *mustgatherv1.ObfuscateConfig) string {
+	if shouldAppendObfuscateChown(obfuscate) {
+		return obfuscateChownSuffix
+	}
+	return gatherExitSuffix
 }
 
 func hasSFTPUpload(mustGather mustgatherv1.MustGather) bool {
@@ -176,10 +183,11 @@ func getJobTemplate(image string, operatorImage string, mustGather mustgatherv1.
 		}
 	}
 
+	writeExitMarker := shouldAddUploadContainer(mustGather)
 	if !hasObfuscateSource(mustGather.Spec.Obfuscate) {
 		job.Spec.Template.Spec.Containers = append(
 			job.Spec.Template.Spec.Containers,
-			getGatherContainer(image, audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName, timeFilter, command, args, directoryName, mustGather.Spec.Obfuscate),
+			getGatherContainer(image, audit, timeout, mustGather.Spec.Storage, trustedCAConfigMapName, timeFilter, command, args, directoryName, mustGather.Spec.Obfuscate, writeExitMarker),
 		)
 	}
 
@@ -301,7 +309,7 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 	}
 }
 
-func getGatherContainer(image string, audit bool, timeout time.Duration, storage *mustgatherv1.Storage, trustedCAConfigMapName string, timeFilter *GatherTimeFilter, command []string, args []string, directoryName string, obfuscate *mustgatherv1.ObfuscateConfig) corev1.Container {
+func getGatherContainer(image string, audit bool, timeout time.Duration, storage *mustgatherv1.Storage, trustedCAConfigMapName string, timeFilter *GatherTimeFilter, command []string, args []string, directoryName string, obfuscate *mustgatherv1.ObfuscateConfig, writeExitMarker bool) corev1.Container {
 	var commandBinary string
 	if audit {
 		commandBinary = gatherCommandBinaryAudit
@@ -337,10 +345,10 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 	}
 
 	if len(command) > 0 {
-		if shouldAppendObfuscateChown(obfuscate) {
-			// Wrap the custom command so chown still runs for the upload container (UID 65534).
-			// "$@" re-executes the original command+args with proper quoting preserved.
-			wrappedCmd := "\"$@\"\n" + obfuscateChownSuffix
+		needsWrap := shouldAppendObfuscateChown(obfuscate) || writeExitMarker
+		if needsWrap {
+			suffix := "\ngather_rc=$?" + gatherSuffix(obfuscate)
+			wrappedCmd := "\"$@\"" + suffix
 			container.Command = []string{"/bin/bash", "-c", wrappedCmd, "--"}
 			allArgs := make([]string, 0, len(command)+len(args))
 			allArgs = append(allArgs, command...)
@@ -354,9 +362,9 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 		}
 	} else {
 		gatherCmd := fmt.Sprintf(gatherCommand, math.Ceil(timeout.Seconds()), commandBinary)
-		if shouldAppendObfuscateChown(obfuscate) {
-			gatherCmd += "\n" + obfuscateChownSuffix
-		}
+		// Always appended: exit $gather_rc is needed for correct exit code propagation
+		// regardless of writeExitMarker; the marker file is harmless without an upload container.
+		gatherCmd += gatherSuffix(obfuscate)
 		container.Command = []string{
 			"/bin/bash",
 			"-c",
