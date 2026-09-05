@@ -38,8 +38,14 @@ const (
 	obfuscateConfigMountPath  = "/etc/must-gather-clean/custom-config/config.yaml"
 	obfuscateConfigMapKey     = "config.yaml"
 
+	// gatherSuccessMarkerPath is the path to the marker file that the gather container
+	// writes on successful completion. The upload container checks for this file before
+	// proceeding with obfuscation or SFTP upload.
+	gatherSuccessMarkerPath = "/must-gather/.gather-success"
+
 	// obfuscateChownSuffix transfers gather output ownership to the upload container UID (65534).
-	// Captures the gather exit status first, runs chown (|| true so non-root images don't
-	// cause retries), then exits with the original status so gather failures propagate.
-	obfuscateChownSuffix = "gather_rc=$?; chown -R 65534:65534 /must-gather || true; exit $gather_rc"
+	// Captures the gather exit status first, writes the success marker on zero exit,
+	// runs chown (|| true so non-root images don't cause retries), then exits with
+	// the original status so gather failures propagate.
+	obfuscateChownSuffix = "gather_rc=$?; if [ $gather_rc -eq 0 ]; then touch " + gatherSuccessMarkerPath + "; fi; chown -R 65534:65534 /must-gather || true; exit $gather_rc"
 )
