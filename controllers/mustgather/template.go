@@ -30,7 +30,7 @@ const (
 
 	gatherCommandBinaryAudit   = "gather_audit_logs"
 	gatherCommandBinaryNoAudit = "gather"
-	gatherCommand              = "timeout %v bash -x -c -- '/usr/bin/%v' 2>&1 | tee /must-gather/must-gather.log\n\nstatus=$?\nif [[ $status -eq 124 || $status -eq 137 ]]; then\n  echo \"Gather timed out.\"\n  exit 0\nfi | tee -a /must-gather/must-gather.log"
+	gatherCommand              = "set -o pipefail\ntimeout %v bash -x -c -- '/usr/bin/%v' 2>&1 | tee /must-gather/must-gather.log\nstatus=${PIPESTATUS[0]}\nif [[ $status -eq 124 || $status -eq 137 ]]; then\n  echo \"Gather timed out.\" | tee -a /must-gather/must-gather.log\n  touch " + gatherSuccessMarkerPath + "\n  exit 0\nfi\nif [[ $status -ne 0 ]]; then\n  exit $status\nfi\ntouch " + gatherSuccessMarkerPath
 	gatherContainerName        = "gather"
 
 	// Environment variables for time-based log filtering
@@ -50,7 +50,9 @@ const (
 	uploadEnvMustGatherOutput = "must_gather_output"
 	uploadEnvMustGatherUpload = "must_gather_upload"
 	uploadEnvFilenamePrefix   = "FILENAME_PREFIX"
-	uploadCommand             = "count=0\nuntil [ $count -gt 4 ]\ndo\n  while `pgrep -a gather > /dev/null`\n  do\n    echo \"waiting for gathers to complete ...\"\n    sleep 120\n    count=0\n  done\n  echo \"no gather is running ($count / 4)\"\n  ((count++))\n  sleep 30\ndone\n/usr/local/bin/upload"
+	uploadCommand             = "count=0\nuntil [ $count -gt 4 ]\ndo\n  while `pgrep -a gather > /dev/null`\n  do\n    echo \"waiting for gathers to complete ...\"\n    sleep 120\n    count=0\n  done\n  echo \"no gather is running ($count / 4)\"\n  ((count++))\n  sleep 30\ndone\nif [ ! -f " + gatherSuccessMarkerPath + " ]; then\n  echo \"Error: gather did not complete successfully. Skipping upload.\"\n  exit 1\nfi\n/usr/local/bin/upload"
+
+	gatherSuccessMarkerSuffix = "rc=$?; if [ $rc -eq 0 ]; then touch " + gatherSuccessMarkerPath + "; fi; exit $rc"
 	uploadCommandDirect       = "/usr/local/bin/upload"
 
 	// SSH directory and known hosts file
@@ -347,10 +349,12 @@ func getGatherContainer(image string, audit bool, timeout time.Duration, storage
 			allArgs = append(allArgs, args...)
 			container.Args = allArgs
 		} else {
-			container.Command = command
-			if len(args) > 0 {
-				container.Args = args
-			}
+			wrappedCmd := "\"$@\"\n" + gatherSuccessMarkerSuffix
+			container.Command = []string{"/bin/bash", "-c", wrappedCmd, "--"}
+			allArgs := make([]string, 0, len(command)+len(args))
+			allArgs = append(allArgs, command...)
+			allArgs = append(allArgs, args...)
+			container.Args = allArgs
 		}
 	} else {
 		gatherCmd := fmt.Sprintf(gatherCommand, math.Ceil(timeout.Seconds()), commandBinary)
