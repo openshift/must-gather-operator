@@ -3,21 +3,140 @@ version: "2"
 linters:
   default: none
   enable:
-    - kubeapilinter
+    - depguard
+    - errcheck
+    - gosec
+    - revive
+    - staticcheck
 
   settings:
-    custom:
-      kubeapilinter:
-        type: module
-        description: Kube API Linter lints Kube like APIs based on API conventions and best practices.
-        settings:
-          linters: {}
-          lintersConfig: {}
+    # Import boundaries. Allowed importers of api/, pkg/, config/, version/
+    # are controllers/ and main.go. test/ is E2E-only.
+    depguard:
+      rules:
+        api-types:
+          list-mode: lax
+          files:
+            - "**/api/**/*.go"
+          deny:
+            - pkg: github.com/openshift/must-gather-operator/controllers
+              desc: API types must not import the controller
+            - pkg: github.com/openshift/must-gather-operator/pkg
+              desc: API types must not import implementation helpers
+            - pkg: github.com/openshift/must-gather-operator/test
+              desc: API types must not import E2E helpers
+            - pkg: github.com/openshift/must-gather-operator/config
+              desc: API types must not import operator config
+            - pkg: github.com/openshift/must-gather-operator/version
+              desc: API types must not import version
+        api-versions-independent:
+          list-mode: lax
+          files:
+            - "**/api/v1alpha1/**/*.go"
+          deny:
+            - pkg: github.com/openshift/must-gather-operator/api/v1$
+              desc: v1alpha1 must not import v1 (versions stay independent)
+        pkg-helpers:
+          list-mode: lax
+          files:
+            - "**/pkg/**/*.go"
+          deny:
+            - pkg: github.com/openshift/must-gather-operator/controllers
+              desc: pkg helpers must not import the controller
+            - pkg: github.com/openshift/must-gather-operator/test
+              desc: pkg helpers must not import E2E helpers
+        leaf-packages:
+          list-mode: lax
+          files:
+            - "**/config/*.go"
+            - "**/version/*.go"
+          deny:
+            - pkg: github.com/openshift/must-gather-operator/api
+              desc: config/version must stay leaf packages
+            - pkg: github.com/openshift/must-gather-operator/controllers
+              desc: config/version must stay leaf packages
+            - pkg: github.com/openshift/must-gather-operator/pkg
+              desc: config/version must stay leaf packages
+            - pkg: github.com/openshift/must-gather-operator/test
+              desc: config/version must stay leaf packages
+        no-e2e-from-unit-or-prod:
+          list-mode: lax
+          files:
+            - "$all"
+            - "!**/test/**/*.go"
+          deny:
+            - pkg: github.com/openshift/must-gather-operator/test
+              desc: E2E helpers must stay under test/
+        prefer-v1-api:
+          list-mode: lax
+          files:
+            - "$all"
+            - "!**/main.go"
+            - "!**/test/**/*.go"
+            - "!**/api/v1alpha1/**/*.go"
+          deny:
+            - pkg: github.com/openshift/must-gather-operator/api/v1alpha1
+              desc: v1alpha1 is deprecated; use api/v1 (main.go and E2E may register both)
+        test-libs:
+          list-mode: lax
+          files:
+            - "$all"
+            - "!$test"
+          deny:
+            - pkg: github.com/onsi/ginkgo
+              desc: Ginkgo is for tests only
+            - pkg: github.com/onsi/gomega
+              desc: Gomega is for tests only
+            - pkg: github.com/stretchr/testify
+              desc: testify is for tests only
+    revive:
+      rules:
+        # Recommended set from https://github.com/mgechev/revive#recommended-configuration
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+          arguments:
+            - disableStutteringCheck
+        - name: if-return
+        - name: increment-decrement
+        - name: var-naming
+        - name: var-declaration
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: superfluous-else
+        - name: unreachable-code
+        - name: redefines-builtin-id
+        - name: unused-parameter
 
   exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party/
+      - builtin/
+      - examples/
+      - vendor/
     rules:
+      # Test fakes must match client/SSH function signatures; unused params are expected.
       - linters:
-          - kubeapilinter
-        # Only lint api/v1; api/v1alpha1 is excluded intentionally to avoid breaking API changes.
-        # Users with stable version of operator use v1 ONLY.
-        path-except: api/v1/
+          - revive
+        path: _test\.go
+        text: unused-parameter
+      # Operator-sdk layout; renaming would be churn without benefit.
+      - linters:
+          - revive
+        path: version/version.go
+        text: 'package names that conflict'

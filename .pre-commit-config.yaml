@@ -1,0 +1,41 @@
+exclude: ^(vendor/|boilerplate/|bundle/|bin/)
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: detect-private-key
+      - id: check-yaml
+        args: ['--allow-multiple-documents']
+        exclude: |
+          (?x)^(
+            config/templates/|
+            hack/olm-registry/|
+            deploy/crds/|
+            bundle/
+          )
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: gofmt
+        name: gofmt -s
+        language: golang
+        types: [go]
+        entry: gofmt -s -w
+        exclude: ^vendor/
+      - id: check-design-docs
+        name: check design docs updated with architecture changes
+        language: script
+        entry: hack/check-design-docs.sh
+        pass_filenames: false
+        files: ^(api/.*/mustgather_types\.go|controllers/mustgather/(mustgather_controller|template|predicates|validation)\.go|build/bin/)
+

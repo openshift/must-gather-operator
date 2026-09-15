@@ -139,8 +139,8 @@ func Test_resourceGenerationOrFinalizerChangedPredicate(t *testing.T) {
 	t.Run("generation and finalizers unchanged", func(t *testing.T) {
 		f := []string{"finalizer.mustgathers.operator.openshift.io"}
 		old := mg(3, f)
-		new := mg(3, append([]string(nil), f...))
-		if p.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: new}) {
+		updated := mg(3, append([]string(nil), f...))
+		if p.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: updated}) {
 			t.Fatal("expected no reconcile when generation and finalizers are unchanged")
 		}
 	})

@@ -1,0 +1,13 @@
+title = "must-gather-operator"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Generated, vendored, and boilerplate paths"
+paths = [
+  '''(^|/)vendor/''',
+  '''(^|/)boilerplate/''',
+  '''(^|/)bundle/''',
+  '''(^|/)bin/''',
+]

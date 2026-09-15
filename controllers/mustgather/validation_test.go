@@ -35,11 +35,11 @@ type closeTrackerConn struct {
 	closed bool
 }
 
-func (c *closeTrackerConn) Read([]byte) (int, error)  { return 0, io.EOF }
-func (c *closeTrackerConn) Write([]byte) (int, error) { return 0, nil }
-func (c *closeTrackerConn) Close() error            { c.closed = true; return nil }
-func (c *closeTrackerConn) LocalAddr() net.Addr       { return &net.TCPAddr{} }
-func (c *closeTrackerConn) RemoteAddr() net.Addr      { return &net.TCPAddr{} }
+func (c *closeTrackerConn) Read([]byte) (int, error)         { return 0, io.EOF }
+func (c *closeTrackerConn) Write([]byte) (int, error)        { return 0, nil }
+func (c *closeTrackerConn) Close() error                     { c.closed = true; return nil }
+func (c *closeTrackerConn) LocalAddr() net.Addr              { return &net.TCPAddr{} }
+func (c *closeTrackerConn) RemoteAddr() net.Addr             { return &net.TCPAddr{} }
 func (c *closeTrackerConn) SetDeadline(time.Time) error      { return nil }
 func (c *closeTrackerConn) SetReadDeadline(time.Time) error  { return nil }
 func (c *closeTrackerConn) SetWriteDeadline(time.Time) error { return nil }
@@ -1122,11 +1122,21 @@ func Test_proxyDialContext(t *testing.T) {
 	})
 }
 
+func setProxyEnv(t *testing.T, httpProxy, httpsProxy, noProxy string) {
+	t.Helper()
+	// httpproxy.FromEnvironment reads uppercase then lowercase; an empty
+	// uppercase value does not hide a leftover lowercase proxy from the process.
+	t.Setenv("HTTP_PROXY", httpProxy)
+	t.Setenv("http_proxy", httpProxy)
+	t.Setenv("HTTPS_PROXY", httpsProxy)
+	t.Setenv("https_proxy", httpsProxy)
+	t.Setenv("NO_PROXY", noProxy)
+	t.Setenv("no_proxy", noProxy)
+}
+
 func Test_getProxyURLForAddr(t *testing.T) {
 	t.Run("no proxy configured", func(t *testing.T) {
-		t.Setenv("HTTP_PROXY", "")
-		t.Setenv("HTTPS_PROXY", "")
-		t.Setenv("NO_PROXY", "")
+		setProxyEnv(t, "", "", "")
 
 		proxyURL, err := getProxyURLForAddr("sftp.example.com:22")
 		if err != nil {
@@ -1138,9 +1148,7 @@ func Test_getProxyURLForAddr(t *testing.T) {
 	})
 
 	t.Run("proxy configured", func(t *testing.T) {
-		t.Setenv("HTTP_PROXY", "http://proxy.example.com:3128")
-		t.Setenv("HTTPS_PROXY", "")
-		t.Setenv("NO_PROXY", "")
+		setProxyEnv(t, "http://proxy.example.com:3128", "", "")
 
 		proxyURL, err := getProxyURLForAddr("sftp.example.com:22")
 		if err != nil {
@@ -1155,9 +1163,7 @@ func Test_getProxyURLForAddr(t *testing.T) {
 	})
 
 	t.Run("host in NO_PROXY is excluded", func(t *testing.T) {
-		t.Setenv("HTTP_PROXY", "http://proxy.example.com:3128")
-		t.Setenv("HTTPS_PROXY", "")
-		t.Setenv("NO_PROXY", "sftp.example.com,other.host")
+		setProxyEnv(t, "http://proxy.example.com:3128", "", "sftp.example.com,other.host")
 
 		proxyURL, err := getProxyURLForAddr("sftp.example.com:22")
 		if err != nil {
@@ -1169,9 +1175,7 @@ func Test_getProxyURLForAddr(t *testing.T) {
 	})
 
 	t.Run("different host not in NO_PROXY uses proxy", func(t *testing.T) {
-		t.Setenv("HTTP_PROXY", "http://proxy.example.com:3128")
-		t.Setenv("HTTPS_PROXY", "")
-		t.Setenv("NO_PROXY", "other.host")
+		setProxyEnv(t, "http://proxy.example.com:3128", "", "other.host")
 
 		proxyURL, err := getProxyURLForAddr("sftp.example.com:22")
 		if err != nil {

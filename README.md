@@ -157,12 +157,15 @@ must-gather-operator/
 │   ├── k8sutil/           # Namespace detection utility
 │   ├── localmetrics/      # Prometheus metrics definitions
 │   └── mustgatherutil/    # Must-gather helper utilities
+├── docs/
+│   ├── design/            # Module preconditions, invariants, rationale
+│   └── adrs/              # Architecture Decision Records
 ├── test/
 │   ├── e2e/               # End-to-end tests (Ginkgo, -tags e2e)
 │   └── library/           # Test helper library
 ├── harness-evals/
 │   ├── evals/             # Evaluation harness tests
-│   └── harness-docs/      # Domain model, ADRs, development guides
+│   └── harness-docs/      # Domain model, development and testing guides
 ├── bundle/                # OLM bundle manifests
 ├── hack/                  # Release and OLM registry tooling
 ├── examples/              # 14 example CRs and supporting resources
@@ -261,8 +264,10 @@ OPERATOR_NAME=must-gather-operator operator-sdk run --verbose --local --namespac
 
 ## Further Documentation
 
+- [CONTRIBUTING.md](CONTRIBUTING.md) -- How to set up, test, and open pull requests
+- [SECURITY.md](SECURITY.md) -- Vulnerability reporting and scanning tools
 - [AGENTS.md](AGENTS.md) -- Component overview, architecture, reconciliation flow, and AI agent guidance
-- [harness-evals/harness-docs/](harness-evals/harness-docs/) -- Domain model, architectural decisions (ADRs), development and testing guides
+- [harness-evals/harness-docs/](harness-evals/harness-docs/) -- Domain model, development and testing guides
 
 ### Development Guidelines
 
@@ -270,4 +275,5 @@ OPERATOR_NAME=must-gather-operator operator-sdk run --verbose --local --namespac
 - [Testing Guide](harness-evals/harness-docs/MGO_TESTING.md) — Unit tests (fake client + interceptClient), E2E (Ginkgo)
 - [Architecture](harness-evals/harness-docs/architecture/components.md) — Repo layout, reconciliation flow, Job template
 - [Domain Model](harness-evals/harness-docs/domain/mustgather.md) — MustGather CRD fields, validation, lifecycle
-- [Decision Records](harness-evals/harness-docs/decisions/) — ADRs for immutable spec, two-container Job, extensible upload
+- [Design intent](docs/design/) — Preconditions, invariants, and rationale
+- [Decision Records](docs/adrs/) — ADRs for immutable spec, two-container Job, extensible upload
