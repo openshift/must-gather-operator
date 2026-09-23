@@ -8,7 +8,7 @@ fi
 REPO_ROOT=$(git rev-parse --show-toplevel)
 source $REPO_ROOT/boilerplate/_lib/common.sh
 
-GOLANGCI_LINT_VERSION="2.9.0"
+GOLANGCI_LINT_VERSION="2.7.2"
 OPM_VERSION="v1.60.0"
 GRPCURL_VERSION="1.7.0"
 DEPENDENCY=${1:-}
@@ -28,6 +28,23 @@ golangci-lint)
         fi
         DOWNLOAD_URL="https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT_VERSION}/golangci-lint-${GOLANGCI_LINT_VERSION}-${GOOS}-amd64.tar.gz"
         curl -sfL "${DOWNLOAD_URL}" | tar -C "${GOPATH}/bin" -zx --strip-components=1 "golangci-lint-${GOLANGCI_LINT_VERSION}-${GOOS}-amd64/golangci-lint"
+    fi
+    ;;
+
+kubectl-package)
+    KUBECTL_PACKAGE_VERSION="v1.18.6"
+    GOPATH=$(go env GOPATH)
+    if which kubectl-package ; then
+        exit
+    else
+        mkdir -p "${GOPATH}/bin"
+        if ! echo "${PATH}" | grep -q "${GOPATH}/bin"; then
+            echo "${GOPATH}/bin not in $PATH"
+            exit 1
+        fi
+        DOWNLOAD_URL="https://github.com/package-operator/package-operator/releases/download/${KUBECTL_PACKAGE_VERSION}/kubectl-package_${GOOS}_amd64"
+        curl -sfL "${DOWNLOAD_URL}" -o "${GOPATH}/bin/kubectl-package"
+        chmod +x "${GOPATH}/bin/kubectl-package"
     fi
     ;;
 
