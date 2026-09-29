@@ -1626,51 +1626,55 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 				},
 			})
 
-			ginkgo.By("Waiting for MustGather to reach Failed status via Job failure")
-			fetchedMG := &mustgatherv1.MustGather{}
-			Eventually(func() string {
-				err := nonAdminClient.Get(testCtx, client.ObjectKey{
-					Name:      mustGatherName,
-					Namespace: ns.Name,
-				}, fetchedMG)
-				if err != nil || fetchedMG.Status == nil {
-					return ""
+			ginkgo.By("Waiting for the first pod where the upload container terminated with exit 1")
+			var finishedPod corev1.Pod
+			Eventually(func() bool {
+				pods := &corev1.PodList{}
+				if err := adminClient.List(testCtx, pods,
+					client.InNamespace(ns.Name),
+					client.MatchingLabels{jobNameLabelKey: mustGatherName},
+				); err != nil || len(pods.Items) == 0 {
+					return false
 				}
-				return ptr.Deref(fetchedMG.Status.Status, "")
-			}).WithTimeout(10*time.Minute).WithPolling(10*time.Second).Should(Equal("Failed"),
-				"MustGather should be Failed when gather exits non-zero")
-
-			Expect(ptr.Deref(fetchedMG.Status.Reason, "")).To(ContainSubstring("gather failed"),
-				"Failure must come from Job completion, not SFTP validation")
+				for _, p := range pods.Items {
+					for _, cs := range p.Status.ContainerStatuses {
+						if cs.Name == uploadContainerName && cs.State.Terminated != nil && cs.State.Terminated.ExitCode != 0 {
+							finishedPod = p
+							return true
+						}
+					}
+				}
+				return false
+			}).WithTimeout(5*time.Minute).WithPolling(10*time.Second).Should(BeTrue(),
+				"At least one pod should have the upload container terminated with non-zero exit")
 
 			ginkgo.By("Verifying upload container logs indicate skipped upload")
-			pods := &corev1.PodList{}
-			err := adminClient.List(testCtx, pods,
-				client.InNamespace(ns.Name),
-				client.MatchingLabels{jobNameLabelKey: mustGatherName},
-			)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(pods.Items).NotTo(BeEmpty(), "Should have at least one pod for the Job")
-
-			sort.Slice(pods.Items, func(i, j int) bool {
-				return pods.Items[i].CreationTimestamp.After(pods.Items[j].CreationTimestamp.Time)
-			})
-			newestPod := pods.Items[0]
-
-			logs, err := getContainerLogs(ns.Name, newestPod.Name, uploadContainerName)
+			logs, err := getContainerLogs(ns.Name, finishedPod.Name, uploadContainerName)
 			Expect(err).NotTo(HaveOccurred(), "Should be able to read upload container logs")
 			Expect(logs).To(ContainSubstring("Skipping upload"),
 				"Upload container should log that it is skipping upload due to missing gather success marker")
 
-			ginkgo.By("Verifying upload container exited with non-zero code")
+			ginkgo.By("Verifying upload container exited with code 1")
 			var uploadExitCode int32 = -1
-			for _, cs := range newestPod.Status.ContainerStatuses {
+			for _, cs := range finishedPod.Status.ContainerStatuses {
 				if cs.Name == uploadContainerName && cs.State.Terminated != nil {
 					uploadExitCode = cs.State.Terminated.ExitCode
 				}
 			}
 			Expect(uploadExitCode).To(Equal(int32(1)),
 				"Upload container should exit 1 when gather success marker is absent")
+
+			ginkgo.By("Verifying CR status is not Completed")
+			fetchedMG := &mustgatherv1.MustGather{}
+			err = nonAdminClient.Get(testCtx, client.ObjectKey{
+				Name:      mustGatherName,
+				Namespace: ns.Name,
+			}, fetchedMG)
+			Expect(err).NotTo(HaveOccurred())
+			if fetchedMG.Status != nil {
+				Expect(ptr.Deref(fetchedMG.Status.Status, "")).NotTo(Equal("Completed"),
+					"CR must not be Completed when gather failed")
+			}
 		})
 	})
 

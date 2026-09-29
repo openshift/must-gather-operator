@@ -43,6 +43,17 @@ const (
 	// proceeding with obfuscation or SFTP upload.
 	gatherSuccessMarkerPath = "/must-gather/.gather-success"
 
+	// gatherCompletionMarkerPath is written by every gather container on exit (success
+	// or failure) via an EXIT trap. The upload container polls for this file instead of
+	// using pgrep, so it works for any gather command — not just those whose process
+	// name contains "gather".
+	gatherCompletionMarkerPath = "/must-gather/.gather-complete"
+
+	// gatherTrapPrefix sets up the EXIT trap that writes the completion marker and
+	// clears stale markers from previous Job attempts. It must be the first statement
+	// in every gather script.
+	gatherTrapPrefix = "trap 'touch " + gatherCompletionMarkerPath + "' EXIT\nrm -f " + gatherSuccessMarkerPath + "\nrm -f " + gatherCompletionMarkerPath
+
 	// obfuscateChownSuffix transfers gather output ownership to the upload container UID (65534).
 	// Captures the gather exit status first, writes the success marker on zero exit,
 	// runs chown (|| true so non-root images don't cause retries), then exits with

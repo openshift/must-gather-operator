@@ -245,6 +245,12 @@ func Test_getGatherContainer(t *testing.T) {
 				if !strings.Contains(containerCommand, gatherSuccessMarkerPath) {
 					t.Fatalf("expected success marker path in gather command, got %v", containerCommand)
 				}
+				if !strings.Contains(containerCommand, gatherCompletionMarkerPath) {
+					t.Fatalf("expected completion marker path in gather command, got %v", containerCommand)
+				}
+				if !strings.Contains(containerCommand, "trap") {
+					t.Fatalf("expected EXIT trap in gather command, got %v", containerCommand)
+				}
 			} else {
 				if container.Command[0] != "/bin/bash" || container.Command[1] != "-c" {
 					t.Fatalf("expected custom command to be wrapped in bash, got %v", container.Command)
@@ -255,6 +261,9 @@ func Test_getGatherContainer(t *testing.T) {
 				}
 				if !strings.Contains(wrappedScript, gatherSuccessMarkerPath) {
 					t.Fatalf("expected success marker in wrapped custom command, got %q", wrappedScript)
+				}
+				if !strings.Contains(wrappedScript, gatherCompletionMarkerPath) {
+					t.Fatalf("expected completion marker in wrapped custom command, got %q", wrappedScript)
 				}
 				expectedArgs := make([]string, 0, len(tt.command)+len(tt.args))
 				expectedArgs = append(expectedArgs, tt.command...)
@@ -1309,6 +1318,9 @@ func Test_uploadCommand_gatherSuccessGate(t *testing.T) {
 	if !strings.Contains(uploadCmd, gatherSuccessMarkerPath) {
 		t.Fatalf("upload command must check for gather success marker at %s, got:\n%s", gatherSuccessMarkerPath, uploadCmd)
 	}
+	if !strings.Contains(uploadCmd, gatherCompletionMarkerPath) {
+		t.Fatalf("upload command must wait for gather completion marker at %s, got:\n%s", gatherCompletionMarkerPath, uploadCmd)
+	}
 	if !strings.Contains(uploadCmd, "Skipping upload") {
 		t.Fatal("upload command must log a message when skipping upload due to missing success marker")
 	}
@@ -1346,6 +1358,9 @@ func Test_uploadCommand_sourceMode_noGatherGate(t *testing.T) {
 	if strings.Contains(uploadCmd, gatherSuccessMarkerPath) {
 		t.Fatal("source mode must not check for gather success marker (no gather container)")
 	}
+	if strings.Contains(uploadCmd, gatherCompletionMarkerPath) {
+		t.Fatal("source mode must not check for gather completion marker (no gather container)")
+	}
 	if !strings.Contains(uploadCmd, uploadCommandDirect) {
 		t.Fatal("source mode must use direct upload command")
 	}
@@ -1370,6 +1385,9 @@ func Test_uploadCommand_obfuscateOnly_gatherSuccessGate(t *testing.T) {
 
 	if !strings.Contains(uploadCmd, gatherSuccessMarkerPath) {
 		t.Fatal("obfuscate-only mode (with gather) must check for gather success marker")
+	}
+	if !strings.Contains(uploadCmd, gatherCompletionMarkerPath) {
+		t.Fatal("obfuscate-only mode (with gather) must wait for gather completion marker")
 	}
 }
 
