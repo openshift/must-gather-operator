@@ -1,4 +1,4 @@
-FROM quay.io/redhat-services-prod/openshift/boilerplate:image-v8.3.4 AS builder
+FROM quay.io/redhat-services-prod/openshift/boilerplate:image-v8.4.4 AS builder
 
 # Copy and download the dependecies so that they are cached locally in the stages.
 WORKDIR /go/src/github.com/openshift/must-gather-operator
