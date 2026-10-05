@@ -71,5 +71,6 @@ func getClusterIDSuffix(ctx context.Context, c client.Client) string {
 }
 
 func generateRandomSuffix() string {
-	return fmt.Sprintf("%06d", rand.Int63()) //nolint:gosec // not security-sensitive, matches oc adm must-gather convention
+	// #nosec G404 -- directory name suffix; matches oc adm must-gather, not a credential
+	return fmt.Sprintf("%06d", rand.Int63()) //nolint:gosec
 }

@@ -224,4 +224,4 @@ RBAC markers go on the controller's `Reconcile` method in `mustgather_controller
 ## Related
 
 - [Architecture](../architecture/components.md) — Controller reconciliation flow and Job template details
-- [ADR-0001](../decisions/adr-0001-immutable-spec.md) — Why spec is immutable
+- [ADR-0001](../../../docs/adrs/adr-0001-immutable-spec.md) — Why spec is immutable

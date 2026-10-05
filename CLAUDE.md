@@ -9,11 +9,14 @@ The Must Gather Operator is a Kubernetes operator that automates the collection 
 This project uses a boilerplate-based Makefile system. Common commands:
 
 ```bash
-# Build, test, and lint (default target)
+# Boilerplate go-check, unit tests, and compile (default target)
 make
 
 # Run tests
 make go-test
+
+# Unit tests with coverage profile (coverage.out; excludes e2e)
+make coverage-unit
 
 # Build the operator binary
 make go-build
@@ -40,6 +43,32 @@ make lint
 make coverage
 ```
 
+### Single-file lint and type-check
+
+Use these instead of `make` / `make lint` when checking one file. They do not compile the operator, generate CRDs, or build the kube-api-linter plugin. Target: under 5 seconds per file once the Go module cache is warm.
+
+```bash
+# Go lint
+golangci-lint run path/to/file.go
+# Root .golangci.yml (errcheck, staticcheck, gosec, revive, depguard) is what
+# `make lint` runs as golangci-repo-lint, plus kube-api-linter and boilerplate go-check.
+# kube-api-linter uses .golangci-kube-api.yml and needs `make lint` (custom plugin).
+# Broader go-check set (govet, unused, misspell, ...):
+golangci-lint run -c boilerplate/openshift/golang-osd-operator/golangci.yml path/to/file.go
+
+# Go type-check (no operator binary is written)
+go vet path/to/file.go
+# Multi-file packages: pass the package directory so all files in the package load
+go vet ./path/to/package/
+
+# YAML
+yamllint path/to/file.yaml
+
+# Shell
+shellcheck path/to/script.sh
+bash -n path/to/script.sh
+```
+
 ### Local Development
 
 To run the operator locally:
@@ -57,6 +86,9 @@ Note: The `OPERATOR_IMAGE` environment variable must be set in the deployment or
 ```bash
 # Run unit tests
 make go-test
+
+# Unit tests with coverage profile (coverage.out; excludes e2e)
+make coverage-unit
 
 # Apply an example MustGather CR
 oc apply -f ./examples/mustgather_basic.yaml
@@ -116,6 +148,17 @@ oc apply -f ./examples/mustgather_basic.yaml
 - **Infra node affinity**: Jobs prefer infra nodes (with tolerations) to avoid impacting application workloads
 - **Proxy support**: Inherits cluster proxy config from environment variables
 - **FIPS mode**: Enabled by default (`FIPS_ENABLED=true` in Makefile)
+
+Preconditions, invariants, and rationale for these decisions are in `docs/design/`. Accepted ADRs are in `docs/adrs/`. When modifying API types, reconciler behavior, Job template, predicates, or upload/SFTP validation, you must review and update the matching design doc (required).
+
+| Module | Design doc |
+|---|---|
+| MustGather API / CEL / union | [docs/design/api.md](docs/design/api.md) |
+| Reconciler, cleanup, metrics, CA | [docs/design/controller.md](docs/design/controller.md) |
+| Job template | [docs/design/job-template.md](docs/design/job-template.md) |
+| Predicates | [docs/design/predicates.md](docs/design/predicates.md) |
+| SFTP validation and upload | [docs/design/upload.md](docs/design/upload.md) |
+| Architectural decisions | [docs/adrs/](docs/adrs/README.md) |
 
 ### Important Files
 

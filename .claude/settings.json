@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "grep -Eq 'mustgather_types\\.go|mustgather_controller\\.go|/template\\.go|predicates\\.go|validation\\.go|build/bin/' && echo 'Must review and update the matching design doc in docs/design/ (preconditions, invariants, rationale). See docs/design/README.md.' || true"
+          }
+        ]
+      }
+    ]
+  }
+}
