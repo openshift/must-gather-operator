@@ -215,7 +215,7 @@ func checkSFTPConnection(ctx context.Context, username, password, host string) e
 	// Upgrade TCP connection to SSH (NewClientConn handles the handshake)
 	sshConn, chans, reqs, err := sshNewClientConnFunc(netConn, address, config)
 	if err != nil {
-		netConn.Close()
+		_ = netConn.Close()
 		return fmt.Errorf("%s: %w", classifySFTPError(err), err)
 	}
 	client := ssh.NewClient(sshConn, chans, reqs)
@@ -328,19 +328,19 @@ func proxyDialContext(ctx context.Context, proxyURL *url.URL, addr string) (net.
 	connectReq += "\r\n"
 
 	if _, err := conn.Write([]byte(connectReq)); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("failed to send CONNECT request to proxy: %w", err)
 	}
 
 	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("failed to read proxy CONNECT response: %w", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("proxy CONNECT to %s failed with status %d %s", addr, resp.StatusCode, resp.Status)
 	}
 

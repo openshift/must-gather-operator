@@ -91,3 +91,30 @@ test/e2e/test-run-results/
 
 # built by `make kube-api-lint` (golangci-lint custom)
 /bin/
+
+# Go coverage profiles (`go test -coverprofile=...`)
+cover.out
+coverage.out
+coverage.txt
+
+# Dependency directories (remove the comment below to include it).
+# This repository vendors Go modules, so vendor/ stays tracked.
+# vendor/
+
+# Python artifacts from boilerplate scripts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Local env files (never commit secrets)
+.env
+
+# OS
+.DS_Store
+
+# Editor swap files
+*.swp
+*.swo
+
+.agentready/

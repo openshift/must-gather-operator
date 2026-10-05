@@ -12,3 +12,21 @@ updates:
         # don't upgrade boilerplate via these means
       - dependency-name: "openshift4/ose-operator-registry"
         # don't upgrade ose-operator-registry via these means
+  # vendor/ is tracked. Dependabot does not update it; on gomod PRs run
+  # `go mod vendor` and commit vendor/ or the tree will be stale.
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "go"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "github-actions"

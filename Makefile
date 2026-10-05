@@ -11,8 +11,8 @@ boilerplate-update:
 ##
 ## kube-api-linter (sigs.k8s.io/kube-api-linter) is not part of the boilerplate
 ## golangci-lint config, so it's built and run as a separate golangci-lint
-## plugin binary via a custom-gcl build. Chained onto `lint` below so `make lint`
-## (as run in CI) always includes it.
+## plugin binary via a custom-gcl build, using .golangci-kube-api.yml.
+## Chained onto `lint` below so `make lint` (as run in CI) always includes it.
 
 bin/golangci-lint-kube-api-linter: .custom-gcl.yml
 	${CONVENTION_DIR}/ensure.sh golangci-lint
@@ -20,9 +20,25 @@ bin/golangci-lint-kube-api-linter: .custom-gcl.yml
 
 .PHONY: kube-api-lint
 kube-api-lint: bin/golangci-lint-kube-api-linter ## Run kube-api-linter against the API types
-	${GOENV} GOLANGCI_LINT_CACHE=${GOLANGCI_LINT_CACHE} ./bin/golangci-lint-kube-api-linter run -c .golangci.yml ./...
+	${GOENV} GOLANGCI_LINT_CACHE=${GOLANGCI_LINT_CACHE} ./bin/golangci-lint-kube-api-linter run -c .golangci-kube-api.yml ./...
 
-lint: kube-api-lint
+.PHONY: golangci-repo-lint
+golangci-repo-lint: ## Root .golangci.yml (depguard, revive, errcheck, gosec, staticcheck)
+	${CONVENTION_DIR}/ensure.sh golangci-lint
+	${GOENV} GOLANGCI_LINT_CACHE=${GOLANGCI_LINT_CACHE} golangci-lint run -c .golangci.yml ./...
+
+lint: kube-api-lint golangci-repo-lint
+
+
+##@ Unit tests
+##
+## Default unit tests remain `make go-test` (FIPS-enabled via boilerplate).
+## Coverage is a separate target and writes coverage.out for local inspection.
+## `make coverage` remains the Codecov upload path from boilerplate.
+
+.PHONY: coverage-unit
+coverage-unit: ## Run unit tests with coverage profile (excludes e2e).
+	$(MAKE) go-test TESTOPTS="-coverprofile=coverage.out -covermode=atomic -coverpkg=./..."
 
 
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.

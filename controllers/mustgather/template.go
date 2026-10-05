@@ -41,11 +41,11 @@ const (
 	uploadContainerName       = "upload"
 	uploadEnvUsername         = "username"
 	uploadEnvPassword         = "password"
-	uploadEnvCaseId           = "caseid"
+	uploadEnvCaseID           = "caseid"
 	uploadEnvHost             = "host"
 	uploadEnvInternalUser     = "internal_user"
-	uploadEnvHttpProxy        = "http_proxy"
-	uploadEnvHttpsProxy       = "https_proxy"
+	uploadEnvHTTPProxy        = "http_proxy"
+	uploadEnvHTTPSProxy       = "https_proxy"
 	uploadEnvNoProxy          = "no_proxy"
 	uploadEnvMustGatherOutput = "must_gather_output"
 	uploadEnvMustGatherUpload = "must_gather_upload"
@@ -494,7 +494,7 @@ func getUploadContainer(
 				},
 			},
 			corev1.EnvVar{
-				Name:  uploadEnvCaseId,
+				Name:  uploadEnvCaseID,
 				Value: sftp.CaseID,
 			},
 			corev1.EnvVar{
@@ -539,10 +539,10 @@ func getUploadContainer(
 	}
 
 	if httpProxy != "" {
-		container.Env = append(container.Env, corev1.EnvVar{Name: uploadEnvHttpProxy, Value: httpProxy})
+		container.Env = append(container.Env, corev1.EnvVar{Name: uploadEnvHTTPProxy, Value: httpProxy})
 	}
 	if httpsProxy != "" {
-		container.Env = append(container.Env, corev1.EnvVar{Name: uploadEnvHttpsProxy, Value: httpsProxy})
+		container.Env = append(container.Env, corev1.EnvVar{Name: uploadEnvHTTPSProxy, Value: httpsProxy})
 	}
 	if noProxy != "" {
 		container.Env = append(container.Env, corev1.EnvVar{Name: uploadEnvNoProxy, Value: noProxy})

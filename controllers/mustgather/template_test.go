@@ -337,7 +337,7 @@ func Test_getUploadContainer(t *testing.T) {
 	tests := []struct {
 		name             string
 		operatorImage    string
-		caseId           string
+		caseID           string
 		host             *string
 		internalUser     *bool
 		storage          *mustgatherv1.Storage
@@ -351,7 +351,7 @@ func Test_getUploadContainer(t *testing.T) {
 		{
 			name:             "All fields present",
 			operatorImage:    "testImage",
-			caseId:           "1234",
+			caseID:           "1234",
 			host:             ptr.To("sftp.example.com"),
 			internalUser:     ptr.To(true),
 			httpProxy:        "testHttpProxy",
@@ -362,7 +362,7 @@ func Test_getUploadContainer(t *testing.T) {
 		{
 			name:             "Non-internal user",
 			operatorImage:    "testImage",
-			caseId:           "1234",
+			caseID:           "1234",
 			httpProxy:        "testHttpProxy",
 			httpsProxy:       "testHttpsProxy",
 			noProxy:          "testNoProxy",
@@ -371,7 +371,7 @@ func Test_getUploadContainer(t *testing.T) {
 		{
 			name:             "No http proxy envar",
 			operatorImage:    "testImage",
-			caseId:           "1234",
+			caseID:           "1234",
 			httpsProxy:       "testHttpsProxy",
 			noProxy:          "testNoProxy",
 			secretKeyRefName: v1.LocalObjectReference{Name: "testSecretKeyRefName"},
@@ -379,7 +379,7 @@ func Test_getUploadContainer(t *testing.T) {
 		{
 			name:             "No https proxy envar",
 			operatorImage:    "testImage",
-			caseId:           "1234",
+			caseID:           "1234",
 			httpProxy:        "testHttpProxy",
 			noProxy:          "testNoProxy",
 			secretKeyRefName: v1.LocalObjectReference{Name: "testSecretKeyRefName"},
@@ -387,7 +387,7 @@ func Test_getUploadContainer(t *testing.T) {
 		{
 			name:             "No noproxy envar",
 			operatorImage:    "testImage",
-			caseId:           "1234",
+			caseID:           "1234",
 			httpProxy:        "testHttpProxy",
 			httpsProxy:       "testHttpsProxy",
 			secretKeyRefName: v1.LocalObjectReference{Name: "testSecretKeyRefName"},
@@ -395,7 +395,7 @@ func Test_getUploadContainer(t *testing.T) {
 		{
 			name:             "With trusted CA config map",
 			operatorImage:    "testImage",
-			caseId:           "1234",
+			caseID:           "1234",
 			httpProxy:        "testHttpProxy",
 			httpsProxy:       "testHttpsProxy",
 			secretKeyRefName: v1.LocalObjectReference{Name: "testSecretKeyRefName"},
@@ -404,7 +404,7 @@ func Test_getUploadContainer(t *testing.T) {
 		{
 			name:          "With PVC subPath and directory name",
 			operatorImage: "testImage",
-			caseId:        "1234",
+			caseID:        "1234",
 			secretKeyRefName: v1.LocalObjectReference{
 				Name: "testSecretKeyRefName",
 			},
@@ -422,7 +422,7 @@ func Test_getUploadContainer(t *testing.T) {
 		{
 			name:          "With PVC empty subPath uses directory name only",
 			operatorImage: "testImage",
-			caseId:        "1234",
+			caseID:        "1234",
 			secretKeyRefName: v1.LocalObjectReference{
 				Name: "testSecretKeyRefName",
 			},
@@ -438,7 +438,7 @@ func Test_getUploadContainer(t *testing.T) {
 		{
 			name:          "With PVC whitespace subPath uses directory name only",
 			operatorImage: "testImage",
-			caseId:        "1234",
+			caseID:        "1234",
 			secretKeyRefName: v1.LocalObjectReference{
 				Name: "testSecretKeyRefName",
 			},
@@ -454,7 +454,7 @@ func Test_getUploadContainer(t *testing.T) {
 		{
 			name:          "With PVC slash-only subPath uses directory name only",
 			operatorImage: "testImage",
-			caseId:        "1234",
+			caseID:        "1234",
 			secretKeyRefName: v1.LocalObjectReference{
 				Name: "testSecretKeyRefName",
 			},
@@ -472,7 +472,7 @@ func Test_getUploadContainer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			testFailed := false
 			sftp := &mustgatherv1.SFTPSpec{
-				CaseID:                         tt.caseId,
+				CaseID:                         tt.caseID,
 				Host:                           tt.host,
 				InternalUser:                   tt.internalUser,
 				CaseManagementAccountSecretRef: tt.secretKeyRefName,
@@ -516,9 +516,9 @@ func Test_getUploadContainer(t *testing.T) {
 
 			for _, env := range container.Env {
 				switch env.Name {
-				case uploadEnvCaseId:
-					if env.Value != tt.caseId {
-						t.Fatalf("expected case ID envar %v but got %v", tt.caseId, env.Value)
+				case uploadEnvCaseID:
+					if env.Value != tt.caseID {
+						t.Fatalf("expected case ID envar %v but got %v", tt.caseID, env.Value)
 					}
 				case uploadEnvHost:
 					if env.Value != derefString(tt.host) {
@@ -528,11 +528,11 @@ func Test_getUploadContainer(t *testing.T) {
 					if env.Value != strconv.FormatBool(ptr.Deref(tt.internalUser, false)) {
 						t.Fatalf("expected internal user envar %v but got %v", ptr.Deref(tt.internalUser, false), env.Value)
 					}
-				case uploadEnvHttpProxy:
+				case uploadEnvHTTPProxy:
 					if env.Value != tt.httpProxy {
 						t.Fatalf("expected httpproxy envar %v but got %v", tt.httpProxy, env.Value)
 					}
-				case uploadEnvHttpsProxy:
+				case uploadEnvHTTPSProxy:
 					if env.Value != tt.httpsProxy {
 						t.Fatalf("expected httpsproxy envar %v but got %v", tt.httpsProxy, env.Value)
 					}
@@ -700,21 +700,21 @@ func Test_getJobTemplate_ProxyAuditTimeout(t *testing.T) {
 			upload := findUploadContainerInJob(t, job)
 			uploadEnv := envValues(upload)
 			if tt.wantProxies {
-				if uploadEnv[uploadEnvHttpProxy] != tt.httpProxy {
-					t.Fatalf("expected %s=%v, got %v", uploadEnvHttpProxy, tt.httpProxy, uploadEnv[uploadEnvHttpProxy])
+				if uploadEnv[uploadEnvHTTPProxy] != tt.httpProxy {
+					t.Fatalf("expected %s=%v, got %v", uploadEnvHTTPProxy, tt.httpProxy, uploadEnv[uploadEnvHTTPProxy])
 				}
-				if uploadEnv[uploadEnvHttpsProxy] != tt.httpsProxy {
-					t.Fatalf("expected %s=%v, got %v", uploadEnvHttpsProxy, tt.httpsProxy, uploadEnv[uploadEnvHttpsProxy])
+				if uploadEnv[uploadEnvHTTPSProxy] != tt.httpsProxy {
+					t.Fatalf("expected %s=%v, got %v", uploadEnvHTTPSProxy, tt.httpsProxy, uploadEnv[uploadEnvHTTPSProxy])
 				}
 				if uploadEnv[uploadEnvNoProxy] != tt.noProxy {
 					t.Fatalf("expected %s=%v, got %v", uploadEnvNoProxy, tt.noProxy, uploadEnv[uploadEnvNoProxy])
 				}
 			} else {
-				if _, ok := uploadEnv[uploadEnvHttpProxy]; ok {
-					t.Fatalf("did not expect %s env var, got %v", uploadEnvHttpProxy, uploadEnv[uploadEnvHttpProxy])
+				if _, ok := uploadEnv[uploadEnvHTTPProxy]; ok {
+					t.Fatalf("did not expect %s env var, got %v", uploadEnvHTTPProxy, uploadEnv[uploadEnvHTTPProxy])
 				}
-				if _, ok := uploadEnv[uploadEnvHttpsProxy]; ok {
-					t.Fatalf("did not expect %s env var, got %v", uploadEnvHttpsProxy, uploadEnv[uploadEnvHttpsProxy])
+				if _, ok := uploadEnv[uploadEnvHTTPSProxy]; ok {
+					t.Fatalf("did not expect %s env var, got %v", uploadEnvHTTPSProxy, uploadEnv[uploadEnvHTTPSProxy])
 				}
 				if _, ok := uploadEnv[uploadEnvNoProxy]; ok {
 					t.Fatalf("did not expect %s env var, got %v", uploadEnvNoProxy, uploadEnv[uploadEnvNoProxy])
@@ -860,8 +860,8 @@ func Test_getJobTemplate_GatherObfuscatePVC(t *testing.T) {
 			if _, ok := uploadEnv[uploadEnvUsername]; ok {
 				t.Fatalf("expected no %s env var in Gather+Obfuscate+PVC mode", uploadEnvUsername)
 			}
-			if _, ok := uploadEnv[uploadEnvCaseId]; ok {
-				t.Fatalf("expected no %s env var in Gather+Obfuscate+PVC mode", uploadEnvCaseId)
+			if _, ok := uploadEnv[uploadEnvCaseID]; ok {
+				t.Fatalf("expected no %s env var in Gather+Obfuscate+PVC mode", uploadEnvCaseID)
 			}
 		})
 	}

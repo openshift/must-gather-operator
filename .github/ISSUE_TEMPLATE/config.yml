@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Red Hat Jira
+    url: https://issues.redhat.com/projects/MG
+    about: File bugs and features in MG, OAPE, or OCPBUGS. GitHub issues are not the primary tracker.
+  - name: Security vulnerability
+    url: https://access.redhat.com/security/team/contact
+    about: Report security issues privately. Do not open a public GitHub issue.
