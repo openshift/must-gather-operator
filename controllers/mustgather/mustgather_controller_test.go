@@ -18,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
@@ -2392,6 +2393,108 @@ func TestSFTPCredentialValidation(t *testing.T) {
 						}
 					}
 				}
+			}
+		})
+	}
+}
+
+func Test_buildJobFailureReason(t *testing.T) {
+	s := scheme.Scheme
+	utilruntime.Must(mustgatherv1.SchemeBuilder.AddToScheme(s))
+	utilruntime.Must(corev1.SchemeBuilder.AddToScheme(s))
+	utilruntime.Must(batchv1.SchemeBuilder.AddToScheme(s))
+
+	tests := []struct {
+		name       string
+		pods       []corev1.Pod
+		wantReason string
+	}{
+		{
+			name:       "no pods returns fallback",
+			pods:       nil,
+			wantReason: "MustGather Job pods failed",
+		},
+		{
+			name: "gather timeout exit 124",
+			pods: []corev1.Pod{{
+				ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ns", Labels: map[string]string{"job-name": "test-job"}},
+				Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{
+					{Name: gatherContainerName, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 124}}},
+					{Name: uploadContainerName, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}}},
+				}},
+			}},
+			wantReason: "gather timed out (exit code 124)",
+		},
+		{
+			name: "gather timeout exit 137",
+			pods: []corev1.Pod{{
+				ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ns", Labels: map[string]string{"job-name": "test-job"}},
+				Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{
+					{Name: gatherContainerName, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 137}}},
+				}},
+			}},
+			wantReason: "gather timed out (exit code 137)",
+		},
+		{
+			name: "gather OOMKilled exit 137",
+			pods: []corev1.Pod{{
+				ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ns", Labels: map[string]string{"job-name": "test-job"}},
+				Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{
+					{Name: gatherContainerName, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 137, Reason: "OOMKilled"}}},
+				}},
+			}},
+			wantReason: "gather failed (exit code 137)",
+		},
+		{
+			name: "gather failed exit 1",
+			pods: []corev1.Pod{{
+				ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ns", Labels: map[string]string{"job-name": "test-job"}},
+				Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{
+					{Name: gatherContainerName, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}}},
+				}},
+			}},
+			wantReason: "gather failed (exit code 1)",
+		},
+		{
+			name: "upload failed with gather success",
+			pods: []corev1.Pod{{
+				ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ns", Labels: map[string]string{"job-name": "test-job"}},
+				Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{
+					{Name: gatherContainerName, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0}}},
+					{Name: uploadContainerName, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}}},
+				}},
+			}},
+			wantReason: "upload failed (exit code 1)",
+		},
+		{
+			name: "no terminated containers returns fallback",
+			pods: []corev1.Pod{{
+				ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ns", Labels: map[string]string{"job-name": "test-job"}},
+				Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{
+					{Name: gatherContainerName, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+				}},
+			}},
+			wantReason: "MustGather Job pods failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			objects := make([]client.Object, 0, len(tt.pods))
+			for i := range tt.pods {
+				objects = append(objects, &tt.pods[i])
+			}
+			cl := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).Build()
+			r := &MustGatherReconciler{
+				ReconcilerBase: util.NewReconcilerBase(cl, s, &rest.Config{}, &record.FakeRecorder{}, nil),
+			}
+			job := &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-job", Namespace: "ns"},
+			}
+			logger := logf.Log.WithName("test")
+			got := r.buildJobFailureReason(context.Background(), logger, job)
+			if got != tt.wantReason {
+				t.Errorf("buildJobFailureReason() = %q, want %q", got, tt.wantReason)
 			}
 		})
 	}

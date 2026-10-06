@@ -38,8 +38,25 @@ const (
 	obfuscateConfigMountPath  = "/etc/must-gather-clean/custom-config/config.yaml"
 	obfuscateConfigMapKey     = "config.yaml"
 
+	// gatherSuccessMarkerPath is the path to the marker file that the gather container
+	// writes on successful completion. The upload container checks for this file before
+	// proceeding with obfuscation or SFTP upload.
+	gatherSuccessMarkerPath = "/must-gather/.gather-success"
+
+	// gatherCompletionMarkerPath is written by every gather container on exit (success
+	// or failure) via an EXIT trap. The upload container polls for this file instead of
+	// using pgrep, so it works for any gather command — not just those whose process
+	// name contains "gather".
+	gatherCompletionMarkerPath = "/must-gather/.gather-complete"
+
+	// gatherTrapPrefix sets up the EXIT trap that writes the completion marker and
+	// clears stale markers from previous Job attempts. It must be the first statement
+	// in every gather script.
+	gatherTrapPrefix = "trap 'touch " + gatherCompletionMarkerPath + "' EXIT\nrm -f " + gatherSuccessMarkerPath + "\nrm -f " + gatherCompletionMarkerPath
+
 	// obfuscateChownSuffix transfers gather output ownership to the upload container UID (65534).
-	// Captures the gather exit status first, runs chown (|| true so non-root images don't
-	// cause retries), then exits with the original status so gather failures propagate.
-	obfuscateChownSuffix = "gather_rc=$?; chown -R 65534:65534 /must-gather || true; exit $gather_rc"
+	// Captures the gather exit status first, writes the success marker on zero exit,
+	// runs chown (|| true so non-root images don't cause retries), then exits with
+	// the original status so gather failures propagate.
+	obfuscateChownSuffix = "gather_rc=$?; if [ $gather_rc -eq 0 ]; then touch " + gatherSuccessMarkerPath + "; else rm -f " + gatherSuccessMarkerPath + "; fi; chown -R 65534:65534 /must-gather || true; exit $gather_rc"
 )

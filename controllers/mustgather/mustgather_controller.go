@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"sort"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -307,7 +308,8 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		if existingJob.Status.Failed > backoffLimit {
 			reqLogger.Info("MustGather Job pods failed")
 			localmetrics.MetricMustGatherErrors.Inc()
-			return r.handleJobCompletion(ctx, reqLogger, instance, "Failed", "MustGather Job pods failed")
+			reason := r.buildJobFailureReason(ctx, reqLogger, existingJob)
+			return r.handleJobCompletion(ctx, reqLogger, instance, "Failed", reason)
 		}
 	}
 
@@ -340,6 +342,47 @@ func (r *MustGatherReconciler) handleJobCompletion(ctx context.Context, reqLogge
 		}
 	}
 	return reconcile.Result{}, nil
+}
+
+func (r *MustGatherReconciler) buildJobFailureReason(ctx context.Context, reqLogger logr.Logger, job *batchv1.Job) string {
+	const fallback = "MustGather Job pods failed"
+
+	podList := &corev1.PodList{}
+	if err := r.GetClient().List(ctx, podList,
+		client.InNamespace(job.Namespace),
+		client.MatchingLabels{"job-name": job.Name},
+	); err != nil {
+		reqLogger.Error(err, "failed to list pods for failure reason, using fallback")
+		return fallback
+	}
+	if len(podList.Items) == 0 {
+		return fallback
+	}
+
+	sort.Slice(podList.Items, func(i, j int) bool {
+		return podList.Items[i].CreationTimestamp.After(podList.Items[j].CreationTimestamp.Time)
+	})
+	pod := podList.Items[0]
+
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.State.Terminated == nil || cs.State.Terminated.ExitCode == 0 {
+			continue
+		}
+		code := cs.State.Terminated.ExitCode
+		switch cs.Name {
+		case gatherContainerName:
+			if cs.State.Terminated.Reason == "OOMKilled" {
+				return fmt.Sprintf("gather failed (exit code %d)", code)
+			}
+			if code == 124 || code == 137 {
+				return fmt.Sprintf("gather timed out (exit code %d)", code)
+			}
+			return fmt.Sprintf("gather failed (exit code %d)", code)
+		case uploadContainerName:
+			return fmt.Sprintf("upload failed (exit code %d)", code)
+		}
+	}
+	return fallback
 }
 
 func (r *MustGatherReconciler) updateStatus(ctx context.Context, instance *mustgatherv1.MustGather, job *batchv1.Job) (reconcile.Result, error) {
