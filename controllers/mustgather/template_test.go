@@ -1050,6 +1050,9 @@ func Test_getGatherContainer_ChownSuffix(t *testing.T) {
 	if !strings.Contains(gatherCmd, obfuscateChownSuffix) {
 		t.Fatalf("expected chown suffix when obfuscate enabled, got %q", gatherCmd)
 	}
+	if !strings.Contains(gatherCmd, gatherSuccessMarkerPath) {
+		t.Fatal("obfuscate chown suffix must write success marker")
+	}
 
 	containerNoObfuscate := getGatherContainer("img", false, 5*time.Second, nil, "", nil, nil, nil, "", nil)
 	gatherCmdNoObfuscate := containerNoObfuscate.Command[2]
@@ -1227,7 +1230,7 @@ func envValues(container v1.Container) map[string]string {
 	return m
 }
 
-func Test_gatherCommand_exitCodePropagation(t *testing.T) {
+func Test_gatherCommand_scriptContract(t *testing.T) {
 	container := getGatherContainer("img", false, 300*time.Second, nil, "", nil, nil, nil, "", nil)
 	gatherCmd := container.Command[2]
 
@@ -1240,165 +1243,114 @@ func Test_gatherCommand_exitCodePropagation(t *testing.T) {
 	if !strings.Contains(gatherCmd, "exit $status") {
 		t.Fatal("gatherCommand must propagate non-zero exit codes via exit $status")
 	}
+	if strings.Contains(gatherCmd, "124 || $status -eq 137") {
+		t.Fatal("gatherCommand must not have a timeout special-case block; 124/137 should fall through to the non-zero exit path")
+	}
+	if !strings.Contains(gatherCmd, "rm -f "+gatherSuccessMarkerPath+"\n  exit $status") {
+		t.Fatalf("gatherCommand non-zero branch must rm -f the success marker before exit $status, got:\n%s", gatherCmd)
+	}
 }
 
-func Test_gatherCommand_successMarker(t *testing.T) {
+func Test_uploadCommand_gatherGateModes(t *testing.T) {
+	t.Setenv(DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
+
 	tests := []struct {
-		name      string
-		command   []string
-		args      []string
-		obfuscate *mustgatherv1.ObfuscateConfig
+		name           string
+		mg             mustgatherv1.MustGather
+		expectGate     bool
+		checkSkipOrder bool
 	}{
 		{
-			name: "default command writes success marker",
+			name: "sftp",
+			mg: mustgatherv1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
+				Spec: mustgatherv1.MustGatherSpec{
+					ServiceAccountName: "default",
+					UploadTarget: &mustgatherv1.UploadTargetSpec{
+						Type: mustgatherv1.UploadTypeSFTP,
+						SFTP: &mustgatherv1.SFTPSpec{
+							CaseID: "1234",
+							Host:   ptr.To("sftp.example.com"),
+							CaseManagementAccountSecretRef: v1.LocalObjectReference{
+								Name: "case-mgmt-secret",
+							},
+						},
+					},
+				},
+			},
+			expectGate:     true,
+			checkSkipOrder: true,
 		},
 		{
-			name:    "custom command writes success marker",
-			command: []string{"/usr/bin/custom-gather"},
-			args:    []string{"--verbose"},
+			name: "obfuscate_only",
+			mg: mustgatherv1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
+				Spec: mustgatherv1.MustGatherSpec{
+					ServiceAccountName: "default",
+					Obfuscate: &mustgatherv1.ObfuscateConfig{
+						Enabled: ToPtr(true),
+					},
+				},
+			},
+			expectGate: true,
 		},
 		{
-			name:      "default command with obfuscate writes success marker",
-			obfuscate: &mustgatherv1.ObfuscateConfig{Enabled: ToPtr(true)},
-		},
-		{
-			name:      "custom command with obfuscate writes success marker",
-			command:   []string{"/usr/bin/custom-gather"},
-			obfuscate: &mustgatherv1.ObfuscateConfig{Enabled: ToPtr(true)},
+			name: "source",
+			mg: mustgatherv1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
+				Spec: mustgatherv1.MustGatherSpec{
+					ServiceAccountName: "default",
+					Obfuscate: &mustgatherv1.ObfuscateConfig{
+						Enabled: ToPtr(true),
+						Source: &mustgatherv1.PersistentVolumeConfig{
+							Claim: mustgatherv1.PersistentVolumeClaimReference{Name: "existing-pvc"},
+						},
+					},
+				},
+			},
+			expectGate: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			container := getGatherContainer("img", false, 5*time.Second, nil, "", nil, tt.command, tt.args, "", tt.obfuscate)
-			script := container.Command[2]
-			if !strings.Contains(script, gatherSuccessMarkerPath) {
-				t.Fatalf("gather command must write success marker at %s, got:\n%s", gatherSuccessMarkerPath, script)
+			job := getJobTemplate("img", "operator-image", tt.mg, "", "must-gather.local.test.20240101T120000Z.000001")
+			upload := findUploadContainerInJob(t, job)
+			uploadCmd := upload.Command[2]
+
+			if tt.expectGate {
+				if !strings.Contains(uploadCmd, gatherSuccessMarkerPath) {
+					t.Fatalf("upload command must check for gather success marker at %s, got:\n%s", gatherSuccessMarkerPath, uploadCmd)
+				}
+				if !strings.Contains(uploadCmd, gatherCompletionMarkerPath) {
+					t.Fatalf("upload command must wait for gather completion marker at %s, got:\n%s", gatherCompletionMarkerPath, uploadCmd)
+				}
+				if tt.checkSkipOrder {
+					if !strings.Contains(uploadCmd, "Skipping upload") {
+						t.Fatal("upload command must log a message when skipping upload due to missing success marker")
+					}
+					if !strings.Contains(uploadCmd, "exit 1") {
+						t.Fatal("upload command must exit 1 when gather success marker is missing")
+					}
+					markerCheckIdx := strings.Index(uploadCmd, gatherSuccessMarkerPath)
+					uploadCallIdx := strings.Index(uploadCmd, "/usr/local/bin/upload")
+					if markerCheckIdx > uploadCallIdx {
+						t.Fatal("marker check must occur before the upload script call")
+					}
+				}
+				return
+			}
+
+			if strings.Contains(uploadCmd, gatherSuccessMarkerPath) {
+				t.Fatal("source mode must not check for gather success marker (no gather container)")
+			}
+			if strings.Contains(uploadCmd, gatherCompletionMarkerPath) {
+				t.Fatal("source mode must not check for gather completion marker (no gather container)")
+			}
+			if !strings.Contains(uploadCmd, uploadCommandDirect) {
+				t.Fatal("source mode must use direct upload command")
 			}
 		})
-	}
-}
-
-func Test_gatherCommand_timeoutFallsThrough(t *testing.T) {
-	container := getGatherContainer("img", false, 300*time.Second, nil, "", nil, nil, nil, "", nil)
-	gatherCmd := container.Command[2]
-
-	if strings.Contains(gatherCmd, "124 || $status -eq 137") {
-		t.Fatal("gatherCommand must not have a timeout special-case block; 124/137 should fall through to the non-zero exit path")
-	}
-	if !strings.Contains(gatherCmd, "exit $status") {
-		t.Fatal("gatherCommand must exit with the original status on non-zero")
-	}
-}
-
-func Test_uploadCommand_gatherSuccessGate(t *testing.T) {
-	t.Setenv(DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
-
-	mg := mustgatherv1.MustGather{
-		ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
-		Spec: mustgatherv1.MustGatherSpec{
-			ServiceAccountName: "default",
-			UploadTarget: &mustgatherv1.UploadTargetSpec{
-				Type: mustgatherv1.UploadTypeSFTP,
-				SFTP: &mustgatherv1.SFTPSpec{
-					CaseID: "1234",
-					Host:   ptr.To("sftp.example.com"),
-					CaseManagementAccountSecretRef: v1.LocalObjectReference{
-						Name: "case-mgmt-secret",
-					},
-				},
-			},
-		},
-	}
-
-	job := getJobTemplate("img", "operator-image", mg, "", "must-gather.local.test.20240101T120000Z.000001")
-	upload := findUploadContainerInJob(t, job)
-	uploadCmd := upload.Command[2]
-
-	if !strings.Contains(uploadCmd, gatherSuccessMarkerPath) {
-		t.Fatalf("upload command must check for gather success marker at %s, got:\n%s", gatherSuccessMarkerPath, uploadCmd)
-	}
-	if !strings.Contains(uploadCmd, gatherCompletionMarkerPath) {
-		t.Fatalf("upload command must wait for gather completion marker at %s, got:\n%s", gatherCompletionMarkerPath, uploadCmd)
-	}
-	if !strings.Contains(uploadCmd, "Skipping upload") {
-		t.Fatal("upload command must log a message when skipping upload due to missing success marker")
-	}
-	if !strings.Contains(uploadCmd, "exit 1") {
-		t.Fatal("upload command must exit 1 when gather success marker is missing")
-	}
-
-	markerCheckIdx := strings.Index(uploadCmd, gatherSuccessMarkerPath)
-	uploadCallIdx := strings.Index(uploadCmd, "/usr/local/bin/upload")
-	if markerCheckIdx > uploadCallIdx {
-		t.Fatal("marker check must occur before the upload script call")
-	}
-}
-
-func Test_uploadCommand_sourceMode_noGatherGate(t *testing.T) {
-	t.Setenv(DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
-
-	mg := mustgatherv1.MustGather{
-		ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
-		Spec: mustgatherv1.MustGatherSpec{
-			ServiceAccountName: "default",
-			Obfuscate: &mustgatherv1.ObfuscateConfig{
-				Enabled: ToPtr(true),
-				Source: &mustgatherv1.PersistentVolumeConfig{
-					Claim: mustgatherv1.PersistentVolumeClaimReference{Name: "existing-pvc"},
-				},
-			},
-		},
-	}
-
-	job := getJobTemplate("img", "operator-image", mg, "", "dir-name")
-	upload := findUploadContainerInJob(t, job)
-	uploadCmd := upload.Command[2]
-
-	if strings.Contains(uploadCmd, gatherSuccessMarkerPath) {
-		t.Fatal("source mode must not check for gather success marker (no gather container)")
-	}
-	if strings.Contains(uploadCmd, gatherCompletionMarkerPath) {
-		t.Fatal("source mode must not check for gather completion marker (no gather container)")
-	}
-	if !strings.Contains(uploadCmd, uploadCommandDirect) {
-		t.Fatal("source mode must use direct upload command")
-	}
-}
-
-func Test_uploadCommand_obfuscateOnly_gatherSuccessGate(t *testing.T) {
-	t.Setenv(DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
-
-	mg := mustgatherv1.MustGather{
-		ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
-		Spec: mustgatherv1.MustGatherSpec{
-			ServiceAccountName: "default",
-			Obfuscate: &mustgatherv1.ObfuscateConfig{
-				Enabled: ToPtr(true),
-			},
-		},
-	}
-
-	job := getJobTemplate("img", "operator-image", mg, "", "dir-name")
-	upload := findUploadContainerInJob(t, job)
-	uploadCmd := upload.Command[2]
-
-	if !strings.Contains(uploadCmd, gatherSuccessMarkerPath) {
-		t.Fatal("obfuscate-only mode (with gather) must check for gather success marker")
-	}
-	if !strings.Contains(uploadCmd, gatherCompletionMarkerPath) {
-		t.Fatal("obfuscate-only mode (with gather) must wait for gather completion marker")
-	}
-}
-
-func Test_gatherCommand_failureRemovesMarker(t *testing.T) {
-	container := getGatherContainer("img", false, 300*time.Second, nil, "", nil, nil, nil, "", nil)
-	gatherCmd := container.Command[2]
-
-	failIdx := strings.Index(gatherCmd, "exit $status")
-	rmIdx := strings.Index(gatherCmd, "rm -f "+gatherSuccessMarkerPath+"\n  exit $status")
-	if failIdx == -1 || rmIdx == -1 {
-		t.Fatalf("gatherCommand non-zero branch must rm -f the success marker before exit $status, got:\n%s", gatherCmd)
 	}
 }
 
