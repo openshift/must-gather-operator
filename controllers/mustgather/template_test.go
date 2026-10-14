@@ -1337,6 +1337,9 @@ func Test_uploadCommand_gatherGateModes(t *testing.T) {
 				if !strings.Contains(uploadCmd, "/proc/") {
 					t.Fatalf("upload command must check /proc/$pid for hard-kill detection, got:\n%s", uploadCmd)
 				}
+				if !strings.Contains(uploadCmd, "seen_live") {
+					t.Fatalf("upload command must track seen_live before honoring PID-gone, got:\n%s", uploadCmd)
+				}
 				if !strings.Contains(uploadCmd, gatherSuccessMarkerPath) {
 					t.Fatalf("upload command must check for gather success marker at %s, got:\n%s", gatherSuccessMarkerPath, uploadCmd)
 				}
@@ -1422,6 +1425,18 @@ func runShellForTest(t *testing.T, command *exec.Cmd) (int, string) {
 	return exitErr.ExitCode(), string(output)
 }
 
+// writeExecutableFixture writes a script at path with mode 0600 then chmods to 0700
+// so gosec G306 is satisfied while keeping the file executable for shell tests.
+func writeExecutableFixture(t *testing.T, path, contents string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGatherCommandExecutesWithOriginalExitCodeAndFreshMarkers(t *testing.T) {
 	for _, tt := range []struct {
 		name     string
@@ -1435,9 +1450,7 @@ func TestGatherCommandExecutesWithOriginalExitCodeAndFreshMarkers(t *testing.T) 
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
 			fakeGather := filepath.Join(dir, "fake-gather")
-			if err := os.WriteFile(fakeGather, []byte(fmt.Sprintf("#!/bin/bash\nexit %d\n", tt.exitCode)), 0o700); err != nil {
-				t.Fatal(err)
-			}
+			writeExecutableFixture(t, fakeGather, fmt.Sprintf("#!/bin/bash\nexit %d\n", tt.exitCode))
 			successMarker := filepath.Join(dir, ".gather-success")
 			completionMarker := filepath.Join(dir, ".gather-complete")
 			pidFile := filepath.Join(dir, ".gather.pid")
@@ -1481,9 +1494,7 @@ func TestCustomGatherCommandPreservesArgsAndExitCode(t *testing.T) {
 		t.Run(strconv.Itoa(exitCode), func(t *testing.T) {
 			dir := t.TempDir()
 			fakeGather := filepath.Join(dir, "fake-custom-gather")
-			if err := os.WriteFile(fakeGather, []byte("#!/bin/bash\nprintf '%s' \"$1\" > \"$2\"\nexit \"$3\"\n"), 0o700); err != nil {
-				t.Fatal(err)
-			}
+			writeExecutableFixture(t, fakeGather, "#!/bin/bash\nprintf '%s' \"$1\" > \"$2\"\nexit \"$3\"\n")
 			argsFile := filepath.Join(dir, "args")
 			container := getGatherContainer("img", false, 30*time.Second, nil, "", nil,
 				[]string{fakeGather}, []string{"two words", argsFile, strconv.Itoa(exitCode)}, "", nil)
@@ -1516,21 +1527,17 @@ func TestUploadCommandExecutesOnlyAfterWaitAndGatherSuccess(t *testing.T) {
 		name             string
 		completionMarker bool
 		successMarker    bool
-		pidFile          string // if non-empty, write this value to the PID file (use a non-existent PID to simulate hard kill)
 		wantExit         int
 		wantUpload       bool
 	}{
 		{name: "gather_succeeded", completionMarker: true, successMarker: true, wantExit: 0, wantUpload: true},
 		{name: "gather_failed", completionMarker: true, successMarker: false, wantExit: 1, wantUpload: false},
-		{name: "hard_kill_detected_via_pid", completionMarker: false, successMarker: false, pidFile: "99999999", wantExit: 1, wantUpload: false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
 			upload := filepath.Join(dir, "upload")
 			called := filepath.Join(dir, "upload-called")
-			if err := os.WriteFile(upload, []byte("#!/bin/bash\nprintf called > "+strconv.Quote(called)+"\n"), 0o700); err != nil {
-				t.Fatal(err)
-			}
+			writeExecutableFixture(t, upload, "#!/bin/bash\nprintf called > "+strconv.Quote(called)+"\n")
 			completionMarker := filepath.Join(dir, ".gather-complete")
 			if tt.completionMarker {
 				if err := os.WriteFile(completionMarker, nil, 0o600); err != nil {
@@ -1544,11 +1551,6 @@ func TestUploadCommandExecutesOnlyAfterWaitAndGatherSuccess(t *testing.T) {
 				}
 			}
 			pidFile := filepath.Join(dir, ".gather.pid")
-			if tt.pidFile != "" {
-				if err := os.WriteFile(pidFile, []byte(tt.pidFile), 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
 			script := strings.ReplaceAll(uploadCommand, "/usr/local/bin/upload", upload)
 			script = strings.ReplaceAll(script, gatherCompletionMarkerPath, completionMarker)
 			script = strings.ReplaceAll(script, gatherPidPath, pidFile)
@@ -1563,4 +1565,102 @@ func TestUploadCommandExecutesOnlyAfterWaitAndGatherSuccess(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUploadCommandHardKillRequiresSeenLivePID(t *testing.T) {
+	t.Run("hard_kill_after_seen_live", func(t *testing.T) {
+		dir := t.TempDir()
+		upload := filepath.Join(dir, "upload")
+		called := filepath.Join(dir, "upload-called")
+		writeExecutableFixture(t, upload, "#!/bin/bash\nprintf called > "+strconv.Quote(called)+"\n")
+		completionMarker := filepath.Join(dir, ".gather-complete")
+		successMarker := filepath.Join(dir, ".gather-success")
+		pidFile := filepath.Join(dir, ".gather.pid")
+
+		sleepCmd := exec.Command("sleep", "30")
+		if err := sleepCmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = sleepCmd.Process.Kill() }()
+		if err := os.WriteFile(pidFile, []byte(strconv.Itoa(sleepCmd.Process.Pid)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		script := strings.ReplaceAll(uploadCommand, "/usr/local/bin/upload", upload)
+		script = strings.ReplaceAll(script, gatherCompletionMarkerPath, completionMarker)
+		script = strings.ReplaceAll(script, gatherPidPath, pidFile)
+		script = strings.ReplaceAll(script, gatherSuccessMarkerPath, successMarker)
+		script = strings.ReplaceAll(script, "sleep 5", "sleep 0")
+
+		done := make(chan struct {
+			code   int
+			output string
+		}, 1)
+		go func() {
+			code, output := runShellForTest(t, exec.Command("bash", "-c", script)) //nolint:gosec // generated script and temporary fixtures
+			done <- struct {
+				code   int
+				output string
+			}{code, output}
+		}()
+
+		// Allow one loop iteration so seen_live becomes 1, then kill the gather PID.
+		time.Sleep(50 * time.Millisecond)
+		if err := sleepCmd.Process.Kill(); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = sleepCmd.Process.Wait()
+
+		result := <-done
+		if result.code != 1 {
+			t.Fatalf("upload gate exit code = %d, want 1: %s", result.code, result.output)
+		}
+		if !strings.Contains(result.output, "exited without completion marker") {
+			t.Fatalf("expected PID-gone log after seen_live, got: %s", result.output)
+		}
+		if _, err := os.Stat(called); err == nil {
+			t.Fatal("upload must not run when success marker is absent after hard kill")
+		}
+	})
+
+	t.Run("pid_never_seen_live_does_not_false_break", func(t *testing.T) {
+		dir := t.TempDir()
+		upload := filepath.Join(dir, "upload")
+		called := filepath.Join(dir, "upload-called")
+		writeExecutableFixture(t, upload, "#!/bin/bash\nprintf called > "+strconv.Quote(called)+"\n")
+		completionMarker := filepath.Join(dir, ".gather-complete")
+		successMarker := filepath.Join(dir, ".gather-success")
+		pidFile := filepath.Join(dir, ".gather.pid")
+		if err := os.WriteFile(pidFile, []byte("99999999"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Bound the wait: after a few loops with a never-live PID, create the
+		// completion marker so the script can exit. It must not take the PID-gone branch.
+		script := strings.ReplaceAll(uploadCommand, "/usr/local/bin/upload", upload)
+		script = strings.ReplaceAll(script, gatherCompletionMarkerPath, completionMarker)
+		script = strings.ReplaceAll(script, gatherPidPath, pidFile)
+		script = strings.ReplaceAll(script, gatherSuccessMarkerPath, successMarker)
+		script = strings.ReplaceAll(script, "sleep 5", "sleep 0")
+		bounded := fmt.Sprintf(
+			"loops=0\n%s",
+			strings.Replace(
+				script,
+				"while true; do",
+				"while true; do\n  loops=$((loops+1))\n  if [ \"$loops\" -ge 3 ]; then touch "+strconv.Quote(completionMarker)+"; fi",
+				1,
+			),
+		)
+
+		gotCode, output := runShellForTest(t, exec.Command("bash", "-c", bounded)) //nolint:gosec // generated script and temporary fixtures
+		if gotCode != 1 {
+			t.Fatalf("upload gate exit code = %d, want 1 (no success marker): %s", gotCode, output)
+		}
+		if strings.Contains(output, "exited without completion marker") {
+			t.Fatalf("must not take PID-gone branch when PID was never observed live, got: %s", output)
+		}
+		if _, err := os.Stat(called); err == nil {
+			t.Fatal("upload must not run without success marker")
+		}
+	})
 }

@@ -1345,7 +1345,12 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					ginkgo.GinkgoWriter.Println("Job completed successfully")
 					return true
 				}
-				if job.Status.Failed > 0 {
+				backoffLimit := int32(0)
+				if job.Spec.BackoffLimit != nil {
+					backoffLimit = *job.Spec.BackoffLimit
+				}
+				// Match controller terminal-failure semantics so a single pod failure can retry.
+				if job.Status.Failed > backoffLimit {
 					var details []string
 
 					// Include job conditions (often contains the failure reason/message)
@@ -1356,7 +1361,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 						))
 					}
 
-					// Best-effort include container termination details
+					// Best-effort include container termination details and logs
 					if mustGatherPod != nil && mustGatherPod.Name != "" {
 						tmpPod := &corev1.Pod{}
 						if err := nonAdminClient.Get(testCtx, client.ObjectKey{
@@ -1375,6 +1380,14 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 										cs.Name, cs.State.Waiting.Reason, cs.State.Waiting.Message,
 									))
 								}
+							}
+							for _, cName := range []string{gatherContainerName, uploadContainerName} {
+								logs, logErr := getContainerLogs(ns.Name, tmpPod.Name, cName)
+								if logErr != nil {
+									ginkgo.GinkgoWriter.Printf("%s container logs unavailable: %v\n", cName, logErr)
+									continue
+								}
+								ginkgo.GinkgoWriter.Printf("--- %s container logs ---\n%s\n", cName, logs)
 							}
 						} else {
 							details = append(details, fmt.Sprintf("failed to get pod %s: %v", mustGatherPod.Name, err))

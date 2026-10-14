@@ -53,9 +53,11 @@ const (
 
 	// uploadCommand waits for gather to finish via two signals:
 	// 1. The completion marker (written by gather's EXIT trap on graceful exit)
-	// 2. The gather PID disappearing from /proc (covers OOMKilled/SIGKILL that skip the trap)
+	// 2. The gather PID disappearing from /proc after it was observed live
+	//    (covers OOMKilled/SIGKILL that skip the trap; seen_live avoids a false
+	//    PID-gone break when the upload container has just joined the shared PID ns)
 	// Then gates on the success marker before running upload.
-	uploadCommand = "echo \"Waiting for gather to complete...\"\nwhile true; do\n  if [ -f " + gatherCompletionMarkerPath + " ]; then break; fi\n  if [ -f " + gatherPidPath + " ]; then\n    pid=$(cat " + gatherPidPath + ")\n    if [ -n \"$pid\" ] && ! [ -d \"/proc/$pid\" ]; then\n      echo \"gather process (pid=$pid) exited without completion marker\"\n      break\n    fi\n  fi\n  sleep 5\ndone\nif [ ! -f " + gatherSuccessMarkerPath + " ]; then\n  echo \"Error: gather did not complete successfully. Skipping upload.\"\n  exit 1\nfi\n/usr/local/bin/upload"
+	uploadCommand = "echo \"Waiting for gather to complete...\"\nseen_live=0\nwhile true; do\n  if [ -f " + gatherCompletionMarkerPath + " ]; then break; fi\n  if [ -f " + gatherPidPath + " ]; then\n    pid=$(cat " + gatherPidPath + ")\n    if [ -n \"$pid\" ]; then\n      if [ -d \"/proc/$pid\" ]; then\n        seen_live=1\n      elif [ \"$seen_live\" -eq 1 ]; then\n        echo \"gather process (pid=$pid) exited without completion marker\"\n        break\n      fi\n    fi\n  fi\n  sleep 5\ndone\nif [ ! -f " + gatherSuccessMarkerPath + " ]; then\n  echo \"Error: gather did not complete successfully. Skipping upload.\"\n  exit 1\nfi\n/usr/local/bin/upload"
 
 	gatherSuccessMarkerSuffix = "rc=$?; if [ $rc -eq 0 ]; then touch " + gatherSuccessMarkerPath + "; else rm -f " + gatherSuccessMarkerPath + "; fi; exit $rc"
 	uploadCommandDirect       = "/usr/local/bin/upload"
