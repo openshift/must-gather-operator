@@ -20,6 +20,8 @@ spec:
 
 This request will collect the standard must-gather info and upload it to case `#02527285` using the credentials found in the `caseManagementCreds` secret.
 
+For gather+upload Jobs, upload starts only after gather exits successfully. A gather failure or timeout fails the Job and skips upload; the CR status reason includes the gather or upload exit code when Pod status is available.
+
 ## Collecting Audit logs
 The field `audit` is **false** by default unless explicitly set to **true**.
 This will generate the default collection of audit logs as per [the collection script: gather_audit_logs](https://github.com/openshift/must-gather/blob/master/collection-scripts/gather_audit_logs)

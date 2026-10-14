@@ -44,15 +44,20 @@ const (
 	gatherSuccessMarkerPath = "/must-gather/.gather-success"
 
 	// gatherCompletionMarkerPath is written by every gather container on exit (success
-	// or failure) via an EXIT trap. The upload container polls for this file instead of
-	// using pgrep, so it works for any gather command — not just those whose process
-	// name contains "gather".
+	// or failure) via an EXIT trap. The upload container polls for this file to detect
+	// graceful gather completion.
 	gatherCompletionMarkerPath = "/must-gather/.gather-complete"
 
-	// gatherTrapPrefix sets up the EXIT trap that writes the completion marker and
-	// clears stale markers from previous Job attempts. It must be the first statement
-	// in every gather script.
-	gatherTrapPrefix = "trap 'touch " + gatherCompletionMarkerPath + "' EXIT\nrm -f " + gatherSuccessMarkerPath + "\nrm -f " + gatherCompletionMarkerPath
+	// gatherPidPath is written as the first statement of the gather wrapper so the
+	// upload container can detect a hard-killed gather (OOMKilled/SIGKILL) via
+	// /proc/$pid disappearing. Requires ShareProcessNamespace.
+	gatherPidPath = "/must-gather/.gather.pid"
+
+	// gatherTrapPrefix writes the wrapper PID first (overwriting any stale PVC PID),
+	// installs the EXIT trap for the completion marker, then clears stale success
+	// and completion markers from previous Job attempts. It must be the first
+	// statement in every gather script. Do not rm the PID after writing it.
+	gatherTrapPrefix = "echo $$ > " + gatherPidPath + "\ntrap 'touch " + gatherCompletionMarkerPath + "' EXIT\nrm -f " + gatherSuccessMarkerPath + "\nrm -f " + gatherCompletionMarkerPath
 
 	// obfuscateChownSuffix transfers gather output ownership to the upload container UID (65534).
 	// Captures the gather exit status first, writes the success marker on zero exit,

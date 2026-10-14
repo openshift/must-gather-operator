@@ -2407,6 +2407,7 @@ func Test_buildJobFailureReason(t *testing.T) {
 	tests := []struct {
 		name       string
 		pods       []corev1.Pod
+		listErr    error
 		wantReason string
 	}{
 		{
@@ -2456,6 +2457,17 @@ func Test_buildJobFailureReason(t *testing.T) {
 			wantReason: "gather failed (exit code 1)",
 		},
 		{
+			name: "gather failure wins even when upload status comes first",
+			pods: []corev1.Pod{{
+				ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ns", Labels: map[string]string{"job-name": "test-job"}},
+				Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{
+					{Name: uploadContainerName, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}}},
+					{Name: gatherContainerName, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 42}}},
+				}},
+			}},
+			wantReason: "gather failed (exit code 42)",
+		},
+		{
 			name: "upload failed with gather success",
 			pods: []corev1.Pod{{
 				ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ns", Labels: map[string]string{"job-name": "test-job"}},
@@ -2476,6 +2488,36 @@ func Test_buildJobFailureReason(t *testing.T) {
 			}},
 			wantReason: "MustGather Job pods failed",
 		},
+		{
+			name: "newest matching Job Pod supplies failure reason",
+			pods: []corev1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "old", Namespace: "ns", Labels: map[string]string{"job-name": "test-job"}, CreationTimestamp: metav1.NewTime(time.Unix(1, 0))},
+					Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{
+						{Name: gatherContainerName, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 42}}},
+					}},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "new", Namespace: "ns", Labels: map[string]string{"job-name": "test-job"}, CreationTimestamp: metav1.NewTime(time.Unix(2, 0))},
+					Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{
+						{Name: gatherContainerName, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0}}},
+						{Name: uploadContainerName, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 7}}},
+					}},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "different-job", Namespace: "ns", Labels: map[string]string{"job-name": "other-job"}, CreationTimestamp: metav1.NewTime(time.Unix(3, 0))},
+					Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{
+						{Name: gatherContainerName, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 99}}},
+					}},
+				},
+			},
+			wantReason: "upload failed (exit code 7)",
+		},
+		{
+			name:       "Pod list error returns fallback",
+			listErr:    errors.New("Pod list unavailable"),
+			wantReason: "MustGather Job pods failed",
+		},
 	}
 
 	for _, tt := range tests {
@@ -2484,7 +2526,12 @@ func Test_buildJobFailureReason(t *testing.T) {
 			for i := range tt.pods {
 				objects = append(objects, &tt.pods[i])
 			}
-			cl := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).Build()
+			var cl client.Client = fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).Build()
+			if tt.listErr != nil {
+				cl = interceptClient{Client: cl, onList: func(context.Context, client.ObjectList, ...client.ListOption) error {
+					return tt.listErr
+				}}
+			}
 			r := &MustGatherReconciler{
 				ReconcilerBase: util.NewReconcilerBase(cl, s, &rest.Config{}, &record.FakeRecorder{}, nil),
 			}

@@ -364,6 +364,7 @@ func (r *MustGatherReconciler) buildJobFailureReason(ctx context.Context, reqLog
 	})
 	pod := podList.Items[0]
 
+	var uploadCode int32
 	for _, cs := range pod.Status.ContainerStatuses {
 		if cs.State.Terminated == nil || cs.State.Terminated.ExitCode == 0 {
 			continue
@@ -379,8 +380,11 @@ func (r *MustGatherReconciler) buildJobFailureReason(ctx context.Context, reqLog
 			}
 			return fmt.Sprintf("gather failed (exit code %d)", code)
 		case uploadContainerName:
-			return fmt.Sprintf("upload failed (exit code %d)", code)
+			uploadCode = code
 		}
+	}
+	if uploadCode != 0 {
+		return fmt.Sprintf("upload failed (exit code %d)", uploadCode)
 	}
 	return fallback
 }

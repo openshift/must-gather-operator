@@ -50,7 +50,12 @@ const (
 	uploadEnvMustGatherOutput = "must_gather_output"
 	uploadEnvMustGatherUpload = "must_gather_upload"
 	uploadEnvFilenamePrefix   = "FILENAME_PREFIX"
-	uploadCommand             = "echo \"Waiting for gather to complete...\"\nwhile [ ! -f " + gatherCompletionMarkerPath + " ]; do\n  sleep 5\ndone\nif [ ! -f " + gatherSuccessMarkerPath + " ]; then\n  echo \"Error: gather did not complete successfully. Skipping upload.\"\n  exit 1\nfi\n/usr/local/bin/upload"
+
+	// uploadCommand waits for gather to finish via two signals:
+	// 1. The completion marker (written by gather's EXIT trap on graceful exit)
+	// 2. The gather PID disappearing from /proc (covers OOMKilled/SIGKILL that skip the trap)
+	// Then gates on the success marker before running upload.
+	uploadCommand = "echo \"Waiting for gather to complete...\"\nwhile true; do\n  if [ -f " + gatherCompletionMarkerPath + " ]; then break; fi\n  if [ -f " + gatherPidPath + " ]; then\n    pid=$(cat " + gatherPidPath + ")\n    if [ -n \"$pid\" ] && ! [ -d \"/proc/$pid\" ]; then\n      echo \"gather process (pid=$pid) exited without completion marker\"\n      break\n    fi\n  fi\n  sleep 5\ndone\nif [ ! -f " + gatherSuccessMarkerPath + " ]; then\n  echo \"Error: gather did not complete successfully. Skipping upload.\"\n  exit 1\nfi\n/usr/local/bin/upload"
 
 	gatherSuccessMarkerSuffix = "rc=$?; if [ $rc -eq 0 ]; then touch " + gatherSuccessMarkerPath + "; else rm -f " + gatherSuccessMarkerPath + "; fi; exit $rc"
 	uploadCommandDirect       = "/usr/local/bin/upload"
@@ -293,9 +298,10 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 							Operator: corev1.TolerationOpExists,
 						},
 					},
-					RestartPolicy:      corev1.RestartPolicyNever,
-					Volumes:            volumes,
-					ServiceAccountName: serviceAccountRef,
+					RestartPolicy:         corev1.RestartPolicyNever,
+					ShareProcessNamespace: ptr.To(true),
+					Volumes:               volumes,
+					ServiceAccountName:    serviceAccountRef,
 				},
 			},
 		},
@@ -472,6 +478,7 @@ func getUploadContainer(
 			Value: volumeUploadMountPath,
 		},
 	}
+
 	if sftp != nil {
 		env = append(env,
 			corev1.EnvVar{
