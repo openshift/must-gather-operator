@@ -105,23 +105,23 @@ oc apply -f ./examples/mustgather_basic.yaml
 
 **Controller** (`controllers/mustgather/mustgather_controller.go`):
 - Main reconciliation loop that manages MustGather lifecycle
-- Creates Kubernetes Jobs with a gather container and a conditional upload container (added only when uploadTarget is configured)
+- Creates Kubernetes Jobs with a gather container (except obfuscate-source mode) and a conditional upload container (SFTP upload or obfuscation)
 - Handles finalizers for proper cleanup of jobs, pods, and trusted CA ConfigMaps
 - Cleanup runs in the same reconciliation after Job success or failure when `retainResourcesOnCompletion` is unset or false
 - On CR deletion, the finalizer performs this cleanup only when retention is disabled
 - Uses predicates to filter events (only reconciles on generation or finalizer changes)
 
 **Job Template** (`controllers/mustgather/template.go`):
-- Generates Job specs with a gather container (always) and a conditional upload container (added only when `uploadTarget` is configured):
-  1. **Gather container**: Runs must-gather collection (with or without audit logs)
-  2. **Upload container** (conditional): Waits for gather to complete, then compresses and uploads to Red Hat SFTP
+- Generates Job specs with a gather container (except obfuscate-source mode) and a conditional upload container (SFTP upload or obfuscation):
+  1. **Gather container**: Runs must-gather collection (with or without audit logs), preserves its exit code, writes its PID and completion/success markers
+  2. **Upload container** (conditional): Waits for gather completion (marker or PID gone via shared process namespace), checks the success marker, then obfuscates and/or uploads
 - Configures shared volumes, proxy settings, timeouts, and node affinity for infra nodes
-- Uses `ShareProcessNamespace` to allow upload container to detect when gather completes
+- `ShareProcessNamespace: true` lets the upload container detect a hard-killed gather via `/proc/$pid`
 
 **Upload Script** (`build/bin/upload`):
 - Shell script that compresses must-gather output and uploads via SFTP
 - Supports proxy configurations (with authentication)
-- Creates SSH known_hosts file for SFTP connections
+- Uses the SSH directory and known_hosts file prepared by the Job template
 - Handles both internal and external Red Hat users (different upload paths)
 
 ### Reconciliation Flow
@@ -137,14 +137,15 @@ oc apply -f ./examples/mustgather_basic.yaml
    - Increment Prometheus metrics
 5. Monitor Job status:
    - On success or failure: update status, run cleanup in same reconciliation (unless `retainResourcesOnCompletion`)
+   - On terminal failure: use the newest Job Pod's gather/upload exit code in the CR reason when available; otherwise use the generic failure reason
    - Update MustGather status based on Job completion
 
 ### Key Design Decisions
 
 - **Operator runs in a single namespace** (default: `must-gather-operator`) but watches MustGather CRs cluster-wide
 - **No secret replication**: Secrets are referenced directly via SecretKeyRef from the CR namespace; only trusted CA ConfigMaps are replicated to the CR namespace
-- **Two-container approach**: Separate containers for gathering and uploading allows gather to run with cluster permissions while upload runs with limited permissions
-- **Process namespace sharing**: Enables upload container to detect gather completion via `pgrep`
+- **Two-container approach**: Separate images and commands for gathering and uploading share the CR's Pod ServiceAccount; obfuscate-source Jobs use only the upload container
+- **Gather completion gate**: Completion marker or PID+`/proc` check ends the wait; a success marker is required before upload. Failed gathers and timeouts keep non-zero exit codes and skip upload
 - **Infra node affinity**: Jobs prefer infra nodes (with tolerations) to avoid impacting application workloads
 - **Proxy support**: Inherits cluster proxy config from environment variables
 - **FIPS mode**: Enabled by default (`FIPS_ENABLED=true` in Makefile)

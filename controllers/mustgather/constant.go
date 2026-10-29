@@ -38,8 +38,30 @@ const (
 	obfuscateConfigMountPath  = "/etc/must-gather-clean/custom-config/config.yaml"
 	obfuscateConfigMapKey     = "config.yaml"
 
+	// gatherSuccessMarkerPath is the path to the marker file that the gather container
+	// writes on successful completion. The upload container checks for this file before
+	// proceeding with obfuscation or SFTP upload.
+	gatherSuccessMarkerPath = "/must-gather/.gather-success"
+
+	// gatherCompletionMarkerPath is written by every gather container on exit (success
+	// or failure) via an EXIT trap. The upload container polls for this file to detect
+	// graceful gather completion.
+	gatherCompletionMarkerPath = "/must-gather/.gather-complete"
+
+	// gatherPidPath is written as the first statement of the gather wrapper so the
+	// upload container can detect a hard-killed gather (OOMKilled/SIGKILL) via
+	// /proc/$pid disappearing. Requires ShareProcessNamespace.
+	gatherPidPath = "/must-gather/.gather.pid"
+
+	// gatherTrapPrefix writes the wrapper PID first (overwriting any stale PVC PID),
+	// installs the EXIT trap for the completion marker, then clears stale success
+	// and completion markers from previous Job attempts. It must be the first
+	// statement in every gather script. Do not rm the PID after writing it.
+	gatherTrapPrefix = "echo $$ > " + gatherPidPath + "\ntrap 'touch " + gatherCompletionMarkerPath + "' EXIT\nrm -f " + gatherSuccessMarkerPath + "\nrm -f " + gatherCompletionMarkerPath
+
 	// obfuscateChownSuffix transfers gather output ownership to the upload container UID (65534).
-	// Captures the gather exit status first, runs chown (|| true so non-root images don't
-	// cause retries), then exits with the original status so gather failures propagate.
-	obfuscateChownSuffix = "gather_rc=$?; chown -R 65534:65534 /must-gather || true; exit $gather_rc"
+	// Captures the gather exit status first, writes the success marker on zero exit,
+	// runs chown (|| true so non-root images don't cause retries), then exits with
+	// the original status so gather failures propagate.
+	obfuscateChownSuffix = "gather_rc=$?; if [ $gather_rc -eq 0 ]; then touch " + gatherSuccessMarkerPath + "; else rm -f " + gatherSuccessMarkerPath + "; fi; chown -R 65534:65534 /must-gather || true; exit $gather_rc"
 )
