@@ -1,0 +1,15 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: must-gather-cr-binding
+  labels:
+    test: non-admin-must-gather-e2e
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: must-gather-nonadmin-clusterrole
+subjects:
+  - kind: User
+    name: must-gather-nonadmin-user
+    apiGroup: rbac.authorization.k8s.io
+
