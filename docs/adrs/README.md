@@ -11,3 +11,4 @@ Copy [adr-template.md](adr-template.md) for new records.
 | [ADR-0001](adr-0001-immutable-spec.md) | MustGather spec is immutable after create (CEL) |
 | [ADR-0002](adr-0002-two-container-job.md) | One Job with gather + conditional upload containers |
 | [ADR-0003](adr-0003-extensible-upload-union.md) | Upload target is a discriminated union |
+| [ADR-0004](adr-0004-gather-completion-and-upload-gate.md) | Proposed: replace process-name polling with markers and Pod-status fallback; gate upload on gather success |

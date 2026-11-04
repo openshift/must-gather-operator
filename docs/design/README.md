@@ -8,7 +8,7 @@ This directory is the source of truth for *why* a module behaves as it does. Age
 |---|---|---|
 | MustGather API | `api/v1/mustgather_types.go` | [api.md](api.md) |
 | Reconciler, cleanup, metrics, trusted CA | `controllers/mustgather/mustgather_controller.go` | [controller.md](controller.md) |
-| Job spec | `controllers/mustgather/template.go` | [job-template.md](job-template.md) |
+| Job spec and gather handoff | `controllers/mustgather/template.go` | [job-template.md](job-template.md) |
 | Event filters | `controllers/mustgather/predicates.go` | [predicates.md](predicates.md) |
 | SFTP validation and upload | `controllers/mustgather/validation.go`, `build/bin/upload` | [upload.md](upload.md) |
 
