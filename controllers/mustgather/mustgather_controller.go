@@ -183,8 +183,13 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		if err := r.GetClient().Get(ctx, types.NamespacedName{
 			Name: cmName, Namespace: instance.Namespace,
 		}, cm); err != nil {
-			reqLogger.Error(err, "obfuscation ConfigMap not found", "configMapName", cmName, "namespace", instance.Namespace)
-			return r.ManageError(ctx, instance, fmt.Errorf("obfuscation ConfigMap %q not found in namespace %q: %w", cmName, instance.Namespace, err))
+			if errors.IsNotFound(err) {
+				reqLogger.Error(err, "obfuscation ConfigMap not found", "configMapName", cmName, "namespace", instance.Namespace)
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationObfuscationConfigMap,
+					fmt.Errorf("obfuscation ConfigMap %q not found in namespace %q", cmName, instance.Namespace))
+			}
+			reqLogger.Error(err, "failed to get obfuscation ConfigMap (transient error, will retry)", "configMapName", cmName, "namespace", instance.Namespace)
+			return reconcile.Result{Requeue: true}, err
 		}
 	}
 
@@ -240,7 +245,8 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			if err != nil {
 				if errors.IsNotFound(err) {
 					reqLogger.Error(err, "secret not found", "secret", secretName, "namespace", instance.Namespace)
-					return r.ManageError(ctx, instance, fmt.Errorf("secret %s not found in namespace %s: Please create the secret referenced by caseManagementAccountSecretRef", secretName, instance.Namespace))
+					return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationSecret,
+						fmt.Errorf("secret %q not found in namespace %q: please create the secret referenced by caseManagementAccountSecretRef", secretName, instance.Namespace))
 				}
 				reqLogger.Error(err, "error getting secret", "secret", secretName)
 				return reconcile.Result{Requeue: true}, err

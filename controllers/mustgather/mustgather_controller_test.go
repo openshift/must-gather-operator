@@ -914,7 +914,7 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "reconcile_job_not_found_user_secret_not_found_calls_manage_error",
+			name: "reconcile_job_not_found_user_secret_not_found_sets_validation_failure",
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1.MustGather{
 					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
@@ -939,17 +939,67 @@ func TestReconcile(t *testing.T) {
 				return []client.Object{mg, cv, sa}
 			},
 			interceptors: func() interceptClient { return interceptClient{} },
-			expectError:  true,
+			expectError:  false,
 			expectResult: reconcile.Result{},
 			postTestChecks: func(t *testing.T, cl client.Client) {
-				// Verify the MustGather status was updated with error condition
 				out := &mustgatherv1.MustGather{}
 				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
 					t.Fatalf("failed to get mustgather: %v", getErr)
 				}
-				// ManageError should have set ReconciliationStatus to "Error"
-				if len(out.Status.Conditions) == 0 {
-					t.Fatalf("expected error condition to be set on mustgather status")
+				if out.Status == nil {
+					t.Fatalf("expected status to be set")
+				}
+				if ptr.Deref(out.Status.Status, "") != "Failed" || !ptr.Deref(out.Status.Completed, false) {
+					t.Fatalf("expected Failed/completed=true, got status=%q completed=%v", ptr.Deref(out.Status.Status, ""), ptr.Deref(out.Status.Completed, false))
+				}
+				if !strings.Contains(ptr.Deref(out.Status.Reason, ""), "Secret validation failed") || !strings.Contains(ptr.Deref(out.Status.Reason, ""), "sec") {
+					t.Fatalf("expected Secret validation failure reason, got %q", ptr.Deref(out.Status.Reason, ""))
+				}
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err == nil {
+					t.Fatalf("expected job not to be created when secret is missing")
+				}
+			},
+		},
+		{
+			name: "reconcile_obfuscation_configmap_not_found_sets_validation_failure",
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1.MustGatherSpec{
+						ServiceAccountName: "default",
+						Obfuscate: &mustgatherv1.ObfuscateConfig{
+							Enabled:              ptr.To(true),
+							ObfuscationConfigRef: &corev1.LocalObjectReference{Name: "nonexistent-cm"},
+						},
+						Storage: &mustgatherv1.Storage{
+							Type: mustgatherv1.StorageTypePersistentVolume,
+							PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+								Claim: mustgatherv1.PersistentVolumeClaimReference{Name: "must-gather-pvc"},
+							},
+						},
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				return []client.Object{mg, sa}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				out := &mustgatherv1.MustGather{}
+				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
+					t.Fatalf("failed to get mustgather: %v", getErr)
+				}
+				if out.Status == nil {
+					t.Fatalf("expected status to be set")
+				}
+				if ptr.Deref(out.Status.Status, "") != "Failed" || !ptr.Deref(out.Status.Completed, false) {
+					t.Fatalf("expected Failed/completed=true, got status=%q completed=%v", ptr.Deref(out.Status.Status, ""), ptr.Deref(out.Status.Completed, false))
+				}
+				reason := ptr.Deref(out.Status.Reason, "")
+				if !strings.Contains(reason, "Obfuscation ConfigMap validation failed") || !strings.Contains(reason, "nonexistent-cm") {
+					t.Fatalf("expected Obfuscation ConfigMap validation failure reason, got %q", reason)
 				}
 			},
 		},
