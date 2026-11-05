@@ -19,6 +19,7 @@ package v1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 )
 
 // MustGatherSpec defines the desired state of MustGather
@@ -282,6 +283,7 @@ type MustGatherStatus struct {
 	Reason *string `json:"reason,omitempty"`
 	// completed indicates whether the must-gather operation has finished.
 	// +required
+	// +kubebuilder:default:=false
 	Completed *bool `json:"completed,omitempty"`
 }
 
@@ -297,6 +299,11 @@ func (m *MustGather) SetConditions(conditions []metav1.Condition) {
 		m.Status = &MustGatherStatus{}
 	}
 	m.Status.Conditions = conditions
+	// CRD marks status.completed as required. ManageError/ManageSuccess only
+	// update conditions; keep completed present so status patches validate.
+	if m.Status.Completed == nil {
+		m.Status.Completed = ptr.To(false)
+	}
 }
 
 //+kubebuilder:object:root=true

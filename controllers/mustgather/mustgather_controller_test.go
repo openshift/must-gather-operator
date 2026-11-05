@@ -15,6 +15,7 @@ import (
 	"github.com/redhat-cop/operator-utils/pkg/util"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -256,6 +257,9 @@ func TestCleanupMustGatherResources(t *testing.T) {
 			// Setup scheme
 			s := runtime.NewScheme()
 			_ = corev1.AddToScheme(s)
+			if err := networkingv1.AddToScheme(s); err != nil {
+				t.Fatal(err)
+			}
 			_ = batchv1.AddToScheme(s)
 			_ = mustgatherv1.AddToScheme(s)
 
@@ -484,6 +488,9 @@ func TestHandleJobCompletion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := runtime.NewScheme()
 			_ = corev1.AddToScheme(s)
+			if err := networkingv1.AddToScheme(s); err != nil {
+				t.Fatal(err)
+			}
 			_ = batchv1.AddToScheme(s)
 			_ = mustgatherv1.AddToScheme(s)
 
@@ -1664,6 +1671,9 @@ func TestReconcile(t *testing.T) {
 			// Setup scheme
 			s := runtime.NewScheme()
 			_ = corev1.AddToScheme(s)
+			if err := networkingv1.AddToScheme(s); err != nil {
+				t.Fatal(err)
+			}
 			_ = batchv1.AddToScheme(s)
 			_ = mustgatherv1.AddToScheme(s)
 			_ = configv1.AddToScheme(s)
@@ -1925,6 +1935,9 @@ func TestSFTPCredentialValidation(t *testing.T) {
 	_ = corev1.AddToScheme(s)
 	_ = mustgatherv1.AddToScheme(s)
 	_ = batchv1.AddToScheme(s)
+	if err := networkingv1.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
 
 	tests := []struct {
 		name                      string
