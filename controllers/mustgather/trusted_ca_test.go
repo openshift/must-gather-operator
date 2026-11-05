@@ -10,6 +10,7 @@ import (
 	"github.com/redhat-cop/operator-utils/pkg/util"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -63,6 +64,9 @@ func newTrustedCAReconciler(t *testing.T, objects []client.Object, interceptor i
 	s := runtime.NewScheme()
 	if err := corev1.AddToScheme(s); err != nil {
 		t.Fatalf("add corev1 to scheme: %v", err)
+	}
+	if err := networkingv1.AddToScheme(s); err != nil {
+		t.Fatalf("add networkingv1 to scheme: %v", err)
 	}
 	if err := batchv1.AddToScheme(s); err != nil {
 		t.Fatalf("add batchv1 to scheme: %v", err)

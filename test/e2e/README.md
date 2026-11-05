@@ -20,3 +20,7 @@ Or to disable JUnit reports:
 ```bash
 DISABLE_JUNIT_REPORT=true KUBECONFIG=/path/to/kubeconfig make test-e2e
 ```
+
+## NetworkPolicy (MG-368) E2E
+
+NetworkPolicy cases are nested in the main `MustGather resource` Ordered suite (shared namespace/clients/SA). See [NETWORKPOLICY.md](NETWORKPOLICY.md) for optional fixtures (`MG368_FIXTURES`), labels (`MG-368`, `Disruptive`), and focused run commands.

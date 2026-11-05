@@ -19,6 +19,7 @@
 - HTTP proxy: Go validation opens a CONNECT tunnel on raw TCP (default ports 3128/3129). The `https` proxy scheme only changes the default port; CONNECT itself is not TLS. The upload script uses `nc --proxy` for HTTP and `socat` plus `https-proxy-connect-util` for HTTPS.
 - Internal Red Hat users prefix the remote path with `${username}/`; external users do not.
 - Package-level function variables (`sftpDialFunc`, `netDialFunc`, …) are the test seams. Production code must go through them so unit tests can intercept I/O.
+- Job network policy grants the configured SFTP port (default 22) and configured nonempty HTTP/HTTPS proxy ports (scheme defaults 3128/3129). Ports are deduplicated; proxy ports are allowed even without upload or when NO_PROXY bypasses that proxy. Empty proxy values grant nothing. The policy restricts ports, not destination hosts or application protocols.
 
 ## Rationale
 
@@ -31,3 +32,5 @@
 
 - `StrictHostKeyChecking=no` is an accepted MITM residual on the SFTP control connection, documented rather than treated as an accident.
 - No backoff sleep between validation retries: the 5s SSH dial timeout is the pacing. Persistent timeouts still cost ~15s before the CR is marked failed.
+- Go parses proxy credentials with `net/url` and honors NO_PROXY. The shell uses sed/cut, does not check no_proxy, and does not explicitly expand the Go default proxy ports. Encoded/special-character credentials and default-port configurations can therefore behave differently. Policy construction safely parses ports without exposing credentials; it does not fix transport parity.
+- HTTPS upload needs the socat helper, whereas Go preflight uses raw TCP CONNECT. Actual image availability, TLS behavior and transfers need configured-cluster verification; policy-object tests cannot prove them.

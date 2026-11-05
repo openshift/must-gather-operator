@@ -6,9 +6,41 @@ import (
 	mustgatherv1 "github.com/openshift/must-gather-operator/api/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
+
+func TestNetworkPolicyChangedPredicate(t *testing.T) {
+	p := isNetworkPolicyChanged()
+	old := baselineNetworkPolicy("ns")
+	for _, tt := range []struct {
+		name   string
+		change func(*networkingv1.NetworkPolicy)
+		want   bool
+	}{
+		{"same", func(*networkingv1.NetworkPolicy) {}, false},
+		{"spec", func(p *networkingv1.NetworkPolicy) { p.Spec.Egress = nil }, true},
+		{"resource version", func(p *networkingv1.NetworkPolicy) { p.ResourceVersion = "new" }, false},
+		{"unrelated label", func(p *networkingv1.NetworkPolicy) { p.Labels["other"] = "label" }, false},
+		{"provenance", func(p *networkingv1.NetworkPolicy) { delete(p.Labels, networkPolicyManagedBy) }, true},
+		{"owner", func(p *networkingv1.NetworkPolicy) { p.OwnerReferences = []metav1.OwnerReference{{UID: "other"}} }, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			updated := old.DeepCopy()
+			tt.change(updated)
+			if p.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: updated}) != tt.want {
+				t.Fatal("unexpected predicate result")
+			}
+		})
+	}
+	if p.Create(event.CreateEvent{Object: old}) || p.Generic(event.GenericEvent{Object: old}) || !p.Delete(event.DeleteEvent{Object: old}) {
+		t.Fatal("wrong event selection")
+	}
+	if p.Update(event.UpdateEvent{}) || p.Update(event.UpdateEvent{ObjectOld: &corev1.ConfigMap{}, ObjectNew: old}) || p.Delete(event.DeleteEvent{}) {
+		t.Fatal("wrong object accepted")
+	}
+}
 
 func Test_isStateUpdated(t *testing.T) {
 	p := isStateUpdated()
