@@ -61,6 +61,9 @@ func Test_initializeJobTemplate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			job := initializeJobTemplate(testName, testNamespace, testServiceAccountRef, tt.storage, tt.caConfigMap, nil)
+			if job.Spec.Template.Labels[networkPolicyLabel] != "default" || job.Spec.Template.Labels[jobNetworkPolicyLabel] != networkPolicyIdentity(testName) {
+				t.Fatal("Pod network policy labels missing or inconsistent")
+			}
 
 			if got := job.Name; got != testName {
 				t.Fatalf("job name from initializeJobTemplate() was not correctly set. got %v, wanted %v", got, testName)
@@ -104,6 +107,64 @@ func Test_initializeJobTemplate(t *testing.T) {
 
 			if tt.caConfigMap != "" && !foundCAVolume {
 				t.Fatalf("expected volumeMount for CA was not found got %v", job.Spec.Template.Spec.Volumes)
+			}
+		})
+	}
+}
+
+func TestNetworkLabelsAcrossJobModes(t *testing.T) {
+	for _, mode := range []string{"gather", "sftp", "obfuscate", "source"} {
+		t.Run(mode, func(t *testing.T) {
+			mg := mustgatherv1.MustGather{ObjectMeta: metav1.ObjectMeta{Name: strings.Repeat("a", 70), Namespace: "ns"}}
+			if mode == "sftp" {
+				mg.Spec.UploadTarget = &mustgatherv1.UploadTargetSpec{Type: mustgatherv1.UploadTypeSFTP, SFTP: &mustgatherv1.SFTPSpec{CaseID: "123", CaseManagementAccountSecretRef: v1.LocalObjectReference{Name: "creds"}}}
+			}
+			if mode == "obfuscate" || mode == "source" {
+				mg.Spec.Obfuscate = &mustgatherv1.ObfuscateConfig{Enabled: ptr.To(true)}
+			}
+			if mode == "source" {
+				mg.Spec.Obfuscate.Source = &mustgatherv1.PersistentVolumeConfig{Claim: mustgatherv1.PersistentVolumeClaimReference{Name: "source"}}
+			}
+			job := getJobTemplate("custom-image", "upload", mg, "", "directory")
+			if job.Spec.Template.Labels[networkPolicyLabel] != "default" || job.Spec.Template.Labels[jobNetworkPolicyLabel] != networkPolicyIdentity(mg.Name) || job.Spec.Template.Labels["app.kubernetes.io/name"] != "must-gather" {
+				t.Fatalf("missing network selection in %s mode", mode)
+			}
+			want := 2
+			if mode == "gather" || mode == "source" {
+				want = 1
+			}
+			if len(job.Spec.Template.Spec.Containers) != want {
+				t.Fatalf("wrong container composition for %s", mode)
+			}
+		})
+	}
+}
+
+func TestNetworkLabelsPreserveSharedMountConsistency(t *testing.T) {
+	for _, base := range []string{"", "   ", "/", "//", "  //  ", "collections"} {
+		t.Run(fmt.Sprintf("base=%q", base), func(t *testing.T) {
+			mg := mustgatherv1.MustGather{ObjectMeta: metav1.ObjectMeta{Name: "gather", Namespace: "ns"}, Spec: mustgatherv1.MustGatherSpec{
+				Obfuscate: &mustgatherv1.ObfuscateConfig{Enabled: ptr.To(true)},
+				Storage:   &mustgatherv1.Storage{Type: mustgatherv1.StorageTypePersistentVolume, PersistentVolume: mustgatherv1.PersistentVolumeConfig{Claim: mustgatherv1.PersistentVolumeClaimReference{Name: "pvc"}, SubPath: ptr.To(base)}},
+			}}
+			job := getJobTemplate("image", "upload", mg, "", "invocation")
+			want := "invocation"
+			if base == "collections" {
+				want = "collections/invocation"
+			}
+			consumers := 0
+			for _, container := range job.Spec.Template.Spec.Containers {
+				for _, mount := range container.VolumeMounts {
+					if mount.Name == outputVolumeName {
+						consumers++
+						if mount.SubPath != want || mount.SubPathExpr != "" {
+							t.Fatalf("%s mount drifted: %#v", container.Name, mount)
+						}
+					}
+				}
+			}
+			if consumers < 2 {
+				t.Fatal("missing shared output consumer")
 			}
 		})
 	}

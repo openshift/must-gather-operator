@@ -4,9 +4,32 @@ import (
 	"reflect"
 
 	batchv1 "k8s.io/api/batch/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
+
+func isNetworkPolicyChanged() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return false },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			policy, ok := e.Object.(*networkingv1.NetworkPolicy)
+			return ok && policy != nil
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldPolicy, oldOK := e.ObjectOld.(*networkingv1.NetworkPolicy)
+			newPolicy, newOK := e.ObjectNew.(*networkingv1.NetworkPolicy)
+			if !oldOK || !newOK || oldPolicy == nil || newPolicy == nil {
+				return false
+			}
+			return !equality.Semantic.DeepEqual(oldPolicy.Spec, newPolicy.Spec) ||
+				oldPolicy.Labels[networkPolicyManagedBy] != newPolicy.Labels[networkPolicyManagedBy] ||
+				!reflect.DeepEqual(oldPolicy.OwnerReferences, newPolicy.OwnerReferences)
+		},
+	}
+}
 
 func isStateUpdated() predicate.Predicate {
 	return predicate.Funcs{

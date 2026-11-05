@@ -32,6 +32,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -144,6 +145,7 @@ func init() {
 	utilruntime.Must(mustgatherv1alpha1.AddToScheme(testScheme))
 	utilruntime.Must(appsv1.AddToScheme(testScheme))
 	utilruntime.Must(corev1.AddToScheme(testScheme))
+	utilruntime.Must(networkingv1.AddToScheme(testScheme))
 	utilruntime.Must(rbacv1.AddToScheme(testScheme))
 	utilruntime.Must(batchv1.AddToScheme(testScheme))
 	utilruntime.Must(imagev1.AddToScheme(testScheme))
@@ -4631,6 +4633,9 @@ echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/clean
 				"ShareProcessNamespace must be true for gather+upload coordination")
 		})
 	})
+
+	// MG-368 NetworkPolicy cases share this suite's namespace, clients, and SA.
+	registerNetworkPolicyTests()
 })
 
 // Helper Functions

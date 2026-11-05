@@ -2,6 +2,12 @@ package mustgather
 
 // Constants defining the supported transfer protocols and validation types
 const (
+	baselineNetworkPolicyName = "must-gather-default"
+	networkPolicyLabel        = "must-gather.openshift.io/network-policy"
+	jobNetworkPolicyLabel     = "must-gather.openshift.io/job"
+	networkPolicyManagedBy    = "must-gather.openshift.io/managed-by"
+	networkPolicyManager      = "must-gather-operator"
+
 	// ValidationServiceAccount represents the validation type for Service account
 	ValidationServiceAccount = "Service Account"
 
