@@ -255,6 +255,7 @@ func TestSFTPNetworkPort(t *testing.T) {
 	}{
 		{"", 22}, {"sftp.example.com", 22}, {"sftp.example.com:2222", 2222}, {"192.0.2.1", 22}, {"[2001:db8::1]", 22}, {"2001:db8::1", 22}, {"[2001:db8::1]:2022", 2022},
 		{" ", 0}, {"host:0", 0}, {"host:-1", 0}, {"host:65536", 0}, {"host:abc", 0}, {"host:", 0}, {":22", 0}, {"http://host", 0}, {"[broken]", 0}, {"[broken]:22", 0}, {"host:+22", 0},
+		{"[", 0}, {"[]", 0}, {"[unclosed", 0}, {"[:22", 0},
 	} {
 		t.Run(tt.host, func(t *testing.T) {
 			port, err := sftpNetworkPort(tt.host)

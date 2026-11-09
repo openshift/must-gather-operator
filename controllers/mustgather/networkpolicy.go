@@ -69,10 +69,18 @@ func sftpNetworkPort(host string) (int32, error) {
 	}
 	// Reject bracketed non-IPs before normalize turns "[broken]" into "broken:22".
 	if strings.HasPrefix(host, "[") {
-		h := host
+		var h string
 		if containsPort(host) {
-			h, _, _ = net.SplitHostPort(host)
+			var err error
+			h, _, err = net.SplitHostPort(host)
+			if err != nil {
+				return 0, errSFTPPolicyInput
+			}
 		} else {
+			// Require a closed "[...]" form; lone "[" or "[unclosed" would panic on slice.
+			if len(host) < 3 || !strings.HasSuffix(host, "]") {
+				return 0, errSFTPPolicyInput
+			}
 			h = host[1 : len(host)-1]
 		}
 		if net.ParseIP(h) == nil {
