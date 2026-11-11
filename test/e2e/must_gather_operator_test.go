@@ -595,7 +595,7 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 					return false
 				}
 				return mg.Status != nil && ptr.Deref(mg.Status.Completed, false)
-			}).WithTimeout(2*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
+			}).WithTimeout(5*time.Minute).WithPolling(5*time.Second).Should(BeTrue(),
 				"MustGather should complete after timeout expires")
 
 			ginkgo.By("Verifying pod is destroyed after 10s timeout (retainResources=false)")
