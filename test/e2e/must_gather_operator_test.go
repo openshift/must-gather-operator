@@ -4261,6 +4261,99 @@ var _ = ginkgo.Describe("MustGather resource", ginkgo.Ordered, func() {
 		})
 	})
 
+	// ─── S3 Storage CRD Validation Tests ─────────────────────────────────
+
+	ginkgo.Context("S3 Storage CRD Validation Tests", func() {
+		newS3MustGather := func(prefix string, storage *mustgatherv1.Storage) *mustgatherv1.MustGather {
+			return &mustgatherv1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano()),
+					Namespace: ns.Name,
+				},
+				Spec: mustgatherv1.MustGatherSpec{
+					ServiceAccountName: serviceAccount,
+					Storage:            storage,
+				},
+			}
+		}
+		validS3 := func() *mustgatherv1.S3Config {
+			return &mustgatherv1.S3Config{
+				Bucket:               "mg-archive",
+				CredentialsSecretRef: corev1.LocalObjectReference{Name: "s3-creds"},
+			}
+		}
+
+		ginkgo.It("should accept a valid S3 storage configuration", func() {
+			s3 := validS3()
+			s3.Endpoint = ptr.To("https://s3.openshift-storage.svc")
+			s3.KeyPrefix = ptr.To("cluster-a/must-gathers")
+			s3.Region = ptr.To("eu-west-1")
+			mg := newS3MustGather("s3-val-ok", &mustgatherv1.Storage{Type: mustgatherv1.StorageTypeS3, S3: s3})
+			Expect(nonAdminClient.Create(testCtx, mg)).To(Succeed(), "API should accept a valid S3 storage config")
+			ginkgo.DeferCleanup(func() { _ = nonAdminClient.Delete(testCtx, mg) })
+		})
+
+		ginkgo.It("should reject type S3 without s3", func() {
+			mg := newS3MustGather("s3-val-missing", &mustgatherv1.Storage{Type: mustgatherv1.StorageTypeS3})
+			err := nonAdminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "API should reject type S3 without s3")
+			Expect(err.Error()).To(ContainSubstring("s3 is required when type is S3"))
+		})
+
+		ginkgo.It("should reject s3 with type PersistentVolume", func() {
+			mg := newS3MustGather("s3-val-mismatch", &mustgatherv1.Storage{
+				Type: mustgatherv1.StorageTypePersistentVolume,
+				PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+					Claim: mustgatherv1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
+				},
+				S3: validS3(),
+			})
+			err := nonAdminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "API should reject s3 member with PersistentVolume type")
+			Expect(err.Error()).To(ContainSubstring("s3 is required when type is S3, and forbidden otherwise"))
+		})
+
+		ginkgo.It("should reject persistentVolume with type S3", func() {
+			mg := newS3MustGather("s3-val-pv", &mustgatherv1.Storage{
+				Type: mustgatherv1.StorageTypeS3,
+				PersistentVolume: mustgatherv1.PersistentVolumeConfig{
+					Claim: mustgatherv1.PersistentVolumeClaimReference{Name: mustGatherPVCName},
+				},
+				S3: validS3(),
+			})
+			err := nonAdminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "API should reject persistentVolume member with S3 type")
+			Expect(err.Error()).To(ContainSubstring("persistentVolume is required when type is PersistentVolume"))
+		})
+
+		ginkgo.It("should reject a non-https endpoint", func() {
+			s3 := validS3()
+			s3.Endpoint = ptr.To("http://minio.example.com:9000")
+			mg := newS3MustGather("s3-val-http", &mustgatherv1.Storage{Type: mustgatherv1.StorageTypeS3, S3: s3})
+			err := nonAdminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "API should reject http endpoint")
+			Expect(err.Error()).To(ContainSubstring("endpoint must be a valid https URL"))
+		})
+
+		ginkgo.It("should reject a keyPrefix with '..'", func() {
+			s3 := validS3()
+			s3.KeyPrefix = ptr.To("a/../b")
+			mg := newS3MustGather("s3-val-prefix", &mustgatherv1.Storage{Type: mustgatherv1.StorageTypeS3, S3: s3})
+			err := nonAdminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "API should reject keyPrefix containing '..'")
+			Expect(err.Error()).To(ContainSubstring("keyPrefix must not start with '/' or contain '..'"))
+		})
+
+		ginkgo.It("should reject an empty credentialsSecretRef.name", func() {
+			s3 := validS3()
+			s3.CredentialsSecretRef = corev1.LocalObjectReference{}
+			mg := newS3MustGather("s3-val-nosecret", &mustgatherv1.Storage{Type: mustgatherv1.StorageTypeS3, S3: s3})
+			err := nonAdminClient.Create(testCtx, mg)
+			Expect(err).To(HaveOccurred(), "API should reject empty credentialsSecretRef.name")
+			Expect(err.Error()).To(ContainSubstring("credentialsSecretRef.name must not be empty"))
+		})
+	})
+
 	ginkgo.Context("Gather + Obfuscate + PVC (obfuscation with default config)", func() {
 		ginkgo.It("should gather, obfuscate with default config, and persist cleaned output on PVC", func() {
 			pvcName := fmt.Sprintf("obfuscate-pvc-%d", time.Now().UnixNano()%100000)

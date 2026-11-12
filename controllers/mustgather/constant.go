@@ -20,6 +20,9 @@ const (
 	// ValidationSFTPCredentials represents the validation type for SFTP credentials
 	ValidationSFTPCredentials = "SFTP credentials"
 
+	// ValidationS3Credentials represents the validation type for S3 storage credentials
+	ValidationS3Credentials = "S3 credentials"
+
 	// MaxSFTPValidationRetries is the maximum number of retries for transient SFTP validation errors
 	MaxSFTPValidationRetries = 3
 

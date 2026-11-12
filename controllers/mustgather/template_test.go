@@ -1188,3 +1188,143 @@ func envValues(container v1.Container) map[string]string {
 	}
 	return m
 }
+
+func Test_getJobTemplate_S3Storage(t *testing.T) {
+	directoryName := "must-gather.local.abc123.20261112T120000Z.042315"
+	s3Storage := func() *mustgatherv1.Storage {
+		return &mustgatherv1.Storage{
+			Type: mustgatherv1.StorageTypeS3,
+			S3: &mustgatherv1.S3Config{
+				Bucket:               "mg-archive",
+				Region:               ptr.To("eu-west-1"),
+				Endpoint:             ptr.To("https://s3.openshift-storage.svc"),
+				KeyPrefix:            ptr.To("cluster-a"),
+				CredentialsSecretRef: v1.LocalObjectReference{Name: "s3-creds"},
+			},
+		}
+	}
+	sftp := &mustgatherv1.UploadTargetSpec{
+		Type: mustgatherv1.UploadTypeSFTP,
+		SFTP: &mustgatherv1.SFTPSpec{
+			CaseID:                         "1234",
+			Host:                           ptr.To("sftp.example.com"),
+			CaseManagementAccountSecretRef: v1.LocalObjectReference{Name: "case-mgmt-secret"},
+		},
+	}
+
+	tests := []struct {
+		name       string
+		spec       mustgatherv1.MustGatherSpec
+		expectSFTP bool
+	}{
+		{
+			name: "S3 storage only",
+			spec: mustgatherv1.MustGatherSpec{ServiceAccountName: "default", Storage: s3Storage()},
+		},
+		{
+			name:       "S3 storage with SFTP upload",
+			spec:       mustgatherv1.MustGatherSpec{ServiceAccountName: "default", Storage: s3Storage(), UploadTarget: sftp},
+			expectSFTP: true,
+		},
+		{
+			name: "S3 storage with obfuscation",
+			spec: mustgatherv1.MustGatherSpec{
+				ServiceAccountName: "default",
+				Storage:            s3Storage(),
+				Obfuscate:          &mustgatherv1.ObfuscateConfig{Enabled: ptr.To(true)},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mg := mustgatherv1.MustGather{ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"}, Spec: tt.spec}
+			job := getJobTemplate("img", "operator-image", mg, "", directoryName)
+
+			// Output and upload volumes stay emptyDir: S3 is not mounted.
+			for _, vol := range job.Spec.Template.Spec.Volumes {
+				if (vol.Name == outputVolumeName || vol.Name == uploadVolumeName) && vol.EmptyDir == nil {
+					t.Fatalf("expected %s to be emptyDir, got %+v", vol.Name, vol.VolumeSource)
+				}
+			}
+
+			gather := findGatherContainerInJob(t, job)
+			for _, m := range gather.VolumeMounts {
+				if m.Name == outputVolumeName && m.SubPath != "" {
+					t.Fatalf("expected no subPath on gather output mount for S3, got %q", m.SubPath)
+				}
+			}
+
+			upload := findUploadContainerInJob(t, job)
+			env := envValues(upload)
+			for k, want := range map[string]string{
+				uploadEnvS3Bucket:       "mg-archive",
+				uploadEnvS3Region:       "eu-west-1",
+				uploadEnvS3Endpoint:     "https://s3.openshift-storage.svc",
+				uploadEnvS3KeyPrefix:    "cluster-a",
+				uploadEnvFilenamePrefix: directoryName,
+			} {
+				if env[k] != want {
+					t.Errorf("env %s = %q, want %q", k, env[k], want)
+				}
+			}
+
+			secretRefs := map[string]*v1.SecretKeySelector{}
+			for _, e := range upload.Env {
+				if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
+					secretRefs[e.Name] = e.ValueFrom.SecretKeyRef
+				}
+			}
+			for _, key := range []string{s3SecretKeyAccessKeyID, s3SecretKeySecretAccessKey} {
+				ref, ok := secretRefs[key]
+				if !ok {
+					t.Fatalf("expected %s from SecretKeyRef", key)
+				}
+				if ref.Name != "s3-creds" || ref.Key != key {
+					t.Errorf("%s SecretKeyRef = %s/%s, want s3-creds/%s", key, ref.Name, ref.Key, key)
+				}
+			}
+
+			if _, ok := env[uploadEnvCaseID]; ok != tt.expectSFTP {
+				t.Errorf("caseid env present = %v, want %v", ok, tt.expectSFTP)
+			}
+		})
+	}
+}
+
+func Test_getS3EnvVars_OmitsUnsetOptionalFields(t *testing.T) {
+	env := getS3EnvVars(&mustgatherv1.S3Config{
+		Bucket:               "b",
+		CredentialsSecretRef: v1.LocalObjectReference{Name: "c"},
+	})
+	names := map[string]bool{}
+	for _, e := range env {
+		names[e.Name] = true
+	}
+	for _, n := range []string{uploadEnvS3Region, uploadEnvS3Endpoint, uploadEnvS3KeyPrefix} {
+		if names[n] {
+			t.Errorf("did not expect %s when unset", n)
+		}
+	}
+	for _, n := range []string{uploadEnvS3Bucket, s3SecretKeyAccessKeyID, s3SecretKeySecretAccessKey} {
+		if !names[n] {
+			t.Errorf("expected %s", n)
+		}
+	}
+}
+
+func Test_shouldAddUploadContainer_S3(t *testing.T) {
+	mg := mustgatherv1.MustGather{Spec: mustgatherv1.MustGatherSpec{
+		Storage: &mustgatherv1.Storage{Type: mustgatherv1.StorageTypeS3, S3: &mustgatherv1.S3Config{Bucket: "b"}},
+	}}
+	if !shouldAddUploadContainer(mg) {
+		t.Error("expected upload container for S3 storage")
+	}
+	mg.Spec.Storage = &mustgatherv1.Storage{
+		Type:             mustgatherv1.StorageTypePersistentVolume,
+		PersistentVolume: mustgatherv1.PersistentVolumeConfig{Claim: mustgatherv1.PersistentVolumeClaimReference{Name: "p"}},
+	}
+	if shouldAddUploadContainer(mg) {
+		t.Error("did not expect upload container for PVC storage alone")
+	}
+}

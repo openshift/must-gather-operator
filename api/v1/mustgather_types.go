@@ -69,6 +69,9 @@ type MustGatherSpec struct {
 	RetainResourcesOnCompletion *bool `json:"retainResourcesOnCompletion,omitempty"`
 
 	// storage is the storage configuration for persisting the collected must-gather tar archive.
+	// Supported types are PersistentVolume (gather writes directly to a PVC) and
+	// S3 (the archive is uploaded to an S3-compatible bucket after gathering).
+	// storage can be combined with uploadTarget.
 	// If not specified, an ephemeral volume is used which will not persist
 	// the tar archive on the cluster.
 	// +optional
@@ -80,7 +83,8 @@ type MustGatherSpec struct {
 	// collected or referenced bundle before tarring and uploading.
 	// Supported operational modes:
 	//   - Gather + Obfuscate + Upload: enabled with uploadTarget (full pipeline)
-	//   - Gather + Obfuscate + PVC: enabled with storage (cleaned output persisted, no upload)
+	//   - Gather + Obfuscate + PVC: enabled with PersistentVolume storage (cleaned output persisted, no upload)
+	//   - Gather + Obfuscate + S3: enabled with S3 storage (cleaned output archived to the bucket)
 	//   - Obfuscate + Upload: enabled with source and uploadTarget (redact existing bundle and upload)
 	// +optional
 	Obfuscate *ObfuscateConfig `json:"obfuscate,omitempty"`
@@ -191,23 +195,81 @@ type UploadTargetSpec struct {
 }
 
 // StorageType defines the type of storage to use for the must-gather collection.
-// +kubebuilder:validation:Enum=PersistentVolume
+// +kubebuilder:validation:Enum=PersistentVolume;S3
 type StorageType string
 
 const (
 	// StorageTypePersistentVolume corresponds to the PersistentVolume storage type.
 	StorageTypePersistentVolume StorageType = "PersistentVolume"
+	// StorageTypeS3 corresponds to the S3-compatible object storage type.
+	StorageTypeS3 StorageType = "S3"
 )
 
 // Storage defines the desired state of Storage
+// +kubebuilder:validation:XValidation:rule="self.type == 'PersistentVolume' ? has(self.persistentVolume) : !has(self.persistentVolume)",message="persistentVolume is required when type is PersistentVolume, and forbidden otherwise"
+// +kubebuilder:validation:XValidation:rule="self.type == 'S3' ? has(self.s3) : !has(self.s3)",message="s3 is required when type is S3, and forbidden otherwise"
+// +union
 type Storage struct {
 	// type defines the type of storage to use.
-	// Available storage types are PersistentVolume only.
+	// Available storage types are PersistentVolume and S3.
+	// +unionDiscriminator
 	// +required
 	Type StorageType `json:"type,omitempty"`
+	//nolint:kubeapilinter //reason: changing to a pointer is a Go API-breaking change; the union CEL rule on Storage enforces presence when type is PersistentVolume
 	// persistentVolume defines the configuration for a PersistentVolume.
-	// +required
+	// Required when type is PersistentVolume, forbidden otherwise.
+	// +unionMember
+	// +optional
 	PersistentVolume PersistentVolumeConfig `json:"persistentVolume,omitzero"`
+	// s3 defines the configuration for an S3-compatible object storage bucket.
+	// The collected must-gather is archived as <keyPrefix>/<directoryName>.tar.gz
+	// and uploaded to the bucket once gathering (and obfuscation, if enabled) completes.
+	// Required when type is S3, forbidden otherwise.
+	// +unionMember
+	// +optional
+	S3 *S3Config `json:"s3,omitempty"`
+}
+
+// S3Config defines the configuration for an S3-compatible object storage bucket.
+// +kubebuilder:validation:XValidation:rule="size(self.credentialsSecretRef.name) > 0",message="credentialsSecretRef.name must not be empty"
+type S3Config struct {
+	// bucket is the name of an existing bucket the must-gather archive is uploaded to.
+	// +required
+	// +kubebuilder:validation:MinLength=3
+	// +kubebuilder:validation:MaxLength=63
+	Bucket string `json:"bucket,omitempty"`
+
+	// region is the region of the bucket.
+	// When omitted, us-east-1 is used, which is also what most S3-compatible
+	// stores (ODF/NooBaa, Ceph RGW, MinIO) expect.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=64
+	Region *string `json:"region,omitempty"`
+
+	// endpoint is the URL of an S3-compatible service, for example
+	// https://s3.openshift-storage.svc or https://minio.example.com:9000.
+	// When omitted, the AWS S3 endpoint for the region is used.
+	// When set, path-style addressing is used. Only https URLs are accepted.
+	// +optional
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getScheme() == 'https'",message="endpoint must be a valid https URL"
+	Endpoint *string `json:"endpoint,omitempty"`
+
+	// keyPrefix is prepended to the object key, for example "cluster-a/must-gathers".
+	// It must not start with '/' and must not contain '..'.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=512
+	// +kubebuilder:validation:XValidation:rule="!self.startsWith('/') && !self.contains('..')",message="keyPrefix must not start with '/' or contain '..'"
+	KeyPrefix *string `json:"keyPrefix,omitempty"`
+
+	//nolint:kubeapilinter //reason: XValidation rule on S3Config enforces non-empty name; empty struct is rejected at admission
+	// credentialsSecretRef references a Secret in the same namespace as the MustGather CR
+	// holding the keys AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY. This matches the
+	// Secret generated for an ObjectBucketClaim, which can be referenced directly.
+	// +required
+	CredentialsSecretRef corev1.LocalObjectReference `json:"credentialsSecretRef,omitempty"`
 }
 
 // PersistentVolumeConfig defines the configuration for a PersistentVolume.

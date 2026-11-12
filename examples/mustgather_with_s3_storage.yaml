@@ -1,0 +1,26 @@
+# Archive the must-gather to an S3-compatible bucket (here ODF/NooBaa via an
+# ObjectBucketClaim) and also upload it to a Red Hat support case.
+# The Secret must hold AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY; the Secret
+# generated for an ObjectBucketClaim can be referenced directly.
+# The in-cluster endpoint below is signed by the service CA: it must be present
+# in the cluster trusted CA bundle, otherwise use the external s3 Route instead.
+apiVersion: operator.openshift.io/v1
+kind: MustGather
+metadata:
+  name: example-mustgather-s3
+spec:
+  serviceAccountName: must-gather-admin
+  storage:
+    type: S3
+    s3:
+      bucket: must-gather-archive
+      endpoint: https://s3.openshift-storage.svc
+      keyPrefix: cluster-a
+      credentialsSecretRef:
+        name: must-gather-archive
+  uploadTarget:
+    type: SFTP
+    sftp:
+      caseID: '04230315'
+      caseManagementAccountSecretRef:
+        name: case-management-creds

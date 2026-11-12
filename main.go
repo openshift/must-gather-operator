@@ -50,6 +50,7 @@ import (
 	"github.com/openshift/must-gather-operator/pkg/k8sutil"
 	"github.com/openshift/must-gather-operator/pkg/localmetrics"
 	"github.com/openshift/must-gather-operator/pkg/mustgatherutil"
+	"github.com/openshift/must-gather-operator/pkg/s3upload"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	//+kubebuilder:scaffold:imports
 )
@@ -93,6 +94,9 @@ func init() {
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "obfuscate" {
 		os.Exit(mustgatherutil.RunObfuscate(os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "s3-upload" {
+		os.Exit(s3upload.RunS3Upload(os.Args[2:]))
 	}
 
 	// var metricsAddr string
