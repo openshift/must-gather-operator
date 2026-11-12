@@ -9,6 +9,7 @@
 - `DEFAULT_MUST_GATHER_IMAGE` and `OPERATOR_IMAGE` are set before a Job that needs gather or upload is created.
 - The ServiceAccount named in the CR exists in the CR namespace.
 - When `uploadTarget` is SFTP, the referenced Secret has non-empty `username` and `password` keys and SFTP connectivity has been validated.
+- When `storage.type` is S3, the Secret named by `storage.s3.credentialsSecretRef` has non-empty `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. A missing Secret goes through `ManageError` and requeues (same as the SFTP Secret); a missing key is a terminal `S3 credentials` validation failure.
 - `OPERATOR_SERVICE_ACCOUNT` is available so the controller can reject using its own SA on a CR in the operator namespace.
 
 ## Invariants

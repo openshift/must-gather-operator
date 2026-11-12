@@ -50,8 +50,18 @@ const (
 	uploadEnvMustGatherOutput = "must_gather_output"
 	uploadEnvMustGatherUpload = "must_gather_upload"
 	uploadEnvFilenamePrefix   = "FILENAME_PREFIX"
-	uploadCommand             = "count=0\nuntil [ $count -gt 4 ]\ndo\n  while `pgrep -a gather > /dev/null`\n  do\n    echo \"waiting for gathers to complete ...\"\n    sleep 120\n    count=0\n  done\n  echo \"no gather is running ($count / 4)\"\n  ((count++))\n  sleep 30\ndone\n/usr/local/bin/upload"
-	uploadCommandDirect       = "/usr/local/bin/upload"
+
+	// S3 storage env vars consumed by build/bin/upload. Credential names are the
+	// standard AWS ones so the SDK default chain picks them up, and match the keys
+	// of an ObjectBucketClaim Secret.
+	uploadEnvS3Bucket          = "s3_bucket"
+	uploadEnvS3Region          = "s3_region"
+	uploadEnvS3Endpoint        = "s3_endpoint"
+	uploadEnvS3KeyPrefix       = "s3_key_prefix"
+	s3SecretKeyAccessKeyID     = "AWS_ACCESS_KEY_ID"     // #nosec G101 -- Secret key name, not a credential value
+	s3SecretKeySecretAccessKey = "AWS_SECRET_ACCESS_KEY" // #nosec G101 -- Secret key name, not a credential value
+	uploadCommand              = "count=0\nuntil [ $count -gt 4 ]\ndo\n  while `pgrep -a gather > /dev/null`\n  do\n    echo \"waiting for gathers to complete ...\"\n    sleep 120\n    count=0\n  done\n  echo \"no gather is running ($count / 4)\"\n  ((count++))\n  sleep 30\ndone\n/usr/local/bin/upload"
+	uploadCommandDirect        = "/usr/local/bin/upload"
 
 	// SSH directory and known hosts file
 	sshDir         = "/tmp/must-gather-operator/.ssh"
@@ -107,8 +117,16 @@ func getSftpSpec(mustGather mustgatherv1.MustGather) *mustgatherv1.SFTPSpec {
 	return mustGather.Spec.UploadTarget.SFTP
 }
 
+// getS3Config returns the S3 storage configuration, or nil when storage is not S3.
+func getS3Config(storage *mustgatherv1.Storage) *mustgatherv1.S3Config {
+	if storage == nil || storage.Type != mustgatherv1.StorageTypeS3 || storage.S3 == nil {
+		return nil
+	}
+	return storage.S3
+}
+
 func shouldAddUploadContainer(mustGather mustgatherv1.MustGather) bool {
-	return isObfuscateEnabled(mustGather.Spec.Obfuscate) || hasSFTPUpload(mustGather)
+	return isObfuscateEnabled(mustGather.Spec.Obfuscate) || hasSFTPUpload(mustGather) || getS3Config(mustGather.Spec.Storage) != nil
 }
 
 func getObfuscateConfigMapRefName(obfuscate *mustgatherv1.ObfuscateConfig) string {
@@ -504,6 +522,10 @@ func getUploadContainer(
 		)
 	}
 
+	if s3 := getS3Config(storage); s3 != nil {
+		env = append(env, getS3EnvVars(s3)...)
+	}
+
 	if isObfuscateEnabled(obfuscate) {
 		env = append(env, corev1.EnvVar{
 			Name:  obfuscateEnvEnabled,
@@ -545,6 +567,42 @@ func getUploadContainer(
 	}
 
 	return container
+}
+
+// getS3EnvVars returns the upload container env for S3 storage. Credentials are
+// injected with SecretKeyRef so they never appear in the Job spec or on a command line.
+func getS3EnvVars(s3 *mustgatherv1.S3Config) []corev1.EnvVar {
+	env := []corev1.EnvVar{
+		{Name: uploadEnvS3Bucket, Value: s3.Bucket},
+		{
+			Name: s3SecretKeyAccessKeyID,
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: s3.CredentialsSecretRef,
+					Key:                  s3SecretKeyAccessKeyID,
+				},
+			},
+		},
+		{
+			Name: s3SecretKeySecretAccessKey,
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: s3.CredentialsSecretRef,
+					Key:                  s3SecretKeySecretAccessKey,
+				},
+			},
+		},
+	}
+	if v := derefString(s3.Region); v != "" {
+		env = append(env, corev1.EnvVar{Name: uploadEnvS3Region, Value: v})
+	}
+	if v := derefString(s3.Endpoint); v != "" {
+		env = append(env, corev1.EnvVar{Name: uploadEnvS3Endpoint, Value: v})
+	}
+	if v := derefString(s3.KeyPrefix); v != "" {
+		env = append(env, corev1.EnvVar{Name: uploadEnvS3KeyPrefix, Value: v})
+	}
+	return env
 }
 
 func ToPtr[T any](t T) *T { return &t }

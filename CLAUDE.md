@@ -100,7 +100,7 @@ oc apply -f ./examples/mustgather_basic.yaml
 
 **API Types** (`api/v1/mustgather_types.go`, primary; `api/v1alpha1/` deprecated):
 - `MustGather` CR defines the specification for must-gather collection jobs
-- Key fields: `serviceAccountName`, `uploadTarget` (with nested `caseID`, `caseManagementAccountSecretRef`), `gatherSpec` (with nested `audit`), `mustGatherTimeout`, `retainResourcesOnCompletion`
+- Key fields: `serviceAccountName`, `uploadTarget` (with nested `caseID`, `caseManagementAccountSecretRef`), `storage` (union: `persistentVolume` or `s3`), `gatherSpec` (with nested `audit`), `mustGatherTimeout`, `retainResourcesOnCompletion`
 - Status tracking with conditions and completion state
 
 **Controller** (`controllers/mustgather/mustgather_controller.go`):
@@ -119,7 +119,7 @@ oc apply -f ./examples/mustgather_basic.yaml
 - Uses `ShareProcessNamespace` to allow upload container to detect when gather completes
 
 **Upload Script** (`build/bin/upload`):
-- Shell script that compresses must-gather output and uploads via SFTP
+- Shell script that compresses must-gather output and uploads to S3 (`storage.type: S3`, via the `s3-upload` subcommand in `pkg/s3upload/`) and/or SFTP
 - Supports proxy configurations (with authentication)
 - Creates SSH known_hosts file for SFTP connections
 - Handles both internal and external Red Hat users (different upload paths)

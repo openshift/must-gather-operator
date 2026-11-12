@@ -1,10 +1,13 @@
 #!/bin/sh -e
 
-# this shell is responsible for compressing the must gather files and uploading to the case management system
+# this shell is responsible for compressing the must gather files and uploading them to
+# the Red Hat case management system (SFTP) and/or an S3-compatible bucket.
 # it can count on the following variables to be set
-# username: the user name for redhat case management system
-# password: the password for redhat case management system
-# caseid: the case id to upload to
+# username: the user name for redhat case management system (SFTP upload)
+# password: the password for redhat case management system (SFTP upload)
+# caseid: the case id to upload to (SFTP upload)
+# s3_bucket: destination bucket (S3 storage); s3_region, s3_endpoint, s3_key_prefix are optional
+# AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY: S3 credentials, read by the s3-upload subcommand
 # must_gather_output: the directory in which the must gather agents have collected the information
 # must_gather_upload: a workspace directory that can be used as stage to zip and upload the must gather compressed file
 
@@ -88,10 +91,22 @@ if [ "${obfuscate}" = "true" ]; then
   must_gather_output="${must_gather_upload}/cleaned"
 fi
 
-if [ -z "${caseid}" ] || [ -z "${username}" ] || [ -z "${password}" ];
-then
-  if [ "${obfuscate}" = "true" ] && [ -z "${caseid}" ] && [ -z "${username}" ] && [ -z "${password}" ]; then
-    echo "Obfuscation complete; SFTP credentials not provided — skipping upload."
+sftp_upload=false
+if [ -n "${caseid}" ] && [ -n "${username}" ] && [ -n "${password}" ]; then
+  sftp_upload=true
+elif [ -n "${caseid}" ] || [ -n "${username}" ] || [ -n "${password}" ]; then
+  echo "Error: Incomplete SFTP parameters (caseid, username, password). Exiting..."
+  exit 1
+fi
+
+s3_upload=false
+if [ -n "${s3_bucket}" ]; then
+  s3_upload=true
+fi
+
+if [ "${sftp_upload}" != true ] && [ "${s3_upload}" != true ]; then
+  if [ "${obfuscate}" = "true" ]; then
+    echo "Obfuscation complete; no upload target configured, skipping upload."
     exit 0
   fi
   echo "Error: Required Parameters have not been provided. Exiting..."
@@ -100,6 +115,23 @@ fi
 
 echo "Archiving files from $must_gather_output to $must_gather_upload/${CSP_FILENAME}"
 tar --ignore-failed-read -caf "$must_gather_upload/${CSP_FILENAME}" $must_gather_output/
+
+if [ "${s3_upload}" = true ]; then
+  echo "Uploading '${CSP_FILENAME}' to S3 bucket ${s3_bucket}"
+  s3_args=(--file "${CSP_FILE}" --bucket "${s3_bucket}")
+  if [ -n "${s3_region}" ]; then s3_args+=(--region "${s3_region}"); fi
+  if [ -n "${s3_endpoint}" ]; then s3_args+=(--endpoint "${s3_endpoint}"); fi
+  if [ -n "${s3_key_prefix}" ]; then s3_args+=(--key-prefix "${s3_key_prefix}"); fi
+  if ! /usr/local/bin/must-gather-operator s3-upload "${s3_args[@]}"; then
+    echo "Error: Upload to S3 bucket ${s3_bucket} failed."
+    exit 1
+  fi
+fi
+
+if [ "${sftp_upload}" != true ]; then
+  rm -f "$CSP_FILE" 2>/dev/null || true
+  exit 0
+fi
 
 echo "Uploading '${CSP_FILENAME}' to Red Hat Customer SFTP Server for case ${caseid}"
 

@@ -1613,6 +1613,116 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{
+			name: "reconcile_job_not_found_s3_secret_not_found_calls_manage_error",
+			setupObjects: func() []client.Object {
+				return []client.Object{newS3MustGatherForTest(), newDefaultSAForTest()}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  true,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				out := &mustgatherv1.MustGather{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); err != nil {
+					t.Fatalf("failed to get mustgather: %v", err)
+				}
+				if out.Status == nil || len(out.Status.Conditions) == 0 {
+					t.Fatal("expected error condition to be set on mustgather status")
+				}
+				assertNoJobForTest(t, cl)
+			},
+		},
+		{
+			name: "reconcile_job_not_found_s3_secret_get_error_returns_requeue",
+			setupObjects: func() []client.Object {
+				return []client.Object{newS3MustGatherForTest(), newDefaultSAForTest()}
+			},
+			interceptors: func() interceptClient {
+				return interceptClient{
+					onGet: func(ctx context.Context, key client.ObjectKey, obj client.Object) error {
+						if _, ok := obj.(*corev1.Secret); ok && key.Name == "s3-creds" {
+							return errors.New("API server error - failed to get s3 secret")
+						}
+						return nil
+					},
+				}
+			},
+			expectError:    true,
+			expectResult:   reconcile.Result{Requeue: true},
+			postTestChecks: func(t *testing.T, cl client.Client) { assertNoJobForTest(t, cl) },
+		},
+		{
+			name: "reconcile_job_not_found_s3_secret_missing_key_sets_validation_failure",
+			setupObjects: func() []client.Object {
+				secret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "s3-creds", Namespace: "ns"},
+					Data:       map[string][]byte{"AWS_ACCESS_KEY_ID": []byte("AKID")},
+				}
+				return []client.Object{newS3MustGatherForTest(), newDefaultSAForTest(), secret}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				out := &mustgatherv1.MustGather{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); err != nil {
+					t.Fatalf("failed to get mustgather: %v", err)
+				}
+				if ptr.Deref(out.Status.Status, "") != "Failed" || !ptr.Deref(out.Status.Completed, false) {
+					t.Fatalf("expected Failed/completed status, got %v/%v", ptr.Deref(out.Status.Status, ""), ptr.Deref(out.Status.Completed, false))
+				}
+				reason := ptr.Deref(out.Status.Reason, "")
+				if !strings.Contains(reason, "S3 credentials validation failed") || !strings.Contains(reason, "missing required field 'AWS_SECRET_ACCESS_KEY'") {
+					t.Fatalf("unexpected reason %q", reason)
+				}
+				assertNoJobForTest(t, cl)
+			},
+		},
+		{
+			name: "reconcile_job_created_with_S3_storage_adds_upload_container",
+			setupObjects: func() []client.Object {
+				secret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "s3-creds", Namespace: "ns"},
+					Data: map[string][]byte{
+						"AWS_ACCESS_KEY_ID":     []byte("AKID"),
+						"AWS_SECRET_ACCESS_KEY": []byte("secret"),
+					},
+				}
+				return []client.Object{newS3MustGatherForTest(), newDefaultSAForTest(), secret}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err != nil {
+					t.Fatalf("expected job to be created, got error: %v", err)
+				}
+				var upload *corev1.Container
+				for i := range job.Spec.Template.Spec.Containers {
+					if job.Spec.Template.Spec.Containers[i].Name == uploadContainerName {
+						upload = &job.Spec.Template.Spec.Containers[i]
+					}
+				}
+				if upload == nil {
+					t.Fatal("expected upload container for S3 storage")
+				}
+				found := false
+				for _, e := range upload.Env {
+					if e.Name == uploadEnvS3Bucket && e.Value == "mg-archive" {
+						found = true
+					}
+				}
+				if !found {
+					t.Fatalf("expected %s=mg-archive in upload env, got %v", uploadEnvS3Bucket, upload.Env)
+				}
+				for _, v := range job.Spec.Template.Spec.Volumes {
+					if v.Name == outputVolumeName && v.EmptyDir == nil {
+						t.Fatalf("expected output volume to be emptyDir for S3 storage, got %+v", v.VolumeSource)
+					}
+				}
+			},
+		},
+		{
 			name: "reconcile_imagestream_tag_not_found_sets_validation_failure",
 			setupObjects: func() []client.Object {
 				mg := &mustgatherv1.MustGather{
@@ -2394,5 +2504,33 @@ func TestSFTPCredentialValidation(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func newS3MustGatherForTest() *mustgatherv1.MustGather {
+	return &mustgatherv1.MustGather{
+		ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+		Spec: mustgatherv1.MustGatherSpec{
+			ServiceAccountName: "default",
+			Storage: &mustgatherv1.Storage{
+				Type: mustgatherv1.StorageTypeS3,
+				S3: &mustgatherv1.S3Config{
+					Bucket:               "mg-archive",
+					CredentialsSecretRef: corev1.LocalObjectReference{Name: "s3-creds"},
+				},
+			},
+		},
+	}
+}
+
+func newDefaultSAForTest() *corev1.ServiceAccount {
+	return &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+}
+
+func assertNoJobForTest(t *testing.T, cl client.Client) {
+	t.Helper()
+	job := &batchv1.Job{}
+	if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err == nil {
+		t.Fatal("expected job to not be created")
 	}
 }

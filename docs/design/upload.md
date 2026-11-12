@@ -1,17 +1,21 @@
-# Design: SFTP validation and upload
+# Design: SFTP validation and upload, S3 upload
 
-**Modules**: `controllers/mustgather/validation.go`, `build/bin/upload`, `build/bin/https-proxy-connect-util`
+**Modules**: `controllers/mustgather/validation.go`, `build/bin/upload`, `build/bin/https-proxy-connect-util`, `pkg/s3upload/s3upload.go` (`must-gather-operator s3-upload`)
 
 ## Preconditions
 
-- Upload runs only when the Job template added the upload container (`uploadTarget` or obfuscation).
+- Upload runs only when the Job template added the upload container (`uploadTarget`, S3 storage, or obfuscation).
 - SFTP Secret keys `username` and `password` are non-empty. The controller tests connectivity before creating the Job.
+- S3 Secret keys `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are non-empty. The controller checks the Secret only; it does not contact the bucket.
 - For gather+upload Jobs, gather has finished (upload polls with `pgrep`) and `/must-gather` contains the tree to compress. Obfuscate-source Jobs skip gather; upload reads the source PVC with `uploadCommandDirect`.
 - Proxy env vars, if any, are the operator's `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`, forwarded as lowercase `http_proxy` / `https_proxy` / `no_proxy` on the container.
 
 ## Invariants
 
-- Credentials never appear on process command lines. Validation uses the SSH library; the script uses `sshpass -e` and `SSHPASS`.
+- Credentials never appear on process command lines. Validation uses the SSH library; the script uses `sshpass -e` and `SSHPASS`. `s3-upload` takes no credential flags; the AWS SDK default chain reads them from env.
+- The script tars once and sends the same archive to every configured target: S3 first, then SFTP. Partial SFTP parameters fail the script even when S3 is configured. With no target and obfuscation enabled, the script exits 0 after obfuscation (PVC mode).
+- `s3-upload` writes `s3://<bucket>/<keyPrefix>/<FILENAME_PREFIX>.tar.gz`, uses multipart above the transfer manager threshold, and defaults the region to `us-east-1`. A custom endpoint switches to path-style addressing and sends flexible checksums only when required, for compatibility with S3-compatible stores.
+- S3 TLS uses the Go system trust store, which reads the trusted CA bundle mounted at `/etc/pki/tls/certs` when the operator runs with `--trusted-ca-configmap`. Proxy env vars are honored by the SDK's default HTTP transport.
 - Validation error paths close the TCP connection or proxy response body and ignore `Close` errors so they do not mask the primary dial or CONNECT failure.
 - Host key checking is disabled on both paths (`InsecureIgnoreHostKey` / `StrictHostKeyChecking=no`, `#nosec G106`). The configured target defaults to `sftp.access.redhat.com`.
 - Validation retries at most `MaxSFTPValidationRetries` (3) and only on transient errors (deadline, cancel, net timeout). Auth failure, connection refused, and DNS errors fail immediately.
@@ -26,8 +30,12 @@
 - Skipping host-key verification matches the managed endpoint's key rotation. Compensating controls: encrypted SSH, CEL-frozen host/secret *names*, and credential checks before Job create. Restore verification if Red Hat publishes a stable host key.
 - Sanitized status errors avoid leaking proxy URLs, usernames, or dial details into `oc get mustgather -o yaml`.
 - Dual proxy implementations (Go for validation, shell for upload) exist because gather+upload run in different images; both must honor the same env vars and basic auth.
+- S3 upload is a Go subcommand of the operator binary (same pattern as `obfuscate`) rather than shell + curl: multipart for large bundles, retries, and SigV4 come from aws-sdk-go-v2 (ADR-0004).
+- No S3 pre-flight request: a CR-supplied endpoint contacted from the operator Pod would be another reachability oracle, and the operator would need the bucket credentials. A bad bucket or key surfaces as an upload container failure.
 
 ## Trade-offs
 
 - `StrictHostKeyChecking=no` is an accepted MITM residual on the SFTP control connection, documented rather than treated as an accident.
+- S3 misconfiguration (wrong bucket, endpoint, key, or untrusted CA) is only detected after gather finishes, unlike SFTP.
+- In-cluster object stores signed by the service CA (for example `s3.openshift-storage.svc`) need that CA in the trusted bundle; there is no per-CR CA field yet.
 - No backoff sleep between validation retries: the 5s SSH dial timeout is the pacing. Persistent timeouts still cost ~15s before the CR is marked failed.

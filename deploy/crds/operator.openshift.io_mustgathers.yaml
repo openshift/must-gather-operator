@@ -120,7 +120,8 @@ spec:
                   collected or referenced bundle before tarring and uploading.
                   Supported operational modes:
                     - Gather + Obfuscate + Upload: enabled with uploadTarget (full pipeline)
-                    - Gather + Obfuscate + PVC: enabled with storage (cleaned output persisted, no upload)
+                    - Gather + Obfuscate + PVC: enabled with PersistentVolume storage (cleaned output persisted, no upload)
+                    - Gather + Obfuscate + S3: enabled with S3 storage (cleaned output archived to the bucket)
                     - Obfuscate + Upload: enabled with source and uploadTarget (redact existing bundle and upload)
                 properties:
                   enabled:
@@ -210,12 +211,16 @@ spec:
               storage:
                 description: |-
                   storage is the storage configuration for persisting the collected must-gather tar archive.
+                  Supported types are PersistentVolume (gather writes directly to a PVC) and
+                  S3 (the archive is uploaded to an S3-compatible bucket after gathering).
+                  storage can be combined with uploadTarget.
                   If not specified, an ephemeral volume is used which will not persist
                   the tar archive on the cluster.
                 properties:
                   persistentVolume:
-                    description: persistentVolume defines the configuration for a
-                      PersistentVolume.
+                    description: |-
+                      persistentVolume defines the configuration for a PersistentVolume.
+                      Required when type is PersistentVolume, forbidden otherwise.
                     properties:
                       claim:
                         description: claim defines the PersistentVolumeClaim to use.
@@ -245,17 +250,90 @@ spec:
                     x-kubernetes-validations:
                     - message: subPath must not contain '..'
                       rule: '!has(self.subPath) || !self.subPath.contains(''..'')'
+                  s3:
+                    description: |-
+                      s3 defines the configuration for an S3-compatible object storage bucket.
+                      The collected must-gather is archived as <keyPrefix>/<directoryName>.tar.gz
+                      and uploaded to the bucket once gathering (and obfuscation, if enabled) completes.
+                      Required when type is S3, forbidden otherwise.
+                    properties:
+                      bucket:
+                        description: bucket is the name of an existing bucket the
+                          must-gather archive is uploaded to.
+                        maxLength: 63
+                        minLength: 3
+                        type: string
+                      credentialsSecretRef:
+                        description: |-
+                          credentialsSecretRef references a Secret in the same namespace as the MustGather CR
+                          holding the keys AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY. This matches the
+                          Secret generated for an ObjectBucketClaim, which can be referenced directly.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      endpoint:
+                        description: |-
+                          endpoint is the URL of an S3-compatible service, for example
+                          https://s3.openshift-storage.svc or https://minio.example.com:9000.
+                          When omitted, the AWS S3 endpoint for the region is used.
+                          When set, path-style addressing is used. Only https URLs are accepted.
+                        maxLength: 2048
+                        type: string
+                        x-kubernetes-validations:
+                        - message: endpoint must be a valid https URL
+                          rule: isURL(self) && url(self).getScheme() == 'https'
+                      keyPrefix:
+                        description: |-
+                          keyPrefix is prepended to the object key, for example "cluster-a/must-gathers".
+                          It must not start with '/' and must not contain '..'.
+                        maxLength: 512
+                        minLength: 1
+                        type: string
+                        x-kubernetes-validations:
+                        - message: keyPrefix must not start with '/' or contain '..'
+                          rule: '!self.startsWith(''/'') && !self.contains(''..'')'
+                      region:
+                        description: |-
+                          region is the region of the bucket.
+                          When omitted, us-east-1 is used, which is also what most S3-compatible
+                          stores (ODF/NooBaa, Ceph RGW, MinIO) expect.
+                        maxLength: 64
+                        minLength: 1
+                        type: string
+                    required:
+                    - bucket
+                    - credentialsSecretRef
+                    type: object
+                    x-kubernetes-validations:
+                    - message: credentialsSecretRef.name must not be empty
+                      rule: size(self.credentialsSecretRef.name) > 0
                   type:
                     description: |-
                       type defines the type of storage to use.
-                      Available storage types are PersistentVolume only.
+                      Available storage types are PersistentVolume and S3.
                     enum:
                     - PersistentVolume
+                    - S3
                     type: string
                 required:
-                - persistentVolume
                 - type
                 type: object
+                x-kubernetes-validations:
+                - message: persistentVolume is required when type is PersistentVolume,
+                    and forbidden otherwise
+                  rule: 'self.type == ''PersistentVolume'' ? has(self.persistentVolume)
+                    : !has(self.persistentVolume)'
+                - message: s3 is required when type is S3, and forbidden otherwise
+                  rule: 'self.type == ''S3'' ? has(self.s3) : !has(self.s3)'
               uploadTarget:
                 description: |-
                   uploadTarget is the target location for the must-gather bundle to be uploaded to.
@@ -542,7 +620,8 @@ spec:
                   collected or referenced bundle before tarring and uploading.
                   Supported operational modes:
                     - Gather + Obfuscate + Upload: enabled with uploadTarget (full pipeline)
-                    - Gather + Obfuscate + PVC: enabled with storage (cleaned output persisted, no upload)
+                    - Gather + Obfuscate + PVC: enabled with PersistentVolume storage (cleaned output persisted, no upload)
+                    - Gather + Obfuscate + S3: enabled with S3 storage (cleaned output archived to the bucket)
                     - Obfuscate + Upload: enabled with source and uploadTarget (redact existing bundle and upload)
                 properties:
                   enabled:
@@ -630,12 +709,16 @@ spec:
               storage:
                 description: |-
                   The storage configuration for persisting the collected must-gather tar archive.
+                  Supported types are PersistentVolume (gather writes directly to a PVC) and
+                  S3 (the archive is uploaded to an S3-compatible bucket after gathering).
+                  storage can be combined with uploadTarget.
                   If not specified, an ephemeral volume is used which will not persist
                   the tar archive on the cluster.
                 properties:
                   persistentVolume:
-                    description: persistentVolume defines the configuration for a
-                      PersistentVolume.
+                    description: |-
+                      persistentVolume defines the configuration for a PersistentVolume.
+                      Required when type is PersistentVolume, forbidden otherwise.
                     properties:
                       claim:
                         description: claim defines the PersistentVolumeClaim to use.
@@ -664,17 +747,90 @@ spec:
                     x-kubernetes-validations:
                     - message: subPath must not contain '..'
                       rule: '!has(self.subPath) || !self.subPath.contains(''..'')'
+                  s3:
+                    description: |-
+                      s3 defines the configuration for an S3-compatible object storage bucket.
+                      The collected must-gather is archived as <keyPrefix>/<directoryName>.tar.gz
+                      and uploaded to the bucket once gathering (and obfuscation, if enabled) completes.
+                      Required when type is S3, forbidden otherwise.
+                    properties:
+                      bucket:
+                        description: bucket is the name of an existing bucket the
+                          must-gather archive is uploaded to.
+                        maxLength: 63
+                        minLength: 3
+                        type: string
+                      credentialsSecretRef:
+                        description: |-
+                          credentialsSecretRef references a Secret in the same namespace as the MustGather CR
+                          holding the keys AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY. This matches the
+                          Secret generated for an ObjectBucketClaim, which can be referenced directly.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      endpoint:
+                        description: |-
+                          endpoint is the URL of an S3-compatible service, for example
+                          https://s3.openshift-storage.svc or https://minio.example.com:9000.
+                          When omitted, the AWS S3 endpoint for the region is used.
+                          When set, path-style addressing is used. Only https URLs are accepted.
+                        maxLength: 2048
+                        type: string
+                        x-kubernetes-validations:
+                        - message: endpoint must be a valid https URL
+                          rule: isURL(self) && url(self).getScheme() == 'https'
+                      keyPrefix:
+                        description: |-
+                          keyPrefix is prepended to the object key, for example "cluster-a/must-gathers".
+                          It must not start with '/' and must not contain '..'.
+                        maxLength: 512
+                        minLength: 1
+                        type: string
+                        x-kubernetes-validations:
+                        - message: keyPrefix must not start with '/' or contain '..'
+                          rule: '!self.startsWith(''/'') && !self.contains(''..'')'
+                      region:
+                        description: |-
+                          region is the region of the bucket.
+                          When omitted, us-east-1 is used, which is also what most S3-compatible
+                          stores (ODF/NooBaa, Ceph RGW, MinIO) expect.
+                        maxLength: 64
+                        minLength: 1
+                        type: string
+                    required:
+                    - bucket
+                    - credentialsSecretRef
+                    type: object
+                    x-kubernetes-validations:
+                    - message: credentialsSecretRef.name must not be empty
+                      rule: size(self.credentialsSecretRef.name) > 0
                   type:
                     description: |-
                       type defines the type of storage to use.
-                      Available storage types are PersistentVolume only.
+                      Available storage types are PersistentVolume and S3.
                     enum:
                     - PersistentVolume
+                    - S3
                     type: string
                 required:
-                - persistentVolume
                 - type
                 type: object
+                x-kubernetes-validations:
+                - message: persistentVolume is required when type is PersistentVolume,
+                    and forbidden otherwise
+                  rule: 'self.type == ''PersistentVolume'' ? has(self.persistentVolume)
+                    : !has(self.persistentVolume)'
+                - message: s3 is required when type is S3, and forbidden otherwise
+                  rule: 'self.type == ''S3'' ? has(self.s3) : !has(self.s3)'
               uploadTarget:
                 description: |-
                   The target location for the must-gather bundle to be uploaded to.

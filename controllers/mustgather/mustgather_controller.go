@@ -279,6 +279,14 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			reqLogger.Info("SFTP credentials validated successfully")
 		}
 
+		// look up S3 storage credentials secret
+		if s3 := getS3Config(instance.Spec.Storage); s3 != nil {
+			result, done, err := r.validateS3CredentialsSecret(ctx, reqLogger, instance, s3.CredentialsSecretRef.Name)
+			if done {
+				return result, err
+			}
+		}
+
 		// job is not there, create it.
 		err = r.CreateResourceIfNotExists(ctx, instance, instance.Namespace, job)
 		if err != nil {
@@ -349,6 +357,39 @@ func (r *MustGatherReconciler) updateStatus(ctx context.Context, instance *mustg
 	instance.Status.Completed = ptr.To(!job.Status.CompletionTime.IsZero())
 
 	return r.ManageSuccess(ctx, instance)
+}
+
+// validateS3CredentialsSecret checks that the Secret referenced by
+// spec.storage.s3.credentialsSecretRef exists in the CR namespace and holds
+// non-empty AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY. It does not contact
+// the bucket. When done is true the caller must return result and err.
+func (r *MustGatherReconciler) validateS3CredentialsSecret(
+	ctx context.Context,
+	reqLogger logr.Logger,
+	instance *mustgatherv1.MustGather,
+	secretName string,
+) (result reconcile.Result, done bool, err error) {
+	secret := &corev1.Secret{}
+	if err := r.GetClient().Get(ctx, types.NamespacedName{Namespace: instance.Namespace, Name: secretName}, secret); err != nil {
+		if errors.IsNotFound(err) {
+			// Same as the SFTP secret: requeue so the Secret can be created after the CR.
+			reqLogger.Error(err, "s3 credentials secret not found", "secret", secretName, "namespace", instance.Namespace)
+			result, err := r.ManageError(ctx, instance, fmt.Errorf("secret %s not found in namespace %s: Please create the secret referenced by storage.s3.credentialsSecretRef", secretName, instance.Namespace))
+			return result, true, err
+		}
+		reqLogger.Error(err, "error getting s3 credentials secret (transient error, will retry)", "secret", secretName)
+		return reconcile.Result{Requeue: true}, true, err
+	}
+
+	for _, key := range []string{s3SecretKeyAccessKeyID, s3SecretKeySecretAccessKey} {
+		if len(secret.Data[key]) == 0 {
+			validationErr := fmt.Errorf("s3 credentials secret %q is missing required field '%s'", secretName, key)
+			reqLogger.Error(validationErr, "s3 credential validation failed")
+			result, err := r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationS3Credentials, validationErr)
+			return result, true, err
+		}
+	}
+	return reconcile.Result{}, false, nil
 }
 
 // setValidationFailureStatus updates the MustGather status to indicate a validation failure.

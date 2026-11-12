@@ -22,7 +22,7 @@ type MustGatherSpec struct {
     MustGatherTimeout           *metav1.Duration      `json:"mustGatherTimeout,omitempty"`      // Format=duration
     UploadTarget                *UploadTargetSpec     `json:"uploadTarget,omitempty"`           // Where to upload
     RetainResourcesOnCompletion *bool                 `json:"retainResourcesOnCompletion,omitempty"` // Default: false
-    Storage                     *Storage              `json:"storage,omitempty"`                // PVC storage option
+    Storage                     *Storage              `json:"storage,omitempty"`                // PVC or S3 storage option
     Obfuscate                   *ObfuscateConfig      `json:"obfuscate,omitempty"`              // Obfuscation config
 }
 ```
@@ -35,7 +35,7 @@ type MustGatherSpec struct {
 | `mustGatherTimeout` | `metav1.Duration` | No | no limit | Timeout for gather container |
 | `uploadTarget` | `UploadTargetSpec` | No | nil (no upload) | SFTP upload configuration |
 | `retainResourcesOnCompletion` | `*bool` | No | `false` | If true, skip garbage collection of Job/Pods |
-| `storage` | `Storage` | No | nil (ephemeral `emptyDir`) | PVC-backed storage for gather output |
+| `storage` | `Storage` | No | nil (ephemeral `emptyDir`) | PVC-backed gather output, or S3 bucket the archive is uploaded to; combinable with `uploadTarget` |
 | `obfuscate` | `*ObfuscateConfig` | No | nil (no obfuscation) | Obfuscation of bundle before upload/storage |
 
 ## Field Conventions
@@ -84,7 +84,7 @@ Uses `// +union` on struct, `// +unionDiscriminator` on `Type`, `// +unionMember
 
 **Adding a new upload type**: Add `UploadType` const, `+unionMember` pointer field, extend `Enum` list, update CEL rule.
 
-`Storage` uses `StorageType` with `Enum=PersistentVolume` but lacks full `+union` markers. New storage types should follow the `UploadTargetSpec` union pattern.
+`Storage` is a discriminated union (`+union`, `Enum=PersistentVolume;S3`) with one CEL rule per member, same pattern as `UploadTargetSpec`. New storage types add an enum value, a `+unionMember` pointer field, and a CEL rule, and must be mirrored in `api/v1alpha1/`.
 
 ### SFTPSpec
 
@@ -99,10 +99,21 @@ Uses `// +union` on struct, `// +unionDiscriminator` on `Type`, `// +unionMember
 
 ```go
 type Storage struct {
-    Type             StorageType            `json:"type"`             // Enum=PersistentVolume
-    PersistentVolume PersistentVolumeConfig `json:"persistentVolume"` // PVC name + optional subPath
+    Type             StorageType            `json:"type"`                       // Enum=PersistentVolume;S3, +unionDiscriminator
+    PersistentVolume PersistentVolumeConfig `json:"persistentVolume,omitzero"`  // PVC name + optional subPath (type=PersistentVolume)
+    S3               *S3Config              `json:"s3,omitempty"`               // bucket config (type=S3)
 }
 ```
+
+### S3Config
+
+| Field | Type | Required | Default |
+|-------|------|----------|---------|
+| `bucket` | `string` | Yes | — |
+| `region` | `*string` | No | `us-east-1` (applied by `s3-upload`) |
+| `endpoint` | `*string` | No | AWS endpoint for region; https only, enables path-style |
+| `keyPrefix` | `*string` | No | none; no leading `/`, no `..` |
+| `credentialsSecretRef` | `LocalObjectReference` | Yes | none (keys `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) |
 
 ## Status
 

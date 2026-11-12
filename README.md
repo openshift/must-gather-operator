@@ -40,6 +40,38 @@ spec:
         name: case-management-creds
 ```
 
+## S3 storage
+
+Instead of a PVC, the archive can be stored in an S3-compatible bucket (AWS S3, ODF/NooBaa, Ceph RGW, MinIO). After gathering (and obfuscation, if enabled) the upload container creates `<keyPrefix>/<directoryName>.tar.gz` and uploads it with multipart upload. S3 storage can be combined with an SFTP `uploadTarget`: the same archive goes to the bucket first, then to the support case.
+
+```yaml
+apiVersion: operator.openshift.io/v1
+kind: MustGather
+metadata:
+  name: example-mustgather-s3
+spec:
+  serviceAccountName: must-gather-admin
+  storage:
+    type: S3
+    s3:
+      bucket: must-gather-archive
+      region: eu-west-1                          # optional, default us-east-1
+      endpoint: https://s3.openshift-storage.svc # optional, https only; enables path-style addressing
+      keyPrefix: cluster-a                       # optional
+      credentialsSecretRef:
+        name: s3-creds
+```
+
+The Secret lives in the MustGather namespace and must hold `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. These are the keys of the Secret generated for an ObjectBucketClaim, so an OBC Secret can be referenced directly:
+
+```bash
+oc create secret generic s3-creds -n <namespace> \
+  --from-literal=AWS_ACCESS_KEY_ID=<access-key> \
+  --from-literal=AWS_SECRET_ACCESS_KEY=<secret-key>
+```
+
+The controller checks the Secret and both keys before creating the Job. It does not contact the bucket in advance: a wrong bucket, endpoint, or key fails the upload container. TLS uses the cluster trusted CA bundle when the operator runs with `--trusted-ca-configmap`, and the cluster proxy settings are honored. In-cluster endpoints such as `https://s3.openshift-storage.svc` are signed by the service CA, which is not in that bundle by default: either add it, or use the object store's external Route.
+
 ## Obfuscation
 
 The operator supports obfuscation of must-gather bundles before upload, consistently replacing sensitive data such as IP addresses and MAC addresses. Obfuscation is enabled by setting `obfuscate.enabled: true` in the CR spec.
