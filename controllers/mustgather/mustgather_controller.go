@@ -32,6 +32,7 @@ import (
 	"github.com/redhat-cop/operator-utils/pkg/util"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -154,6 +155,26 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		return reconcile.Result{}, nil
 	}
 
+	// Completed requests may need another cleanup attempt, but must never run
+	// another collection when an owned resource event arrives after Job deletion.
+	//
+	// Example timeline (retainResourcesOnCompletion=false):
+	//  1) Job Succeeded → status.completed=true, status update persisted.
+	//  2) cleanupMustGatherResources deletes the Job (and upload NP).
+	//  3) Job delete enqueues the MustGather again via Owns(Job).
+	//  4) This branch runs cleanup again if anything remains, then returns
+	//     without recreating the Job or re-applying gather policies.
+	// With retain=true, step 2/4 skip explicit cleanup; owner GC still applies
+	// when the CR itself is deleted.
+	if instance.Status != nil && ptr.Deref(instance.Status.Completed, false) {
+		if !ptr.Deref(instance.Spec.RetainResourcesOnCompletion, false) {
+			if err := r.cleanupMustGatherResources(ctx, reqLogger, instance); err != nil {
+				return r.ManageError(ctx, instance, err)
+			}
+		}
+		return reconcile.Result{}, nil
+	}
+
 	// Add finalizer for this CR
 	if !slices.Contains(instance.GetFinalizers(), mustGatherFinalizer) {
 		return reconcile.Result{}, r.addFinalizer(ctx, reqLogger, instance)
@@ -204,6 +225,13 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 		}
 
 		// Job not found — build the template and validate before creating
+		uploadPolicy, err := uploadPolicyFromEnvironment(instance)
+		if err != nil {
+			if goerror.Is(err, errSFTPPolicyInput) {
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, ProtocolSFTP, err)
+			}
+			return r.ManageError(ctx, instance, err)
+		}
 		job, err := r.getJobFromInstance(ctx, reqLogger, instance)
 		if err != nil {
 			if goerror.Is(err, errImageValidation) {
@@ -279,6 +307,13 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 			reqLogger.Info("SFTP credentials validated successfully")
 		}
 
+		if err := r.ensureBaselineNetworkPolicy(ctx, instance.Namespace); err != nil {
+			return r.ManageError(ctx, instance, err)
+		}
+		if err := r.ensureUploadNetworkPolicy(ctx, instance, uploadPolicy); err != nil {
+			return r.ManageError(ctx, instance, err)
+		}
+
 		// job is not there, create it.
 		err = r.CreateResourceIfNotExists(ctx, instance, instance.Namespace, job)
 		if err != nil {
@@ -315,6 +350,9 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 	// 1. the mustgather instance was updated, which we don't support and we are going to ignore
 	// 2. the job was updated, probably the status piece. we should the update the status of the instance, not supported yet.
 
+	if err := r.reconcileActiveJobPolicies(ctx, instance, existingJob); err != nil {
+		return r.ManageError(ctx, instance, err)
+	}
 	return r.updateStatus(ctx, instance, existingJob)
 
 }
@@ -396,7 +434,8 @@ func (r *MustGatherReconciler) setValidationFailureStatus(
 func (r *MustGatherReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(&mustgatherv1.MustGather{}, builder.WithPredicates(resourceGenerationOrFinalizerChangedPredicate())).
-		Owns(&batchv1.Job{}, builder.WithPredicates(isStateUpdated()))
+		Owns(&batchv1.Job{}, builder.WithPredicates(isStateUpdated())).
+		Owns(&networkingv1.NetworkPolicy{}, builder.WithPredicates(isNetworkPolicyChanged()))
 
 	if r.TrustedCAConfigMap != "" {
 		b = b.Owns(&corev1.ConfigMap{}, builder.WithPredicates(isNameEquals(r.TrustedCAConfigMap)))
@@ -485,6 +524,10 @@ func (r *MustGatherReconciler) getMustGatherImage(ctx context.Context, instance 
 // cleanupMustGatherResources cleans up the secret, job, and pods associated with a MustGather instance
 func (r *MustGatherReconciler) cleanupMustGatherResources(ctx context.Context, reqLogger logr.Logger, instance *mustgatherv1.MustGather) error {
 	reqLogger.Info("cleaning up resources")
+	// Policy cleanup must also run when the Job is already gone or foreign.
+	if err := r.cleanupUploadNetworkPolicy(ctx, instance); err != nil {
+		return err
+	}
 	var err error
 
 	// delete job from instance namespace

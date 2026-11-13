@@ -266,6 +266,11 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 		Spec: batchv1.JobSpec{
 			BackoffLimit: ToPtr(int32(backoffLimit)),
 			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{
+					networkPolicyLabel: "default", jobNetworkPolicyLabel: networkPolicyIdentity(name),
+					appNameLabel:       appNameMustGather,
+					appManagedByLabel:  networkPolicyManager,
+				}},
 				Spec: corev1.PodSpec{
 					Affinity: &corev1.Affinity{
 						NodeAffinity: &corev1.NodeAffinity{
