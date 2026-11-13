@@ -157,6 +157,15 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	// Completed requests may need another cleanup attempt, but must never run
 	// another collection when an owned resource event arrives after Job deletion.
+	//
+	// Example timeline (retainResourcesOnCompletion=false):
+	//  1) Job Succeeded → status.completed=true, status update persisted.
+	//  2) cleanupMustGatherResources deletes the Job (and upload NP).
+	//  3) Job delete enqueues the MustGather again via Owns(Job).
+	//  4) This branch runs cleanup again if anything remains, then returns
+	//     without recreating the Job or re-applying gather policies.
+	// With retain=true, step 2/4 skip explicit cleanup; owner GC still applies
+	// when the CR itself is deleted.
 	if instance.Status != nil && ptr.Deref(instance.Status.Completed, false) {
 		if !ptr.Deref(instance.Spec.RetainResourcesOnCompletion, false) {
 			if err := r.cleanupMustGatherResources(ctx, reqLogger, instance); err != nil {

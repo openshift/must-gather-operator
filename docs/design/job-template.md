@@ -19,7 +19,7 @@
 - Timeout is enforced in the gather command (`timeout …`) rather than `ActiveDeadlineSeconds`.
 - Jobs prefer infra nodes (`node-role.kubernetes.io/infra`) with a matching NoSchedule toleration so collection does not land on application nodes by default.
 - There are no resource requests or limits on the Job. Must-gather memory use scales with cluster size.
-- Every new Pod template, including custom-image and source-obfuscation modes, carries `must-gather.openshift.io/network-policy: default`, `must-gather.openshift.io/job` and `app.kubernetes.io/name: must-gather`. All containers share this Pod-level network boundary.
+- Every new Pod template, including custom-image and source-obfuscation modes, carries `must-gather.openshift.io/network-policy: default`, `must-gather.openshift.io/job`, `app.kubernetes.io/name: must-gather` and `app.kubernetes.io/managed-by: must-gather-operator`. All containers share this Pod-level network boundary.
 - The request selector uses the CR name when label-valid, or a deterministic SHA-256-derived value for long names. Hashed values contain an underscore, separating them from valid literal CR names. It is independent of the generated output directory; storage still uses the existing shared static SubPath.
 
 ## Rationale

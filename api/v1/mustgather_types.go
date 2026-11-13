@@ -283,7 +283,6 @@ type MustGatherStatus struct {
 	Reason *string `json:"reason,omitempty"`
 	// completed indicates whether the must-gather operation has finished.
 	// +required
-	// +kubebuilder:default:=false
 	Completed *bool `json:"completed,omitempty"`
 }
 

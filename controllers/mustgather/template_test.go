@@ -126,7 +126,7 @@ func TestNetworkLabelsAcrossJobModes(t *testing.T) {
 				mg.Spec.Obfuscate.Source = &mustgatherv1.PersistentVolumeConfig{Claim: mustgatherv1.PersistentVolumeClaimReference{Name: "source"}}
 			}
 			job := getJobTemplate("custom-image", "upload", mg, "", "directory")
-			if job.Spec.Template.Labels[networkPolicyLabel] != "default" || job.Spec.Template.Labels[jobNetworkPolicyLabel] != networkPolicyIdentity(mg.Name) || job.Spec.Template.Labels["app.kubernetes.io/name"] != "must-gather" {
+			if job.Spec.Template.Labels[networkPolicyLabel] != "default" || job.Spec.Template.Labels[jobNetworkPolicyLabel] != networkPolicyIdentity(mg.Name) || job.Spec.Template.Labels[appNameLabel] != appNameMustGather || job.Spec.Template.Labels[appManagedByLabel] != networkPolicyManager {
 				t.Fatalf("missing network selection in %s mode", mode)
 			}
 			want := 2

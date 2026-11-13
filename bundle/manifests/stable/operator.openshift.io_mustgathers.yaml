@@ -350,7 +350,6 @@ spec:
             description: status is the observed state of the must-gather operation.
             properties:
               completed:
-                default: false
                 description: completed indicates whether the must-gather operation
                   has finished.
                 type: boolean

@@ -268,7 +268,8 @@ func initializeJobTemplate(name string, namespace string, serviceAccountRef stri
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{
 					networkPolicyLabel: "default", jobNetworkPolicyLabel: networkPolicyIdentity(name),
-					"app.kubernetes.io/name": "must-gather",
+					appNameLabel:       appNameMustGather,
+					appManagedByLabel:  networkPolicyManager,
 				}},
 				Spec: corev1.PodSpec{
 					Affinity: &corev1.Affinity{
