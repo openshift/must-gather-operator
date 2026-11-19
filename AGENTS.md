@@ -8,7 +8,7 @@
 
 ## What is Must-Gather Operator?
 
-Automates diagnostic collection on OpenShift clusters. Creates a Kubernetes Job with a gather container and, when an upload target is configured, an upload container. Collects must-gather output and optionally uploads compressed archives to Red Hat SFTP for case management.
+Automates diagnostic collection on OpenShift clusters. Creates a Kubernetes Job with a gather container (unless obfuscating an existing PVC source) and an upload container when SFTP upload or obfuscation is configured. Collects must-gather output and optionally uploads compressed archives to Red Hat SFTP for case management.
 
 **Key Principle**: One CR = one gather operation. Spec is **immutable** after creation (CEL-enforced).
 
@@ -18,7 +18,7 @@ Automates diagnostic collection on OpenShift clusters. Creates a Kubernetes Job 
 |---|---|---|
 | MustGather CRD | `api/v1/mustgather_types.go` (primary); `api/v1alpha1/` deprecated | CR spec: SA, image, gather params, upload target, storage, obfuscation, timeout |
 | Controller | `controllers/mustgather/mustgather_controller.go` | Single reconciler: Job lifecycle, cleanup, SFTP validation |
-| Job Template | `controllers/mustgather/template.go` | Job builder (gather container + conditional upload container), volumes, affinity |
+| Job Template | `controllers/mustgather/template.go` | Job builder (gather container + conditional upload container), exit markers, volumes, affinity |
 | Upload Script | `build/bin/upload` | Shell: compress + SFTP upload with proxy support |
 | Predicates | `controllers/mustgather/predicates.go` | Event filters: generation/finalizer changes, Job status |
 | Metrics | `pkg/localmetrics/localmetrics.go` | `must_gather_operator_must_gather_total`, `must_gather_operator_must_gather_errors` |
