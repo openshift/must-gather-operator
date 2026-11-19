@@ -1,0 +1,34 @@
+apiVersion: operator.openshift.io/v1
+kind: MustGatherPolicy
+metadata:
+  name: cluster
+spec:
+  # Storage / resources / networkPolicy are part of the API (see enhancement)
+  # but are not enforced by the operator yet. Only uploadTargets is enforced.
+  storage:
+    type: PersistentVolume
+    persistentVolume:
+      storageClassName: thin-csi
+      size: 50Gi
+      retentionPeriod: 168h
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  uploadTargets:
+    allowedTypes:
+      - SFTP
+    sftp:
+      allowedHosts:
+        - sftp.access.redhat.com
+  networkPolicy:
+    spec:
+      policyTypes:
+        - Egress
+      egress:
+        - ports:
+            - protocol: TCP
+              port: 22

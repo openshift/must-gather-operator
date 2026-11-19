@@ -15,6 +15,7 @@ import (
 	"github.com/redhat-cop/operator-utils/pkg/util"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -1654,6 +1655,129 @@ func TestReconcile(t *testing.T) {
 				}
 				if !strings.Contains(ptr.Deref(out.Status.Reason, ""), "tag v2 not found") {
 					t.Fatalf("expected reason to mention tag not found, got %q", ptr.Deref(out.Status.Reason, ""))
+				}
+			},
+		},
+		{
+			name: "reconcile_sftp_host_rejected_by_mustgatherpolicy_allowlist",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1.MustGatherSpec{
+						ServiceAccountName: "default",
+						UploadTarget: &mustgatherv1.UploadTargetSpec{
+							Type: mustgatherv1.UploadTypeSFTP,
+							SFTP: &mustgatherv1.SFTPSpec{
+								Host:                           ptr.To("disallowed.sftp.example.com"),
+								CaseID:                         "12345678",
+								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
+							},
+						},
+					},
+				}
+				policy := &mustgatherv1.MustGatherPolicy{
+					ObjectMeta: metav1.ObjectMeta{Name: mustgatherv1.MustGatherPolicyName},
+					Spec: mustgatherv1.MustGatherPolicySpec{
+						UploadTargets: &mustgatherv1.UploadTargetPolicy{
+							AllowedTypes: []mustgatherv1.UploadType{mustgatherv1.UploadTypeSFTP},
+							SFTP: &mustgatherv1.SFTPUploadTargetPolicy{
+								AllowedHosts: []string{mustgatherv1.DefaultSFTPHost},
+							},
+						},
+					},
+				}
+				userSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: "ns"},
+					Data: map[string][]byte{
+						"username": []byte("testuser"),
+						"password": []byte("testpass"),
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}}},
+				}
+				return []client.Object{mg, policy, userSecret, sa, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				out := &mustgatherv1.MustGather{}
+				if getErr := cl.Get(context.TODO(), types.NamespacedName{Name: "example-mustgather", Namespace: "ns"}, out); getErr != nil {
+					t.Fatalf("failed to get mustgather: %v", getErr)
+				}
+				if ptr.Deref(out.Status.Status, "") != "Failed" {
+					t.Fatalf("expected status Failed, got %s", ptr.Deref(out.Status.Status, ""))
+				}
+				if !ptr.Deref(out.Status.Completed, false) {
+					t.Fatalf("expected Completed to be true")
+				}
+				if !strings.Contains(ptr.Deref(out.Status.Reason, ""), ValidationSFTPHostAllowlist) {
+					t.Fatalf("expected reason to mention allowlist validation, got %q", ptr.Deref(out.Status.Reason, ""))
+				}
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); !apierrors.IsNotFound(err) {
+					t.Fatalf("expected job not to be created, got err=%v job=%v", err, job)
+				}
+			},
+		},
+		{
+			name: "reconcile_sftp_host_allowed_by_mustgatherpolicy_creates_job",
+			setupEnv: func(t *testing.T) {
+				t.Setenv("OPERATOR_IMAGE", "img")
+			},
+			setupObjects: func() []client.Object {
+				mg := &mustgatherv1.MustGather{
+					ObjectMeta: metav1.ObjectMeta{Name: "example-mustgather", Namespace: "ns", Finalizers: []string{mustGatherFinalizer}},
+					Spec: mustgatherv1.MustGatherSpec{
+						ServiceAccountName: "default",
+						UploadTarget: &mustgatherv1.UploadTargetSpec{
+							Type: mustgatherv1.UploadTypeSFTP,
+							SFTP: &mustgatherv1.SFTPSpec{
+								Host:                           ptr.To(mustgatherv1.DefaultSFTPHost),
+								CaseID:                         "12345678",
+								CaseManagementAccountSecretRef: corev1.LocalObjectReference{Name: "secret"},
+							},
+						},
+					},
+				}
+				policy := &mustgatherv1.MustGatherPolicy{
+					ObjectMeta: metav1.ObjectMeta{Name: mustgatherv1.MustGatherPolicyName},
+					Spec: mustgatherv1.MustGatherPolicySpec{
+						UploadTargets: &mustgatherv1.UploadTargetPolicy{
+							AllowedTypes: []mustgatherv1.UploadType{mustgatherv1.UploadTypeSFTP},
+							SFTP: &mustgatherv1.SFTPUploadTargetPolicy{
+								AllowedHosts: []string{mustgatherv1.DefaultSFTPHost},
+							},
+						},
+					},
+				}
+				userSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "secret", Namespace: "ns"},
+					Data: map[string][]byte{
+						"username": []byte("testuser"),
+						"password": []byte("testpass"),
+					},
+				}
+				sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "ns"}}
+				cv := &configv1.ClusterVersion{
+					ObjectMeta: metav1.ObjectMeta{Name: "version"},
+					Status:     configv1.ClusterVersionStatus{History: []configv1.UpdateHistory{{State: "Completed", Version: "1.2.3"}}},
+				}
+				return []client.Object{mg, policy, userSecret, sa, cv}
+			},
+			interceptors: func() interceptClient { return interceptClient{} },
+			expectError:  false,
+			expectResult: reconcile.Result{},
+			postTestChecks: func(t *testing.T, cl client.Client) {
+				job := &batchv1.Job{}
+				if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: "ns", Name: "example-mustgather"}, job); err != nil {
+					t.Fatalf("expected job to be created, got error: %v", err)
 				}
 			},
 		},

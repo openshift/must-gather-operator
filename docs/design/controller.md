@@ -9,6 +9,7 @@
 - `DEFAULT_MUST_GATHER_IMAGE` and `OPERATOR_IMAGE` are set before a Job that needs gather or upload is created.
 - The ServiceAccount named in the CR exists in the CR namespace.
 - When `uploadTarget` is SFTP, the referenced Secret has non-empty `username` and `password` keys and SFTP connectivity has been validated.
+- When a `MustGatherPolicy/cluster` exists with `spec.uploadTargets` set, the MustGather SFTP host has passed the allowlist check (see [mustgather-policy.md](mustgather-policy.md)).
 - `OPERATOR_SERVICE_ACCOUNT` is available so the controller can reject using its own SA on a CR in the operator namespace.
 
 ## Invariants
@@ -22,6 +23,7 @@
 - `MetricMustGatherTotal` increments after a successful Job create. `MetricMustGatherErrors` increments when reconcile observes `Job.Status.Failed > backoffLimit`, before `handleJobCompletion`. If completion cleanup then fails, `ManageError` requeues and the error counter can increment again. Neither counter increments for terminal validation failures.
 - On terminal Job failure, `buildJobFailureReason` lists Pods in the Job namespace with `job-name=<Job name>`, inspects the newest Pod, and prefers a non-zero gather container exit code over an upload container exit code. Exit 124 or 137 is reported as a gather timeout, except `OOMKilled`, which is reported as a gather failure. A failed upload is reported with its exit code. If the Pod lookup fails or has no usable terminated status, the status reason falls back to `MustGather Job pods failed`.
 - Terminal validation failures (`setValidationFailureStatus`) set `Completed=true` and return without requeue. The spec cannot change, so retrying is pointless.
+- SFTP host allowlist enforcement runs before credential dial and Job create. Missing `MustGatherPolicy` or omitted `uploadTargets` leaves hosts unconstrained.
 
 ## Rationale
 

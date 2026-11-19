@@ -759,6 +759,49 @@ func Test_getJobTemplate_FilenamePrefix(t *testing.T) {
 	}
 }
 
+func Test_getJobTemplate_EffectiveSFTPHost(t *testing.T) {
+	t.Setenv(DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
+
+	tests := []struct {
+		name string
+		host *string
+		want string
+	}{
+		{name: "nil_host", host: nil, want: mustgatherv1.DefaultSFTPHost},
+		{name: "empty_host", host: ptr.To(""), want: mustgatherv1.DefaultSFTPHost},
+		{name: "whitespace_host", host: ptr.To("  "), want: mustgatherv1.DefaultSFTPHost},
+		{name: "custom_host", host: ptr.To("sftp.example.com"), want: "sftp.example.com"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mg := mustgatherv1.MustGather{
+				ObjectMeta: metav1.ObjectMeta{Name: "mg", Namespace: "ns"},
+				Spec: mustgatherv1.MustGatherSpec{
+					ServiceAccountName: "default",
+					UploadTarget: &mustgatherv1.UploadTargetSpec{
+						Type: mustgatherv1.UploadTypeSFTP,
+						SFTP: &mustgatherv1.SFTPSpec{
+							CaseID: "1234",
+							Host:   tt.host,
+							CaseManagementAccountSecretRef: v1.LocalObjectReference{
+								Name: "case-mgmt-secret",
+							},
+						},
+					},
+				},
+			}
+
+			job := getJobTemplate("img", "operator-image", mg, "", "must-gather.local.test")
+			upload := findUploadContainerInJob(t, job)
+			got := envValues(upload)[uploadEnvHost]
+			if got != tt.want {
+				t.Fatalf("upload %s=%q, want %q", uploadEnvHost, got, tt.want)
+			}
+		})
+	}
+}
+
 func Test_getJobTemplate_GatherObfuscatePVC(t *testing.T) {
 	t.Setenv(DefaultMustGatherImageEnv, "quay.io/foo/bar/must-gather:latest")
 
