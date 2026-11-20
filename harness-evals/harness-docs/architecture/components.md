@@ -8,7 +8,7 @@ must-gather-operator/
 ├── api/v1/                          # GA CRD types (primary, storage version)
 ├── api/v1alpha1/                    # Deprecated types (still served for compat)
 ├── controllers/mustgather/
-│   ├── mustgather_controller.go     # Single reconciler: Job lifecycle, cleanup, validation
+│   ├── mustgather_controller.go     # Composed reconciler.io/runtime reconciler: Job lifecycle, cleanup, validation
 │   ├── template.go                  # Job spec builder: gather + upload containers, volumes, env
 │   ├── predicates.go                # Event filters: generation/finalizer changes, Job status changes
 │   ├── validation.go                # SFTP pre-flight check: SSH dial, proxy tunneling, retry
@@ -37,8 +37,8 @@ must-gather-operator/
 | Dependency | Version | Purpose |
 |---|---|---|
 | controller-runtime | v0.21.0 | Controller manager, reconciler, client, predicates |
+| reconciler.io/runtime | v0.23.0 | Composable sub-reconcilers: `ResourceReconciler`, `SyncReconciler`, `WithFinalizer`, `Advice`, `Sequence` |
 | operator-sdk | 1.21.0 | Project scaffolding (version marker only) |
-| operator-utils (redhat-cop) | v1.3.7 | `ReconcilerBase`: `ManageError`, `ManageSuccess`, `CreateResourceIfNotExists`, `DeleteResourcesIfExist` |
 | operator-custom-metrics | v0.5.0 | OSD metrics server on port 8080 |
 | operator-lib | v0.11.0 | Leader election (`leader.Become`), proxy env reading |
 
@@ -54,7 +54,7 @@ Manager: leader election via operator-lib + controller-runtime flag
 Metrics: built-in metrics DISABLED (BindAddress: "0"), custom OSD metrics on :8080
 ```
 
-### Watches (`mustgather_controller.go:381-391`)
+### Watches (`mustgather_controller.go`, `SetupWithManager`)
 
 | Resource | Predicate | Purpose |
 |---|---|---|
@@ -66,38 +66,36 @@ Metrics: built-in metrics DISABLED (BindAddress: "0"), custom OSD metrics on :80
 
 ### Reconciliation Flow
 
+The reconciler is composed of [reconciler.io/runtime](https://reconciler.io/runtime) sub-reconcilers (`newResourceReconciler`):
+
 ```text
-Reconcile(req)
-  │
-  ├─ Fetch MustGather CR (NotFound → done)
-  │
-  ├─ DeletionTimestamp set?
-  │   YES → cleanupMustGatherResources() (unless RetainResources)
-  │        → remove finalizer → Update CR → done
-  │
-  ├─ Missing finalizer? → add it → Update CR → done (requeue via update event)
-  │
-  ├─ SA guard: reject operator's own SA in operator namespace → validation failure
-  │
-  ├─ Trusted CA ConfigMap → ensureTrustedCAConfigMap() (copy to CR namespace)
-  │
-  ├─ Lookup Job (same name as CR)
-  │   │
-  │   ├─ NotFound → CREATE PATH:
-  │   │   ├─ Build Job template (getJobFromInstance)
-  │   │   ├─ Validate ServiceAccount exists
-  │   │   ├─ Validate SFTP secret (username/password fields, connectivity test)
-  │   │   ├─ CreateResourceIfNotExists(Job)
-  │   │   └─ MetricMustGatherTotal.Inc()
-  │   │
-  │   └─ Found → STATUS PATH:
-  │       ├─ Active > 0     → log "still running", update status
-  │       ├─ Succeeded > 0  → handleJobCompletion("Completed")
-  │       └─ Failed > backoffLimit → MetricMustGatherErrors.Inc()
-  │                                → handleJobCompletion("Failed")
-  │
-  └─ ManageSuccess() → set ReconcileSuccess condition
+ResourceReconciler[MustGather]        fetch CR (NotFound → done), requeue on error,
+│                                     persist status changes (diffed before/after)
+└─ Advice "ManageOutcome"             ReconcileSuccess/ReconcileError conditions per cycle
+   └─ WithFinalizer                   add/clear finalizer.mustgathers.operator.openshift.io
+      └─ Sequence
+         ├─ ValidateServiceAccount    reject operator's own SA in operator ns (terminal)
+         ├─ SyncTrustedCAConfigMap    ensureTrustedCAConfigMap() (copy to CR namespace)
+         ├─ ValidateObfuscationConfigMap  require obfuscation ConfigMap in CR ns
+         └─ GatherJob (Sync)          Lookup Job (same name as CR)
+            │
+            ├─ NotFound → CREATE PATH (createGatherJob):
+            │   ├─ Build Job template (getJobFromInstance)
+            │   ├─ Validate ServiceAccount exists
+            │   ├─ Validate SFTP secret (username/password fields, connectivity test)
+            │   ├─ SetControllerReference + Create Job (ignore AlreadyExists)
+            │   └─ MetricMustGatherTotal.Inc()
+            │
+            └─ Found → STATUS PATH:
+                ├─ Active > 0     → log "still running", updateStatus
+                ├─ Succeeded > 0  → handleJobCompletion("Completed")
+                └─ Failed > backoffLimit → MetricMustGatherErrors.Inc()
+                                         → handleJobCompletion("Failed")
+
+GatherJob (Finalize) — CR deletion: cleanupMustGatherResources() (unless RetainResources)
 ```
+
+While the CR is terminating, `Sync` methods are skipped and the `Finalize` hook runs; the finalizer is cleared once it succeeds. Adding a lifecycle step means appending a `SyncReconciler` to the `Sequence`.
 
 ### Cleanup (Event-Driven, NOT Timer-Based)
 
@@ -272,31 +270,31 @@ return nil, fmt.Errorf("%w: %v", errImageValidation, err)
 
 ### Reconcile Return Conventions
 
+Sub-reconcilers return plain errors; the composed `ResourceReconciler` maps them onto controller-runtime results.
+
 | Pattern | When to use |
 |---------|-------------|
-| `return reconcile.Result{}, nil` | CR not found (deleted), deletion complete, or terminal validation failure via `setValidationFailureStatus` |
-| `return reconcile.Result{}, err` | Propagate to controller-runtime for default exponential backoff requeue |
-| `return reconcile.Result{Requeue: true}, err` | Transient API errors (non-NotFound Get failures) for immediate retry |
-| `return r.ManageError(ctx, instance, err)` | Infrastructure errors — sets `ReconcileError` condition, emits Warning event |
-| `return r.ManageSuccess(ctx, instance)` | Successful reconciliation — sets `ReconcileSuccess` condition |
+| `return nil` | Step succeeded, continue the sequence |
+| `return err` | Transient errors — propagate for exponential backoff requeue; the `ManageOutcome` advice records a `ReconcileError` condition and `ProcessingError` event |
+| `return reconcilers.ErrHaltSubReconcilers` | Terminal validation failure via `setValidationFailureStatus` — stops the sequence without requeueing |
 
 ### NotFound Handling by Resource
 
-- **Primary CR**: `(Result{}, nil)` — deleted, nothing to reconcile
+- **Primary CR**: `(Result{}, nil)` — handled by the `ResourceReconciler`, deleted, nothing to reconcile
 - **ServiceAccount**: Terminal validation failure via `setValidationFailureStatus`
-- **Secret**: User-actionable error via `ManageError`
+- **Secret**: User-actionable error returned as a transient error (requeue)
 - **Job**: Expected during first reconciliation — proceed to create
 - **ConfigMap during cleanup**: Log and return nil (idempotent)
 
 ### Validation Failures (Terminal)
 
-`setValidationFailureStatus` sets `Status=Failed`, `Completed=true`, emits `ReconcileError` condition with `Reason: "ValidationFailed"`, and returns `(Result{}, nil)` (no requeue). Validation type constants live in `constant.go`: `ValidationServiceAccount`, `ValidationSFTPCredentials`, `ValidationImageStream`.
+`setValidationFailureStatus` sets `Status=Failed`, `Completed=true`, emits `ReconcileError` condition with `Reason: "ValidationFailed"`, records a `ProcessingError` warning event, and returns `reconcilers.ErrHaltSubReconcilers` (no requeue). Validation type constants live in `constant.go`: `ValidationServiceAccount`, `ValidationSFTPCredentials`, `ValidationImageStream`.
 
-When `Status().Update()` fails after validation, fall through to `ManageError` for retry.
+When `Status().Update()` fails after validation, the status error is returned instead so the request requeues.
 
 ### Logging Conventions
 
-Request-scoped logger: `reqLogger := log.WithValues("Request.Namespace", ..., "Request.Name", ...)`. Use structured key-value pairs. `V(4)` for debug, `Info` for state transitions, always log before returning an error.
+Sub-reconcilers use `reqLogger := logr.FromContextOrDiscard(ctx)` — the composed `ResourceReconciler` stashes a request-scoped, named logger on the context. Use structured key-value pairs. `V(4)` for debug, `Info` for state transitions, always log before returning an error.
 
 ### Metrics Increment Rules
 

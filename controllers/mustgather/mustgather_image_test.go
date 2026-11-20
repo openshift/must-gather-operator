@@ -8,12 +8,10 @@ import (
 
 	imagev1 "github.com/openshift/api/image/v1"
 	mustgatherv1 "github.com/openshift/must-gather-operator/api/v1"
-	"github.com/redhat-cop/operator-utils/pkg/util"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -52,13 +50,15 @@ func newImageTestReconciler(t *testing.T, objects []client.Object, interceptor i
 		Build()
 	cl := client.Client(base)
 	if interceptor.onGet != nil || interceptor.onList != nil || interceptor.onDelete != nil ||
-		interceptor.onUpdate != nil || interceptor.onCreate != nil || interceptor.status != nil {
+		interceptor.onUpdate != nil || interceptor.onCreate != nil || interceptor.onPatch != nil || interceptor.status != nil {
 		interceptor.Client = base
 		cl = interceptor
 	}
 
 	return &MustGatherReconciler{
-		ReconcilerBase:         util.NewReconcilerBase(cl, s, &rest.Config{}, &record.FakeRecorder{}, nil),
+		Client:                 cl,
+		Scheme:                 s,
+		Recorder:               &record.FakeRecorder{},
 		DefaultMustGatherImage: testDefaultMustGatherImage,
 		OperatorNamespace:      testOperatorNamespace,
 	}

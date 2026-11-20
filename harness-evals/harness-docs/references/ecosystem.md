@@ -24,8 +24,8 @@ Supplemental references: [CLAUDE.md](../../../CLAUDE.md), [README.md](../../../R
 - **RBAC**: Service account and permissions
 
 **Component Usage**:
-- Single controller-runtime reconciler (`MustGatherReconciler`)
-- Uses `operator-utils` `ReconcilerBase` for condition management (`ManageError`, `ManageSuccess`)
+- Single composed reconciler.io/runtime `ResourceReconciler` (`MustGatherReconciler`)
+- Outcome conditions (`ReconcileSuccess`/`ReconcileError`) recorded per cycle by a `ManageOutcome` advice
 - Finalizer for Job/Pod/ConfigMap cleanup on CR deletion
 - See [architecture/components.md](../architecture/components.md) for component-specific patterns
 

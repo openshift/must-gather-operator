@@ -116,7 +116,7 @@ type MustGatherStatus struct {
 }
 ```
 
-Implements `ConditionsAware` interface via `GetConditions()`/`SetConditions()` (from `operator-utils`).
+Exposes `GetConditions()`/`SetConditions()` helpers (historically the `operator-utils` `ConditionsAware` interface).
 
 Status subresource enabled via `+kubebuilder:subresource:status`. `Completed` is non-pointer, always serialized (`json:"completed"` without `omitempty`). Conditions use `patchStrategy:"merge"` with `patchMergeKey:"type"`. Controller uses `apimeta.SetStatusCondition`. New condition types should follow CamelCase naming.
 
