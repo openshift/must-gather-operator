@@ -4,11 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/redhat-cop/operator-utils/pkg/util"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -25,7 +23,9 @@ func newAdmissionPolicyReconciler(t *testing.T, objects []client.Object) *MustGa
 
 	cl := fake.NewClientBuilder().WithScheme(s).WithObjects(objects...).Build()
 	return &MustGatherReconciler{
-		ReconcilerBase: util.NewReconcilerBase(cl, s, &rest.Config{}, &record.FakeRecorder{}, nil),
+		Client:   cl,
+		Scheme:   s,
+		Recorder: &record.FakeRecorder{},
 	}
 }
 

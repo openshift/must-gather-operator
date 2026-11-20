@@ -12,7 +12,6 @@ import (
 	imagev1 "github.com/openshift/api/image/v1"
 	mustgatherv1 "github.com/openshift/must-gather-operator/api/v1"
 	mgconfig "github.com/openshift/must-gather-operator/config"
-	"github.com/redhat-cop/operator-utils/pkg/util"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,7 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 
@@ -40,6 +38,7 @@ type interceptClient struct {
 	onDelete func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error
 	onUpdate func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error
 	onCreate func(ctx context.Context, obj client.Object, opts ...client.CreateOption) error
+	onPatch  func(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error
 	status   client.StatusWriter
 }
 
@@ -82,6 +81,14 @@ func (c interceptClient) Create(ctx context.Context, obj client.Object, opts ...
 		}
 	}
 	return c.Client.Create(ctx, obj, opts...)
+}
+func (c interceptClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	if c.onPatch != nil {
+		if err := c.onPatch(ctx, obj, patch, opts...); err != nil {
+			return err
+		}
+	}
+	return c.Client.Patch(ctx, obj, patch, opts...)
 }
 func (c interceptClient) Status() client.StatusWriter {
 	if c.status != nil {
@@ -267,14 +274,16 @@ func TestCleanupMustGatherResources(t *testing.T) {
 			// Setup interceptor if needed
 			interceptor := tt.interceptors()
 			var cl client.Client = base
-			if interceptor.onGet != nil || interceptor.onList != nil || interceptor.onDelete != nil || interceptor.onUpdate != nil || interceptor.onCreate != nil || interceptor.status != nil {
+			if interceptor.onGet != nil || interceptor.onList != nil || interceptor.onDelete != nil || interceptor.onUpdate != nil || interceptor.onCreate != nil || interceptor.onPatch != nil || interceptor.status != nil {
 				interceptor.Client = base
 				cl = interceptor
 			}
 
 			// Create reconciler
 			r := &MustGatherReconciler{
-				ReconcilerBase:             util.NewReconcilerBase(cl, s, &rest.Config{}, &record.FakeRecorder{}, nil),
+				Client:                     cl,
+				Scheme:                     s,
+				Recorder:                   &record.FakeRecorder{},
 				DefaultMustGatherImage:     "test-must-gather-image",
 				OperatorNamespace:          "foo-bar",
 				OperatorServiceAccountName: mgconfig.OperatorName,
@@ -493,13 +502,15 @@ func TestHandleJobCompletion(t *testing.T) {
 
 			interceptor := tt.interceptors()
 			var cl client.Client = base
-			if interceptor.onGet != nil || interceptor.onList != nil || interceptor.onDelete != nil || interceptor.onUpdate != nil || interceptor.onCreate != nil || interceptor.status != nil {
+			if interceptor.onGet != nil || interceptor.onList != nil || interceptor.onDelete != nil || interceptor.onUpdate != nil || interceptor.onCreate != nil || interceptor.onPatch != nil || interceptor.status != nil {
 				interceptor.Client = base
 				cl = interceptor
 			}
 
 			r := &MustGatherReconciler{
-				ReconcilerBase:             util.NewReconcilerBase(cl, s, &rest.Config{}, &record.FakeRecorder{}, nil),
+				Client:                     cl,
+				Scheme:                     s,
+				Recorder:                   &record.FakeRecorder{},
 				OperatorNamespace:          operatorNs,
 				OperatorServiceAccountName: mgconfig.OperatorName,
 			}
@@ -512,7 +523,7 @@ func TestHandleJobCompletion(t *testing.T) {
 				}
 			}
 
-			_, err := r.handleJobCompletion(context.TODO(), logf.Log, mg, tt.status, tt.reason)
+			err := r.handleJobCompletion(context.TODO(), logf.Log, mg, tt.status, tt.reason)
 
 			if tt.expectError && err == nil {
 				t.Fatalf("expected error but got none")
@@ -588,7 +599,7 @@ func TestReconcile(t *testing.T) {
 			},
 			interceptors: func() interceptClient {
 				return interceptClient{
-					onUpdate: func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+					onPatch: func(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 						if _, ok := obj.(*mustgatherv1.MustGather); ok {
 							return errors.New("failed to update mustgather")
 						}
@@ -905,7 +916,7 @@ func TestReconcile(t *testing.T) {
 				}
 			},
 			expectError:  true,
-			expectResult: reconcile.Result{Requeue: true},
+			expectResult: reconcile.Result{},
 			postTestChecks: func(t *testing.T, cl client.Client) {
 				// Verify job was not created due to error
 				job := &batchv1.Job{}
@@ -991,7 +1002,7 @@ func TestReconcile(t *testing.T) {
 				}
 			},
 			expectError:  true,
-			expectResult: reconcile.Result{Requeue: true},
+			expectResult: reconcile.Result{},
 			postTestChecks: func(t *testing.T, cl client.Client) {
 				// Verify job was not created due to error
 				job := &batchv1.Job{}
@@ -1215,13 +1226,11 @@ func TestReconcile(t *testing.T) {
 				return []client.Object{mg, secret}
 			},
 			interceptors: func() interceptClient {
-				updateCount := 0
 				return interceptClient{
-					onUpdate: func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+					onPatch: func(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 						if mgObj, ok := obj.(*mustgatherv1.MustGather); ok {
-							updateCount++
-							// Fail the update when removing finalizer (after cleanup is done)
-							if updateCount > 0 && !slices.Contains(mgObj.GetFinalizers(), mustGatherFinalizer) {
+							// Fail the patch that removes the finalizer (the desired object no longer carries it)
+							if !slices.Contains(mgObj.GetFinalizers(), mustGatherFinalizer) {
 								return errors.New("failed to remove finalizer")
 							}
 						}
@@ -1247,7 +1256,7 @@ func TestReconcile(t *testing.T) {
 			},
 			interceptors: func() interceptClient {
 				return interceptClient{
-					onUpdate: func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+					onPatch: func(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 						if mgObj, ok := obj.(*mustgatherv1.MustGather); ok {
 							// Fail when trying to add the finalizer (when finalizer is present in the object)
 							if slices.Contains(mgObj.GetFinalizers(), mustGatherFinalizer) {
@@ -1389,7 +1398,7 @@ func TestReconcile(t *testing.T) {
 				}
 			},
 			expectError:    true,
-			expectResult:   reconcile.Result{Requeue: true},
+			expectResult:   reconcile.Result{},
 			postTestChecks: func(t *testing.T, cl client.Client) {},
 		},
 		{
@@ -1677,7 +1686,7 @@ func TestReconcile(t *testing.T) {
 			// Setup interceptor if needed
 			interceptor := tt.interceptors()
 			var cl client.Client = base
-			if interceptor.onGet != nil || interceptor.onList != nil || interceptor.onDelete != nil || interceptor.onUpdate != nil || interceptor.onCreate != nil || interceptor.status != nil {
+			if interceptor.onGet != nil || interceptor.onList != nil || interceptor.onDelete != nil || interceptor.onUpdate != nil || interceptor.onCreate != nil || interceptor.onPatch != nil || interceptor.status != nil {
 				interceptor.Client = base
 				cl = interceptor
 			}
@@ -1694,7 +1703,9 @@ func TestReconcile(t *testing.T) {
 
 			// Create reconciler
 			r := &MustGatherReconciler{
-				ReconcilerBase:             util.NewReconcilerBase(cl, s, &rest.Config{}, &record.FakeRecorder{}, nil),
+				Client:                     cl,
+				Scheme:                     s,
+				Recorder:                   &record.FakeRecorder{},
 				DefaultMustGatherImage:     "test-must-gather-image",
 				OperatorNamespace:          operatorNs,
 				OperatorServiceAccountName: mgconfig.OperatorName,
@@ -1760,10 +1771,11 @@ func TestMustGatherController(t *testing.T) {
 	}
 	cl, s := generateFakeClient(objs...)
 	eventRec := &record.FakeRecorder{}
-	var cfg *rest.Config
 
 	r := MustGatherReconciler{
-		ReconcilerBase:             util.NewReconcilerBase(cl, s, cfg, eventRec, nil),
+		Client:                     cl,
+		Scheme:                     s,
+		Recorder:                   eventRec,
 		DefaultMustGatherImage:     "test-must-gather-image",
 		OperatorNamespace:          "openshift-must-gather-operator",
 		OperatorServiceAccountName: mgconfig.OperatorName,
@@ -1813,9 +1825,10 @@ func TestMustGatherControllerWithUploadTarget(t *testing.T) {
 			objs := []runtime.Object{tt.mustGather, secObj, saObj}
 			cl, s := generateFakeClient(objs...)
 			eventRec := &record.FakeRecorder{}
-			var cfg *rest.Config
 			r := MustGatherReconciler{
-				ReconcilerBase:             util.NewReconcilerBase(cl, s, cfg, eventRec, nil),
+				Client:                     cl,
+				Scheme:                     s,
+				Recorder:                   eventRec,
 				DefaultMustGatherImage:     "test-must-gather-image",
 				OperatorNamespace:          tt.mustGather.Namespace,
 				OperatorServiceAccountName: mgconfig.OperatorName,
@@ -2283,7 +2296,9 @@ func TestSFTPCredentialValidation(t *testing.T) {
 
 			// Create reconciler
 			r := &MustGatherReconciler{
-				ReconcilerBase:             util.NewReconcilerBase(cl, s, &rest.Config{}, &record.FakeRecorder{}, nil),
+				Client:                     cl,
+				Scheme:                     s,
+				Recorder:                   &record.FakeRecorder{},
 				DefaultMustGatherImage:     "test-must-gather-image",
 				OperatorNamespace:          "must-gather-operator",
 				OperatorServiceAccountName: mgconfig.OperatorName,
@@ -2533,7 +2548,9 @@ func Test_buildJobFailureReason(t *testing.T) {
 				}}
 			}
 			r := &MustGatherReconciler{
-				ReconcilerBase: util.NewReconcilerBase(cl, s, &rest.Config{}, &record.FakeRecorder{}, nil),
+				Client:   cl,
+				Scheme:   s,
+				Recorder: &record.FakeRecorder{},
 			}
 			job := &batchv1.Job{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-job", Namespace: "ns"},

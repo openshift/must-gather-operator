@@ -40,7 +40,6 @@ import (
 	"github.com/openshift/must-gather-operator/version"
 	osdmetrics "github.com/openshift/operator-custom-metrics/pkg/metrics"
 	"github.com/operator-framework/operator-lib/leader"
-	"github.com/redhat-cop/operator-utils/pkg/util"
 
 	v1 "github.com/openshift/api/config/v1"
 	imagev1 "github.com/openshift/api/image/v1"
@@ -181,11 +180,13 @@ func main() {
 	setupLog.Info("operator service account", "name", operatorSAName)
 
 	if err = (&mustgather.MustGatherReconciler{
-		ReconcilerBase:             util.NewReconcilerBase(mgr.GetClient(), mgr.GetScheme(), mgr.GetConfig(), mgr.GetEventRecorderFor("must-gather-controller"), mgr.GetAPIReader()),
 		TrustedCAConfigMap:         trustedCAConfigMapName,
 		OperatorNamespace:          operatorNamespace,
 		DefaultMustGatherImage:     defaultMustGatherImage,
 		OperatorServiceAccountName: operatorSAName,
+		Client:                     mgr.GetClient(),
+		Scheme:                     mgr.GetScheme(),
+		Recorder:                   mgr.GetEventRecorderFor("must-gather-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MustGather")
 		os.Exit(1)
