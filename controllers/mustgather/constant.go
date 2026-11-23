@@ -26,6 +26,12 @@ const (
 	// ValidationImageStream represents the validation type for ImageStream
 	ValidationImageStream = "ImageStream"
 
+	// ValidationSecret represents the validation type for the SFTP credentials Secret referenced by the CR
+	ValidationSecret = "Secret"
+
+	// ValidationObfuscationConfigMap represents the validation type for a custom obfuscation ConfigMap
+	ValidationObfuscationConfigMap = "Obfuscation ConfigMap"
+
 	// DefaultMustGatherImageEnv represents the environment variable for the default must-gather image
 	DefaultMustGatherImageEnv = "DEFAULT_MUST_GATHER_IMAGE"
 
