@@ -1,0 +1,55 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: must-gather-operator
+  namespace: must-gather-operator
+  labels:
+    app: must-gather-operator
+spec:
+  podSelector:
+    matchLabels:
+      name: must-gather-operator
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    # DNS resolution (scoped to openshift-dns namespace)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-dns
+          podSelector:
+            matchLabels:
+              dns.operator.openshift.io/daemonset-dns: default
+      ports:
+        - protocol: TCP
+          port: 5353
+        - protocol: UDP
+          port: 5353
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 53
+    # Kubernetes API server (port-only)
+    - ports:
+        - protocol: TCP
+          port: 6443
+    # SFTP pre-flight credential validation (port-only; host varies per CR)
+    - ports:
+        - protocol: TCP
+          port: 22
+  # Ingress is default-deny until cluster monitoring / kubelet probes are
+  # wired on the operator Deployment. Uncomment when those are enabled:
+  # ingress:
+  #   # Prometheus metrics scraping
+  #   - from:
+  #       - namespaceSelector:
+  #           matchLabels:
+  #             network.openshift.io/policy-group: monitoring
+  #     ports:
+  #       - protocol: TCP
+  #         port: 8080
+  #   # Health/readiness probes
+  #   - ports:
+  #       - protocol: TCP
+  #         port: 8081
