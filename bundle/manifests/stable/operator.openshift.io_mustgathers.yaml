@@ -37,48 +37,45 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired configuration for a must-gather
-              operation.
+            description: MustGatherSpec defines the desired state of MustGather
             properties:
               gatherSpec:
                 description: |-
-                  gatherSpec allows overriding the command and/or arguments for the must-gather container
+                  GatherSpec allows overriding the command and/or arguments for the must-gather container
                   (default or custom image from imageStreamRef) and configures time-based collection filters.
                   Time-based filters (since, sinceTime) apply regardless of imageStreamRef.
                   Audit is only allowed with the default image and default gather command (see CRD validation rules).
                 properties:
                   args:
-                    description: args is a string array of arguments passed to the
+                    description: Args is a string array of arguments passed to the
                       container command.
                     items:
                       type: string
                     maxItems: 256
                     type: array
-                    x-kubernetes-list-type: atomic
                   audit:
                     description: |-
-                      audit requests audit log collection via the default gather entrypoint.
+                      Audit requests audit log collection via the default gather entrypoint.
                       It must be false when imageStreamRef is set or when gatherSpec.command is set without imageStreamRef.
                     type: boolean
                   command:
                     description: |-
-                      command is a string array representing the container entrypoint.
+                      Command is a string array representing the container entrypoint.
                       When set, it replaces the default gather wrapper for both the default must-gather image and custom images.
                     items:
                       type: string
                     maxItems: 256
                     type: array
-                    x-kubernetes-list-type: atomic
                   since:
                     description: |-
-                      since only returns logs newer than a relative duration like "2h" or "30m".
+                      Since only returns logs newer than a relative duration like "2h" or "30m".
                       This is passed to the must-gather script to filter log collection.
                       Only one of since or sinceTime may be specified.
                     format: duration
                     type: string
                   sinceTime:
                     description: |-
-                      sinceTime only returns logs after a specific date/time (RFC3339 format).
+                      SinceTime only returns logs after a specific date/time (RFC3339 format).
                       This is passed to the must-gather script to filter log collection.
                       Only one of since or sinceTime may be specified.
                     format: date-time
@@ -89,17 +86,15 @@ spec:
                   rule: '!(has(self.since) && has(self.sinceTime))'
               imageStreamRef:
                 description: |-
-                  imageStreamRef specifies a custom image from the allowlist to be used for the
+                  ImageStreamRef specifies a custom image from the allowlist to be used for the
                   must-gather run.
                 properties:
                   name:
-                    description: name is the name of the ImageStream resource in the
+                    description: Name is the name of the ImageStream resource in the
                       operator's namespace.
-                    minLength: 1
                     type: string
                   tag:
-                    description: tag is the name of the tag within the ImageStream.
-                    minLength: 1
+                    description: Tag is the name of the tag within the ImageStream.
                     type: string
                 required:
                 - name
@@ -107,7 +102,7 @@ spec:
                 type: object
               mustGatherTimeout:
                 description: |-
-                  mustGatherTimeout is a time limit for gather command to complete, a floating point number with a suffix:
+                  A time limit for gather command to complete a floating point number with a suffix:
                   "s" for seconds, "m" for minutes, "h" for hours.
                   Will default to no time limit.
                 format: duration
@@ -168,7 +163,6 @@ spec:
                               name defines the PersistentVolumeClaim to use,
                               should be already present in the same namespace.
                             maxLength: 253
-                            minLength: 1
                             type: string
                             x-kubernetes-validations:
                             - message: a lowercase RFC 1123 subdomain must consist
@@ -196,20 +190,19 @@ spec:
               retainResourcesOnCompletion:
                 default: false
                 description: |-
-                  retainResourcesOnCompletion is a flag to specify if resources (secret, job, pods) should be
-                  retained when the MustGather completes. If set to true, resources will be retained.
-                  If false or not set, resources will be deleted (default behavior).
+                  A flag to specify if resources (secret, job, pods) should be retained when the MustGather completes.
+                  If set to true, resources will be retained. If false or not set, resources will be deleted (default behavior).
                 type: boolean
               serviceAccountName:
                 description: |-
-                  serviceAccountName is the name of the ServiceAccount to use for running the must-gather Job.
+                  ServiceAccountName is the name of the ServiceAccount to use for running the must-gather Job.
                   This field is required and must reference a ServiceAccount with sufficient RBAC permissions
                   to collect cluster data. The operator will verify the ServiceAccount exists before creating the Job.
                 minLength: 1
                 type: string
               storage:
                 description: |-
-                  storage is the storage configuration for persisting the collected must-gather tar archive.
+                  The storage configuration for persisting the collected must-gather tar archive.
                   If not specified, an ephemeral volume is used which will not persist
                   the tar archive on the cluster.
                 properties:
@@ -225,7 +218,6 @@ spec:
                               name defines the PersistentVolumeClaim to use,
                               should be already present in the same namespace.
                             maxLength: 253
-                            minLength: 1
                             type: string
                             x-kubernetes-validations:
                             - message: a lowercase RFC 1123 subdomain must consist
@@ -258,21 +250,20 @@ spec:
                 type: object
               uploadTarget:
                 description: |-
-                  uploadTarget is the target location for the must-gather bundle to be uploaded to.
+                  The target location for the must-gather bundle to be uploaded to.
                   If not specified, the bundle will not be uploaded.
                 properties:
                   sftp:
-                    description: sftp is the SFTP details for the upload.
+                    description: SFTP details for the upload.
                     properties:
                       caseID:
-                        description: caseID is the ID of the case this must gather
-                          will be uploaded to.
-                        minLength: 1
+                        description: The ID of the case this must gather will be uploaded
+                          to
                         type: string
                       caseManagementAccountSecretRef:
-                        description: |-
-                          caseManagementAccountSecretRef is the secret containing a username and password field
-                          to be used to authenticate with Red Hat case management systems.
+                        description: the secret container a username and password
+                          field to be used to authenticate with red hat case management
+                          systems
                         properties:
                           name:
                             default: ""
@@ -294,8 +285,8 @@ spec:
                       internalUser:
                         default: false
                         description: |-
-                          internalUser is a flag to specify if the upload user provided in the
-                          caseManagementAccountSecret is a Red Hat internal user. See documentation for further information.
+                          A flag to specify if the upload user provided in the caseManagementAccountSecret is a RH internal user.
+                          See documentation for further information.
                         type: boolean
                     required:
                     - caseID
@@ -347,15 +338,11 @@ spec:
                 || (has(self.gatherSpec) && (has(self.gatherSpec.command) || has(self.gatherSpec.audit)
                 && self.gatherSpec.audit))))'
           status:
-            description: status is the observed state of the must-gather operation.
+            description: MustGatherStatus defines the observed state of MustGather
             properties:
               completed:
-                description: completed indicates whether the must-gather operation
-                  has finished.
                 type: boolean
               conditions:
-                description: conditions represent the latest available observations
-                  of the must-gather's state.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -411,19 +398,12 @@ spec:
                   - type
                   type: object
                 type: array
-                x-kubernetes-list-map-keys:
-                - type
-                x-kubernetes-list-type: map
               lastUpdate:
-                description: lastUpdate is the timestamp of the last status update.
                 format: date-time
                 type: string
               reason:
-                description: reason is a human-readable message indicating details
-                  about the current status.
                 type: string
               status:
-                description: status is the current status of the must-gather operation.
                 type: string
             required:
             - completed
