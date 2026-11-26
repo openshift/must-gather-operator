@@ -232,6 +232,25 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 
 		// look up user secret
 		if instance.Spec.UploadTarget != nil && instance.Spec.UploadTarget.SFTP != nil && instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name != "" {
+			// Enforce MustGatherPolicy SFTP host allowlist before dialing SFTP.
+			policy := &mustgatherv1.MustGatherPolicy{}
+			policyErr := r.GetClient().Get(ctx, types.NamespacedName{Name: mustgatherv1.MustGatherPolicyName}, policy)
+			if policyErr != nil {
+				// NotFound (no object) or NoMatch (CRD/kind not served yet) →
+				// allowlist is opt-in; treat as unconstrained. Other errors requeue.
+				if errors.IsNotFound(policyErr) || apimeta.IsNoMatchError(policyErr) {
+					policy = nil
+				} else {
+					reqLogger.Error(policyErr, "error getting MustGatherPolicy", "name", mustgatherv1.MustGatherPolicyName)
+					return reconcile.Result{Requeue: true}, policyErr
+				}
+			}
+			effectiveHost := effectiveSFTPHost(instance.Spec.UploadTarget.SFTP)
+			if allowlistErr := validateSFTPHostAllowlist(policy, effectiveHost); allowlistErr != nil {
+				reqLogger.Error(allowlistErr, "SFTP host allowlist validation failed", "host", effectiveHost)
+				return r.setValidationFailureStatus(ctx, reqLogger, instance, ValidationSFTPHostAllowlist, allowlistErr)
+			}
+
 			secretName := instance.Spec.UploadTarget.SFTP.CaseManagementAccountSecretRef.Name
 			userSecret := &corev1.Secret{}
 			err = r.GetClient().Get(ctx, types.NamespacedName{
@@ -270,7 +289,7 @@ func (r *MustGatherReconciler) Reconcile(ctx context.Context, request reconcile.
 				reqLogger,
 				string(username),
 				string(password),
-				derefString(instance.Spec.UploadTarget.SFTP.Host),
+				effectiveHost,
 			)
 			if validationErr != nil {
 				reqLogger.Error(validationErr, "SFTP credential validation failed")

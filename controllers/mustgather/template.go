@@ -507,7 +507,7 @@ func getUploadContainer(
 			},
 			corev1.EnvVar{
 				Name:  uploadEnvHost,
-				Value: derefString(sftp.Host),
+				Value: effectiveSFTPHost(sftp),
 			},
 			corev1.EnvVar{
 				Name:  uploadEnvInternalUser,

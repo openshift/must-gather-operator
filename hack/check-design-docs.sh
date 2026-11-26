@@ -24,7 +24,7 @@ design_doc_for() {
 	api/*/mustgather_types.go)
 		echo "docs/design/api.md"
 		;;
-	api/v1/mustgatherpolicy_types.go)
+	api/v1/mustgatherpolicy_types.go | controllers/mustgather/policy_allowlist.go)
 		echo "docs/design/mustgather-policy.md"
 		;;
 	controllers/mustgather/mustgather_controller.go)

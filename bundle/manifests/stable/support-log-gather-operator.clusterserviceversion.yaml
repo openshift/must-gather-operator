@@ -175,6 +175,15 @@ spec:
               verbs:
                 - update
             - apiGroups:
+                - operator.openshift.io
+              resources:
+                - mustgatherpolicies
+                - mustgatherpolicies/status
+              verbs:
+                - get
+                - list
+                - watch
+            - apiGroups:
                 - config.openshift.io
               resources:
                 - clusterversions

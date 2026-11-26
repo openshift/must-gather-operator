@@ -7,7 +7,7 @@ This directory is the source of truth for *why* a module behaves as it does. Age
 | Module | Sources | Design doc |
 |---|---|---|
 | MustGather API | `api/v1/mustgather_types.go` | [api.md](api.md) |
-| MustGatherPolicy API | `api/v1/mustgatherpolicy_types.go` | [mustgather-policy.md](mustgather-policy.md) |
+| MustGatherPolicy API and SFTP host allowlist | `api/v1/mustgatherpolicy_types.go`, `controllers/mustgather/policy_allowlist.go` | [mustgather-policy.md](mustgather-policy.md) |
 | Reconciler, cleanup, metrics, trusted CA | `controllers/mustgather/mustgather_controller.go` | [controller.md](controller.md) |
 | Job spec and gather handoff | `controllers/mustgather/template.go` | [job-template.md](job-template.md) |
 | Event filters | `controllers/mustgather/predicates.go` | [predicates.md](predicates.md) |
@@ -20,6 +20,7 @@ Required when changing any of:
 - `api/*/mustgather_types.go` (fields, CEL, union discriminators)
 - `api/*/mustgatherpolicy_types.go`
 - `controllers/mustgather/mustgather_controller.go`
+- `controllers/mustgather/policy_allowlist.go`
 - `controllers/mustgather/template.go`
 - `controllers/mustgather/predicates.go`
 - `controllers/mustgather/validation.go`
