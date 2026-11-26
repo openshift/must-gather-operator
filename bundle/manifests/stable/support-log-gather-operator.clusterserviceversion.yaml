@@ -318,3 +318,9 @@ spec:
         name: mustgathers.operator.openshift.io
         description: Deprecated v1alpha1 version; use operator.openshift.io/v1 instead
         version: v1alpha1
+      - displayName: Must Gather Policy
+        group: operator.openshift.io
+        kind: MustGatherPolicy
+        name: mustgatherpolicies.operator.openshift.io
+        description: Cluster-scoped singleton for must-gather defaults and upload host allowlist
+        version: v1
