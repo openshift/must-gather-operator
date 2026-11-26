@@ -151,7 +151,8 @@ type SFTPSpec struct {
 	InternalUser bool `json:"internalUser,omitempty"`
 
 	// host specifies the SFTP server hostname.
-	// The host name of the SFTP server
+	// When omitted, the apiserver defaults this to sftp.access.redhat.com.
+	// Keep this in sync with api/v1.DefaultSFTPHost and the v1 SFTPSpec.Host default.
 	// +kubebuilder:default:="sftp.access.redhat.com"
 	// +optional
 	Host string `json:"host,omitempty"`

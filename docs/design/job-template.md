@@ -15,6 +15,7 @@
 
 - The gather container is present unless `obfuscate.source` names a PVC (`hasObfuscateSource`). That path obfuscates and/or uploads an existing tree; it does not run must-gather.
 - The upload container is added only when SFTP upload is configured (`hasSFTPUpload`) or obfuscation is enabled (`isObfuscateEnabled`).
+- When SFTP upload is configured, the upload container `host` env is the effective SFTP host (`effectiveSFTPHost`): `uploadTarget.sftp.host` when set/non-blank, otherwise `sftp.access.redhat.com`. This matches allowlist checks and pre-flight dial.
 - Default gather commands use Bash `pipefail` and `PIPESTATUS[0]` so `tee` cannot hide a gather or timeout failure. Custom commands run through a Bash wrapper that preserves their arguments and exit code. The wrapper clears stale markers at the start of every Job attempt, writes `/must-gather/.gather-success` only for exit code 0, and preserves the gather exit code even when it runs the obfuscation ownership handoff (`chown`). Exit 124/137 remains non-zero.
 - Gather hand-off to upload uses two independent signals under `ShareProcessNamespace: true`:
   1. The gather wrapper writes its PID as the **first** statement (`echo $$ > /must-gather/.gather.pid`), overwriting any stale PVC PID. The upload shell polls `/proc/$pid` and honors PID-gone only after it has observed that PID alive at least once (`seen_live=1`), covering hard kills (OOMKilled, SIGKILL) that never run the EXIT trap without false-breaking when the upload container has just joined the shared PID namespace.

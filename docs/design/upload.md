@@ -6,6 +6,7 @@
 
 - Upload runs only when the Job template added the upload container (`uploadTarget` or obfuscation).
 - When `uploadTarget` is SFTP, its Secret keys `username` and `password` are non-empty. The controller tests connectivity before creating the Job.
+- If `MustGatherPolicy/cluster.spec.uploadTargets` is set, the effective SFTP host is on the policy allowlist before dial (see [mustgather-policy.md](mustgather-policy.md)).
 - For gather+upload Jobs, gather has finished — signaled by the completion marker or by the gather PID disappearing from `/proc` — and the success marker exists before `/usr/local/bin/upload` runs (see [job-template.md](job-template.md)). Gather or timeout failures skip both obfuscation and SFTP upload. Obfuscate-source Jobs skip gather; upload reads the source PVC with `uploadCommandDirect` (no wait, no markers).
 - Proxy env vars, if any, are the operator's `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`, forwarded as lowercase `http_proxy` / `https_proxy` / `no_proxy` on the container.
 

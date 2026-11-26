@@ -63,6 +63,16 @@ rules:
       - mustgathers/status
     verbs:
       - "*"
+  # MustGatherPolicy singleton
+  - apiGroups:
+      - operator.openshift.io
+    resources:
+      - mustgatherpolicies
+      - mustgatherpolicies/status
+    verbs:
+      - get
+      - list
+      - watch
   - apiGroups:
       - "batch"
     resources:
