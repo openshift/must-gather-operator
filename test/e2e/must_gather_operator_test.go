@@ -4809,9 +4809,6 @@ echo "=== sample obfuscated content ===" && find /pvc/collections -path '*/clean
 			Expect(foundUploadTmpl).To(BeTrue(), "Job should have an upload container")
 		})
 	})
-
-	// MG-368 NetworkPolicy cases share this suite's namespace, clients, and SA.
-	registerNetworkPolicyTests()
 })
 
 // Helper Functions
